@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import DataValue from "./DataValue.vue";
-
 defineOptions({ name: "DataValue" });
 
 const props = defineProps<{ label: string; value: unknown }>();
@@ -12,6 +10,7 @@ const record = computed(() => props.value && typeof props.value === "object" && 
 const entries = computed(() => {
   if (Array.isArray(props.value)) return props.value.map((value, index) => [String(index), value] as const);
   if (!record.value) return [];
+  if ("value" in record.value) return [];
   const nested = record.value.items ?? record.value.attributes;
   if (Array.isArray(nested)) return nested.map((value, index) => [String(index), value] as const);
   if (nested && typeof nested === "object") return Object.entries(nested as Record<string, unknown>);

@@ -93,7 +93,8 @@ function onConnect(connection: Connection) {
 function onParameter(nodeId: string, name: string, value: unknown) {
   const node = nodes.value.find((item: any) => item.id === nodeId) as any;
   if (!node) return;
-  node.data.params[name] = value;
+  if (value === undefined) delete node.data.params[name];
+  else node.data.params[name] = value;
   scheduleEvaluation();
 }
 

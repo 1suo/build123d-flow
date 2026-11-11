@@ -32,8 +32,8 @@ function update(name: string, value: unknown) {
 
 function structuredValue(name: string): string {
   if (name in structuredDrafts) return structuredDrafts[name];
-  const value = props.data.params[name];
-  if (value === undefined) return "";
+  const value = props.data.params[name] ?? inputs.value.find((input) => input.name === name)?.default;
+  if (value === undefined || value === null) return "";
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 

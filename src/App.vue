@@ -269,7 +269,7 @@ function onDrop(event: DragEvent) {
 }
 
 function deleteSelected() {
-  const selectedIds = new Set(nodes.value.filter((node: any) => node.selected).map((node) => node.id));
+  const selectedIds = new Set<string>(nodes.value.filter((node: any) => node.selected).map((node: any) => String(node.id)));
   if (!selectedIds.size) return;
   removeEdges(edges.value.filter((edge: any) => selectedIds.has(edge.source) || selectedIds.has(edge.target)).map((edge) => edge.id));
   removeNodes([...selectedIds]);
@@ -298,7 +298,7 @@ function onEdgeUpdate({ edge, connection }: { edge: Edge; connection: Connection
       candidate.target === connection.target && candidate.targetHandle === connection.targetHandle)
     .map((candidate) => candidate.id);
   if (replaced.length) removeEdges(replaced);
-  updateEdge(edge, connection);
+  updateEdge(edge as any, connection);
   scheduleEvaluation();
 }
 

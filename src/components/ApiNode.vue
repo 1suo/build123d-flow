@@ -13,17 +13,32 @@ import type { NodeDefinition } from "../types";
 
 const props = defineProps<{
   id: string;
-  data: { definition: NodeDefinition; params: Record<string, unknown>; visible?: boolean; error?: string; onParameter?: (nodeId: string, name: string, value: unknown) => void; onVisibility?: (nodeId: string, visible: boolean) => void };
+  data: {
+    definition: NodeDefinition;
+    params: Record<string, unknown>;
+    visible?: boolean;
+    collapsed?: boolean;
+    error?: string;
+    onParameter?: (nodeId: string, name: string, value: unknown) => void;
+    onVisibility?: (nodeId: string, visible: boolean) => void;
+    onCollapse?: (nodeId: string, collapsed: boolean) => void;
+  };
 }>();
 
 const inputs = computed(() => props.data.definition.inputs);
 const outputs = computed(() => props.data.definition.outputs);
 const structuredDrafts = reactive<Record<string, string>>({});
 const errorPopover = ref<any>();
+const valuePopover = ref<any>();
+const activeStructuredName = ref("");
 const canPreview = computed(() => outputs.value.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type)));
 
 function toggleVisibility() {
   props.data.onVisibility?.(props.id, !props.data.visible);
+}
+
+function toggleCollapse() {
+  props.data.onCollapse?.(props.id, !props.data.collapsed);
 }
 
 function update(name: string, value: unknown) {
@@ -34,10 +49,23 @@ function structuredValue(name: string): string {
   if (name in structuredDrafts) return structuredDrafts[name];
   const value = props.data.params[name] ?? inputs.value.find((input) => input.name === name)?.default;
   if (value === undefined || value === null) return "";
-  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-function updateStructured(name: string, value: string) {
+function structuredSummary(name: string): string {
+  const value = structuredValue(name);
+  return value.replace(/\s+/g, " ").trim() || "Default";
+}
+
+function openStructuredEditor(name: string, event: MouseEvent) {
+  activeStructuredName.value = name;
+  structuredDrafts[name] = structuredValue(name);
+  valuePopover.value?.show(event);
+}
+
+function updateStructured(value: string) {
+  const name = activeStructuredName.value;
+  if (!name) return;
   structuredDrafts[name] = value;
   if (!value.trim()) {
     update(name, undefined);
@@ -46,108 +74,113 @@ function updateStructured(name: string, value: string) {
   try {
     update(name, JSON.parse(value));
   } catch {
-    // Keep partial JSON edits visible; only valid values enter graph evaluation.
+    // Keep incomplete JSON in the popup without sending it to graph evaluation.
   }
 }
 </script>
 
 <template>
-  <Card class="api-node" :class="{ 'has-error': data.error }">
+  <Card class="api-node" :class="{ 'has-error': data.error, 'is-collapsed': data.collapsed }">
     <template #title>
-      <div class="node-header">
+      <div class="node-header" :title="data.definition.description || undefined">
         <div class="node-heading">
           <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
           <strong>{{ data.definition.name }}</strong>
         </div>
         <Button
-        v-if="data.error"
-        icon="pi pi-exclamation-circle"
-        text
-        rounded
-        size="small"
-        severity="danger"
-        class="node-error-trigger"
-        aria-label="Show node error"
-        title="Show node error"
-        @click.stop="errorPopover?.toggle($event)"
+          :icon="data.collapsed ? 'pi pi-chevron-down' : 'pi pi-chevron-up'"
+          text rounded size="small" severity="secondary"
+          class="node-collapse"
+          :aria-label="data.collapsed ? 'Expand node' : 'Collapse node'"
+          :title="data.collapsed ? 'Expand node' : 'Collapse node'"
+          @click.stop="toggleCollapse"
+        />
+        <Button
+          v-if="data.error"
+          icon="pi pi-exclamation-circle"
+          text rounded size="small" severity="danger"
+          class="node-error-trigger"
+          aria-label="Show node error"
+          title="Show node error"
+          @click.stop="errorPopover?.toggle($event)"
         />
         <Popover ref="errorPopover" append-to="body" class="node-error-popover">
           <div class="node-error-content">{{ data.error }}</div>
         </Popover>
         <Button
-        v-if="canPreview"
-        :icon="data.visible ? 'pi pi-eye' : 'pi pi-eye-slash'"
-        text
-        rounded
-        size="small"
-        severity="secondary"
-        class="node-visibility"
-        :class="{ 'is-visible': data.visible }"
-        :aria-label="data.visible ? 'Hide in viewer' : 'Show in viewer'"
-        :title="data.visible ? 'Hide in viewer' : 'Show in viewer'"
-        @click.stop="toggleVisibility"
+          v-if="canPreview"
+          :icon="data.visible ? 'pi pi-eye' : 'pi pi-eye-slash'"
+          text rounded size="small" severity="secondary"
+          class="node-visibility"
+          :class="{ 'is-visible': data.visible }"
+          :aria-label="data.visible ? 'Hide in viewer' : 'Show in viewer'"
+          :title="data.visible ? 'Hide in viewer' : 'Show in viewer'"
+          @click.stop="toggleVisibility"
         />
       </div>
     </template>
     <template #content>
-      <p v-if="data.definition.description" class="node-description">{{ data.definition.description }}</p>
-      <div class="node-body">
-      <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
-        <Handle :id="input.name" type="target" :position="Position.Left" />
-        <label :title="input.annotation">{{ input.label || input.name }}</label>
-        <InputNumber
-          v-if="input.type === 'Number'"
-          :model-value="(data.params[input.name] ?? input.default ?? null) as number | null"
-          :use-grouping="false"
-          :max-fraction-digits="8"
-          input-class="node-number"
-          @update:model-value="update(input.name, $event)"
-        />
-        <Checkbox
-          v-else-if="input.type === 'Boolean'"
-          :model-value="Boolean(data.params[input.name] ?? input.default)"
-          binary
-          @update:model-value="update(input.name, $event)"
-        />
-        <Textarea
-          v-else-if="input.type === 'Code'"
-          :model-value="String(data.params[input.name] ?? input.default ?? '')"
-          :auto-resize="false"
-          rows="5"
-          spellcheck="false"
-          class="node-code"
-          @update:model-value="update(input.name, $event)"
-        />
-        <InputText
-          v-else-if="input.type === 'String'"
-          :model-value="String(data.params[input.name] ?? input.default ?? '')"
-          class="node-text"
-          @update:model-value="update(input.name, $event)"
-        />
-        <Select
-          v-else-if="input.type === 'Enum'"
-          :model-value="String(data.params[input.name] ?? input.default ?? '')"
-          :options="input.options || []"
-          placeholder="Default"
-          class="node-select"
-          @update:model-value="update(input.name, $event)"
-        />
-        <Textarea
-          v-else-if="['Vector3', 'Vector2', 'Rotation', 'Plane', 'Location', 'Axis', 'Color', 'List', 'Dict', 'Any'].includes(input.type)"
-          :model-value="structuredValue(input.name)"
-          :auto-resize="true"
-          rows="2"
-          :placeholder="input.default_repr || input.type + ' · JSON'"
-          class="node-structured"
-          @update:model-value="updateStructured(input.name, $event)"
-        />
-        <span v-else class="socket-type-hint">{{ input.type }}</span>
+      <div v-if="!data.collapsed" class="node-body">
+        <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
+          <Handle :id="input.name" type="target" :position="Position.Left" />
+          <label :title="input.annotation">{{ input.label || input.name }}</label>
+          <InputNumber
+            v-if="input.type === 'Number'"
+            :model-value="(data.params[input.name] ?? input.default ?? null) as number | null"
+            :use-grouping="false" :max-fraction-digits="8"
+            input-class="node-number"
+            @update:model-value="update(input.name, $event)"
+          />
+          <Checkbox
+            v-else-if="input.type === 'Boolean'"
+            :model-value="Boolean(data.params[input.name] ?? input.default)"
+            binary
+            @update:model-value="update(input.name, $event)"
+          />
+          <Textarea
+            v-else-if="input.type === 'Code'"
+            :model-value="String(data.params[input.name] ?? input.default ?? '')"
+            :auto-resize="false" rows="5" spellcheck="false" class="node-code"
+            @update:model-value="update(input.name, $event)"
+          />
+          <InputText
+            v-else-if="input.type === 'String'"
+            :model-value="String(data.params[input.name] ?? input.default ?? '')"
+            class="node-text"
+            @update:model-value="update(input.name, $event)"
+          />
+          <Select
+            v-else-if="input.type === 'Enum'"
+            :model-value="String(data.params[input.name] ?? input.default ?? '')"
+            :options="input.options || []" placeholder="Default" class="node-select"
+            @update:model-value="update(input.name, $event)"
+          />
+          <Button
+            v-else-if="['Vector3', 'Vector2', 'Rotation', 'Plane', 'Location', 'Axis', 'Color', 'List', 'Dict', 'Any'].includes(input.type)"
+            class="node-structured-trigger"
+            severity="secondary" outlined
+            :label="structuredSummary(input.name)"
+            :title="structuredValue(input.name)"
+            @click.stop="openStructuredEditor(input.name, $event)"
+          />
+          <span v-else class="socket-type-hint">{{ input.type }}</span>
+        </div>
+        <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
+          <span>{{ output.name }} <small>{{ output.type }}</small></span>
+          <Handle :id="output.name" type="source" :position="Position.Right" />
+        </div>
       </div>
-      <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
-        <span>{{ output.name }} <small>{{ output.type }}</small></span>
-        <Handle :id="output.name" type="source" :position="Position.Right" />
-      </div>
-      </div>
+      <Popover ref="valuePopover" append-to="body" class="node-value-popover">
+        <div class="node-value-editor">
+          <strong>{{ activeStructuredName }}</strong>
+          <Textarea
+            :model-value="structuredDrafts[activeStructuredName] || ''"
+            :auto-resize="false" rows="7" spellcheck="false"
+            class="node-value-textarea"
+            @update:model-value="updateStructured"
+          />
+        </div>
+      </Popover>
     </template>
   </Card>
 </template>

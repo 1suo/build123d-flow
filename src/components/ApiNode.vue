@@ -27,6 +27,24 @@ function toggleVisibility() {
 function update(name: string, value: unknown) {
   props.data.onParameter?.(props.id, name, value === "" ? undefined : value);
 }
+
+function structuredValue(name: string): string {
+  const value = props.data.params[name];
+  if (value === undefined) return "";
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+function updateStructured(name: string, value: string) {
+  if (!value.trim()) {
+    update(name, undefined);
+    return;
+  }
+  try {
+    update(name, JSON.parse(value));
+  } catch {
+    // Keep invalid edits visible without sending malformed structured data to Python.
+  }
+}
 </script>
 
 <template>
@@ -94,6 +112,15 @@ function update(name: string, value: unknown) {
           placeholder="Default"
           class="node-select"
           @update:model-value="update(input.name, $event)"
+        />
+        <Textarea
+          v-else-if="['Vector3', 'Plane', 'Location', 'List', 'Any'].includes(input.type)"
+          :model-value="structuredValue(input.name)"
+          :auto-resize="true"
+          rows="2"
+          :placeholder="input.default_repr || input.type + ' · JSON'"
+          class="node-structured"
+          @update:model-value="updateStructured(input.name, $event)"
         />
         <span v-else class="socket-type-hint">{{ input.type }}</span>
       </div>

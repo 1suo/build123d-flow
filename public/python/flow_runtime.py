@@ -12,6 +12,7 @@ import types
 import build123d as b3d
 
 _CATALOG = {}
+_CATALOG_CALLABLES = {}
 _LAST_VALUES = {}
 _LAST_SHAPE = None
 
@@ -103,13 +104,21 @@ def _discover_modules():
 
 
 def discover():
-    global _CATALOG
+    global _CATALOG, _CATALOG_CALLABLES
     found = {}
+    callables = {}
+    shape_classes = set()
     for module in _discover_modules():
         module_name = getattr(module, "__name__", "build123d")
         for exported_name, obj in vars(module).items():
             if not _is_candidate(obj, module_name):
                 continue
+            if inspect.isclass(obj):
+                try:
+                    if issubclass(obj, getattr(b3d, "Shape", object)):
+                        shape_classes.add(obj)
+                except TypeError:
+                    pass
             # Avoid exposing imported aliases repeatedly; retain canonical API path.
             canonical_module = getattr(obj, "__module__", module_name)
             name = getattr(obj, "__name__", exported_name)
@@ -181,8 +190,77 @@ def discover():
                 "inputs": inputs,
                 "outputs": [{"name": "result", "type": output_type, "annotation": ""}],
             }
+            callables[node_id] = obj
+
+    # Discover useful instance methods on actual B-rep classes as operation nodes.
+    # Variadic methods are intentionally omitted: they need explicit wrapper nodes.
+    for cls in shape_classes:
+        for method_name, method in vars(cls).items():
+            if method_name.startswith("_") or not inspect.isfunction(method):
+                continue
+            if getattr(method, "__module__", "").split(".")[0] != "build123d":
+                continue
+            try:
+                signature = inspect.signature(method)
+            except (TypeError, ValueError):
+                continue
+            parameters = list(signature.parameters.values())
+            if not parameters or parameters[0].name != "self":
+                continue
+            if any(p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD, p.POSITIONAL_ONLY) for p in parameters):
+                continue
+            try:
+                hints = typing.get_type_hints(method)
+            except Exception:
+                hints = {}
+            inputs = [{
+                "name": "self",
+                "label": "shape",
+                "type": _type_name(cls),
+                "annotation": str(cls),
+                "required": True,
+            }]
+            for parameter in parameters[1:]:
+                default, default_repr, required, has_default = _safe_default(parameter.default)
+                annotation = hints.get(parameter.name, parameter.annotation)
+                socket = {
+                    "name": parameter.name,
+                    "type": _type_name(annotation),
+                    "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
+                    "required": required,
+                    "default_repr": default_repr,
+                }
+                if has_default:
+                    socket["default"] = default
+                if inspect.isclass(annotation):
+                    try:
+                        if issubclass(annotation, enum.Enum):
+                            socket["options"] = [member.name for member in annotation]
+                    except TypeError:
+                        pass
+                inputs.append(socket)
+            node_id = cls.__module__ + "." + cls.__name__ + "." + method_name
+            if node_id in found:
+                continue
+            output_type = _type_name(hints.get("return", signature.return_annotation))
+            if output_type == "Any" and method_name in {
+                "fuse", "cut", "intersect", "moved", "move", "rotate",
+                "translate", "scale", "mirror", "fillet", "chamfer", "clean",
+            }:
+                output_type = _type_name(cls)
+            found[node_id] = {
+                "id": node_id,
+                "kind": "operation",
+                "name": method_name,
+                "category": cls.__name__ + " Methods",
+                "description": (inspect.getdoc(method) or "").split("\n")[0][:180],
+                "inputs": inputs,
+                "outputs": [{"name": "result", "type": output_type, "annotation": ""}],
+            }
+            callables[node_id] = method
 
     _CATALOG = found
+    _CATALOG_CALLABLES = callables
     return list(found.values())
 
 
@@ -303,6 +381,8 @@ def _call_with_coercion(callable_obj, params):
     return callable_obj(**converted)
 
 def _resolve_callable(path):
+    if path in _CATALOG_CALLABLES:
+        return _CATALOG_CALLABLES[path]
     module_name, attr_name = path.rsplit(".", 1)
     module = importlib.import_module(module_name)
     return getattr(module, attr_name)

@@ -333,11 +333,21 @@ function deleteSelected() {
 }
 
 function onGlobalKeydown(event: KeyboardEvent) {
-  if (event.key !== "Delete" && event.key !== "Backspace") return;
   const target = event.target as HTMLElement | null;
   if (target?.closest("input, textarea, select, [contenteditable='true'], .p-inputtext, .p-textarea")) return;
-  if (!nodes.value.some((node: any) => node.selected)) return;
+  const selected = nodes.value.filter((node: any) => node.selected) as any[];
+  if (!selected.length) return;
 
+  if (event.key.toLowerCase() === "h" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    const collapse = selected.some((node) => !node.data.collapsed);
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    for (const node of selected) node.data.collapsed = collapse;
+    requestAnimationFrame(() => updateNodeInternals(selected.map((node) => node.id)));
+    return;
+  }
+  if (event.key !== "Delete" && event.key !== "Backspace") return;
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();

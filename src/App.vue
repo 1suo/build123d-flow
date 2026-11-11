@@ -97,12 +97,14 @@ function paletteGroup(item: NodeDefinition): string {
 
   if (/^(box|cylinder|sphere|cone|torus|wedge|extrusion|revolution)$/.test(name)
       || /objects_part|primitives/.test(category)) return "3D Primitives";
+  if (/objects_curve|objects_surface|curves|surfaces/.test(category)) return "Curves & Surfaces";
   if (/rectangle|circle|ellipse|polygon|slot|regularpolygon|trapezoid|polyline/.test(name)
       || /objects_sketch|profiles/.test(category)) return "2D Profiles";
   if (/extrude|revolve|loft|sweep|sweep|thicken/.test(name)
       || /operations_generic|operations_part/.test(category)) return "Modeling";
   if (/union|difference|intersection|fuse|cut|common|split|intersect/.test(name)) return "Boolean";
   if (/fillet|chamfer|shell|offset|draft|hollow/.test(name)) return "Finishing";
+  if (/plane|axis|datum|frame|location|rotation/.test(name) || /plane|datum|reference/.test(category)) return "Reference Geometry";
   if (/translate|rotate|mirror|scale|move|transform|location/.test(name)
       || /location|plane/.test(category)) return "Transforms";
   if (/area|volume|length|center|bounding|measure|distance|mass|inertia/.test(name)
@@ -116,7 +118,7 @@ function paletteGroup(item: NodeDefinition): string {
 
 const categories = computed(() => {
   const groups = new Set(catalog.value.map(paletteGroup));
-  const order = ["3D Primitives", "2D Profiles", "Spatial & Distributions", "Modeling", "Boolean", "Finishing", "Transforms", "Patterns & Arrays", "Measurements", "Topology", "Vectors", "Math & Logic", "Collections & Series", "Values", "Utilities", "Data & Code", "Geometry", "Other API"];
+  const order = ["3D Primitives", "2D Profiles", "Curves & Surfaces", "Spatial & Distributions", "Modeling", "Boolean", "Finishing", "Transforms", "Reference Geometry", "Measurements", "Topology", "Vectors", "Math & Logic", "Collections & Series", "Values", "Utilities", "Data & Code", "Geometry", "Other API"];
   return order.filter((group) => groups.has(group)).concat(
     [...groups].filter((group) => !order.includes(group)).sort()
   );
@@ -169,7 +171,7 @@ function runCanvasAction(label: string) {
 
 function categoryIcon(category: string): string {
   const value = category.toLowerCase();
-  if (value.includes("spatial") || value.includes("distribution")) return asset("icons/cad/polygon.svg");
+  if (value.includes("spatial") || value.includes("distribution") || value.includes("curve")) return asset("icons/cad/polygon.svg");
   if (value.includes("utility")) return asset("icons/cad/math.svg");
   if (value.includes("geometry") || value.includes("primitive") || value.includes("topology")) return asset("icons/cad/shape.svg");
   if (value.includes("boolean") || value.includes("operation") || value.includes("modeling")) return asset("icons/cad/union.svg");

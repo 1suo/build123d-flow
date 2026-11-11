@@ -28,7 +28,7 @@ def _type_name(annotation):
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
         names = {_type_name(arg) for arg in args if arg is not type(None)}
-        if names == {"Rotation", "List"}:
+        if names in ({"Rotation", "List"}, {"Rotation", "Tuple"}):
             return "Rotation"
         return names.pop() if len(names) == 1 else "Any"
     if origin is tuple:

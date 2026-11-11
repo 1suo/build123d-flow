@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, reactive } from "vue";
 import { Handle, Position } from "@vue-flow/core";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
@@ -18,6 +18,7 @@ const props = defineProps<{
 
 const inputs = computed(() => props.data.definition.inputs);
 const outputs = computed(() => props.data.definition.outputs);
+const structuredDrafts = reactive<Record<string, string>>({});
 const canPreview = computed(() => outputs.value.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type)));
 
 function toggleVisibility() {
@@ -29,12 +30,14 @@ function update(name: string, value: unknown) {
 }
 
 function structuredValue(name: string): string {
+  if (name in structuredDrafts) return structuredDrafts[name];
   const value = props.data.params[name];
   if (value === undefined) return "";
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
 function updateStructured(name: string, value: string) {
+  structuredDrafts[name] = value;
   if (!value.trim()) {
     update(name, undefined);
     return;
@@ -42,7 +45,7 @@ function updateStructured(name: string, value: string) {
   try {
     update(name, JSON.parse(value));
   } catch {
-    // Keep invalid edits visible without sending malformed structured data to Python.
+    // Keep partial JSON edits visible; only valid values enter graph evaluation.
   }
 }
 </script>

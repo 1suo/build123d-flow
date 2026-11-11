@@ -14,6 +14,8 @@ import build123d as b3d
 
 _CATALOG = {}
 _CATALOG_CALLABLES = {}
+_CATALOG_SIGNATURES = {}
+_CATALOG_HINT_TARGETS = {}
 _LAST_VALUES = {}
 _LAST_SHAPE = None
 _DISCOVERY_REPORT = {}
@@ -26,6 +28,8 @@ def _type_name(annotation):
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
         names = {_type_name(arg) for arg in args if arg is not type(None)}
+        if names == {"Rotation", "List"}:
+            return "Rotation"
         return names.pop() if len(names) == 1 else "Any"
     if origin in (list, tuple, set, frozenset, collections.abc.Sequence, collections.abc.Iterable):
         return "List"
@@ -54,7 +58,7 @@ def _type_name(annotation):
     mapping = {
         "int": "Number", "float": "Number", "bool": "Boolean", "str": "String",
         "vector": "Vector3", "vector2": "Vector2", "vector3": "Vector3",
-        "plane": "Plane", "location": "Location", "axis": "Axis", "color": "Color",
+        "rotation": "Rotation", "plane": "Plane", "location": "Location", "axis": "Axis", "color": "Color",
         "shape": "Shape", "solid": "Solid", "compound": "Compound", "face": "Face",
         "edge": "Edge", "wire": "Wire", "shell": "Shell", "part": "Part",
         "sketch": "Sketch", "code": "Code", "callable": "Code",
@@ -363,9 +367,11 @@ def _python_function(code, a=None, b=None, c=None):
 
 
 def discover(include_full=True):
-    global _CATALOG, _CATALOG_CALLABLES
+    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS
     found = {}
     callables = {}
+    signatures = {}
+    hint_targets = {}
     shape_classes = set()
     report = {
         "include_full": include_full,
@@ -505,6 +511,8 @@ def discover(include_full=True):
                     }],
                 }
                 callables[overload_id] = obj
+                signatures[overload_id] = signature
+                hint_targets[overload_id] = hint_target
                 report["accepted"].append({"id": overload_id, "kind": node_kind})
 
     # Discover useful instance methods on actual B-rep classes as operation nodes.
@@ -645,6 +653,8 @@ def discover(include_full=True):
     _DISCOVERY_REPORT = report
     _CATALOG = found
     _CATALOG_CALLABLES = callables
+    _CATALOG_SIGNATURES = signatures
+    _CATALOG_HINT_TARGETS = hint_targets
     return list(found.values())
 
 
@@ -737,7 +747,11 @@ def evaluate_graph_json(payload):
 
         try:
             callable_obj = _resolve_callable(definition_id)
-            result = _call_with_coercion(callable_obj, params)
+            result = _call_with_coercion(
+                callable_obj, params,
+                signature=_CATALOG_SIGNATURES.get(definition_id),
+                hint_target=_CATALOG_HINT_TARGETS.get(definition_id),
+            )
             values[node_id] = {"result": result}
         except Exception as exc:
             errors[node_id] = type(exc).__name__ + ": " + str(exc)
@@ -765,16 +779,17 @@ def evaluate_graph_json(payload):
 
 
 
-def _call_with_coercion(callable_obj, params):
-    target = callable_obj.__init__ if inspect.isclass(callable_obj) else callable_obj
+def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
+    target = hint_target or (callable_obj.__init__ if inspect.isclass(callable_obj) else callable_obj)
     try:
         hints = typing.get_type_hints(target)
     except Exception:
         hints = {}
-    try:
-        signature = _api_signature(callable_obj)
-    except (TypeError, ValueError):
-        signature = inspect.signature(callable_obj)
+    if signature is None:
+        try:
+            signature = _api_signature(callable_obj)
+        except (TypeError, ValueError):
+            signature = inspect.signature(callable_obj)
     converted = dict(params)
     for name, value in list(converted.items()):
         annotation = hints.get(name)
@@ -815,6 +830,8 @@ def _call_with_coercion(callable_obj, params):
             type_name = annotation.__name__.lower()
             if type_name == "vector" and isinstance(value, (list, tuple)):
                 converted[name] = b3d.Vector(*value)
+            elif type_name == "rotation" and isinstance(value, (list, tuple)):
+                converted[name] = b3d.Rotation(tuple(value))
             elif type_name == "plane" and isinstance(value, dict):
                 converted[name] = b3d.Plane(**value)
             elif type_name == "location" and isinstance(value, dict):

@@ -124,7 +124,8 @@ function categoryIcon(category: string): string {
 
 function nodeIcon(item: NodeDefinition): string {
   const name = item.name.toLowerCase();
-  if (/box|rectangle|square/.test(name)) return "pi pi-stop";
+  if (/^box$/.test(name)) return "pi pi-box";
+  if (/rectangle|square/.test(name)) return "pi pi-stop";
   if (/cylinder|sphere|circle|torus|ellipse/.test(name)) return "pi pi-circle";
   if (/cone|triangle|polygon/.test(name)) return "pi pi-star";
   if (/union|difference|intersection|fuse|cut/.test(name)) return "pi pi-sitemap";

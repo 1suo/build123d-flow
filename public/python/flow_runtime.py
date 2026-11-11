@@ -15,6 +15,7 @@ _CATALOG = {}
 _CATALOG_CALLABLES = {}
 _LAST_VALUES = {}
 _LAST_SHAPE = None
+_DISCOVERY_REPORT = {}
 
 
 def _type_name(annotation):
@@ -68,31 +69,30 @@ def _safe_default(value):
     return None, repr(value), False, False
 
 
-def _is_candidate(obj, module_name):
+def _candidate_rejection(obj):
     if not (inspect.isclass(obj) or inspect.isfunction(obj) or inspect.isbuiltin(obj)):
-        return False
+        return "not a class/function/builtin"
     if getattr(obj, "__module__", "").split(".")[0] != "build123d":
-        return False
+        return "not defined in build123d"
     if getattr(obj, "__name__", "").startswith("_"):
-        return False
+        return "private name"
     try:
-        signature = inspect.signature(obj)
-    except (TypeError, ValueError):
-        return False
-    parameters = list(signature.parameters.values())
-    if any(parameter.kind == parameter.POSITIONAL_ONLY for parameter in parameters):
-        return False
-    if parameters and not any(
-        parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
-        for parameter in parameters
-    ):
-        return False
-    return True
+        inspect.signature(obj)
+    except (TypeError, ValueError) as exc:
+        return "signature unavailable: " + str(exc)
+    return None
 
 
-def _discover_modules():
+def _is_candidate(obj, module_name):
+    return _candidate_rejection(obj) is None
+
+
+def _discover_modules(report=None):
     modules = [b3d]
     seen = {b3d.__name__}
+    report = report if report is not None else {}
+    report["module_import_failures"] = []
+    report["module_walk_error"] = None
     try:
         for info in pkgutil.walk_packages(b3d.__path__, b3d.__name__ + "."):
             if info.name in seen:
@@ -100,11 +100,13 @@ def _discover_modules():
             seen.add(info.name)
             try:
                 modules.append(importlib.import_module(info.name))
-            except Exception:
-                # Optional modules may rely on unavailable native/system features.
-                continue
-    except Exception:
-        pass
+            except Exception as exc:
+                report["module_import_failures"].append({
+                    "module": info.name, "error": type(exc).__name__ + ": " + str(exc)
+                })
+    except Exception as exc:
+        report["module_walk_error"] = type(exc).__name__ + ": " + str(exc)
+    report["modules_visited"] = [getattr(module, "__name__", str(module)) for module in modules]
     return modules
 
 
@@ -281,7 +283,16 @@ def discover(include_full=True):
     found = {}
     callables = {}
     shape_classes = set()
-    modules = _discover_modules() if include_full else [b3d]
+    report = {
+        "include_full": include_full,
+        "modules_visited": [],
+        "module_import_failures": [],
+        "rejected": [],
+        "accepted": [],
+    }
+    modules = _discover_modules(report) if include_full else [b3d]
+    if not include_full:
+        report["modules_visited"] = [b3d.__name__]
     for module in modules:
         module_name = getattr(module, "__name__", "build123d")
         for exported_name, obj in vars(module).items():
@@ -291,7 +302,13 @@ def discover(include_full=True):
                         shape_classes.add(obj)
                 except TypeError:
                     pass
-            if not _is_candidate(obj, module_name):
+            rejection = _candidate_rejection(obj)
+            if rejection:
+                if getattr(obj, "__module__", "").split(".")[0] == "build123d":
+                    report["rejected"].append({
+                        "module": module_name, "name": getattr(obj, "__name__", exported_name),
+                        "reason": rejection,
+                    })
                 continue
             # Avoid exposing imported aliases repeatedly; retain canonical API path.
             canonical_module = getattr(obj, "__module__", module_name)
@@ -367,6 +384,7 @@ def discover(include_full=True):
                 "outputs": [{"name": "result", "type": output_type, "annotation": ""}],
             }
             callables[node_id] = obj
+            report["accepted"].append({"id": node_id, "kind": node_kind})
 
     # Discover useful instance methods on actual B-rep classes as operation nodes.
     # Variadic methods are intentionally omitted: they need explicit wrapper nodes.
@@ -480,9 +498,26 @@ def discover(include_full=True):
         }
         callables[node_id] = function
 
+    report["node_count"] = len(found)
+    report["kind_counts"] = {}
+    report["category_counts"] = {}
+    for definition in found.values():
+        report["kind_counts"][definition["kind"]] = report["kind_counts"].get(definition["kind"], 0) + 1
+        report["category_counts"][definition["category"]] = report["category_counts"].get(definition["category"], 0) + 1
+    report["required_api_presence"] = {
+        name: any(item["name"] == name for item in found.values())
+        for name in ("Box", "Cylinder", "Rectangle", "Circle", "extrude", "revolve")
+    }
+    global _DISCOVERY_REPORT
+    _DISCOVERY_REPORT = report
     _CATALOG = found
     _CATALOG_CALLABLES = callables
     return list(found.values())
+
+
+def discovery_report_json():
+    """Return an auditable snapshot of the most recent API discovery pass."""
+    return json.dumps(_DISCOVERY_REPORT, default=str)
 
 
 def catalog_json():

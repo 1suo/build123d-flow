@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, markRaw, onMounted, ref, shallowRef, watch } from "vue";
-import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue-flow/core";
+import { VueFlow, useVueFlow, type Connection, type Edge, type Node, type NodeTypes } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
-import { Controls } from "@vue-flow/controls";
 import { MiniMap } from "@vue-flow/minimap";
 import ApiNode from "./components/ApiNode.vue";
 import GeometryViewport from "./components/GeometryViewport.vue";
@@ -11,6 +10,9 @@ import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
+import Toolbar from "primevue/toolbar";
+import Dock from "primevue/dock";
+import Tag from "primevue/tag";
 import { PythonRuntime } from "./runtime/pythonRuntime";
 import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
@@ -25,8 +27,13 @@ const previews = shallowRef<Record<string, MeshPreview>>({});
 const running = ref(false);
 const nodes = ref<Node[]>([]);
 const edges = ref<Edge[]>([]);
-const nodeTypes = { api: markRaw(ApiNode) };
-const { addNodes, addEdges, screenToFlowCoordinate, fitView } = useVueFlow();
+const nodeTypes = { api: markRaw(ApiNode) } as unknown as NodeTypes;
+const { addNodes, addEdges, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
+const canvasActions = [
+  { label: "Fit graph", icon: "pi pi-expand", command: () => fitView({ padding: 0.2 }) },
+  { label: "Zoom in", icon: "pi pi-plus", command: () => zoomIn() },
+  { label: "Zoom out", icon: "pi pi-minus", command: () => zoomOut() },
+];
 
 let nextId = 1;
 let evaluationRevision = 0;
@@ -176,54 +183,66 @@ function downloadStep() {
 
 <template>
   <main class="app-shell">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark">b3d</span>
-        <strong>build123d-flow</strong>
-        <span class="brand-divider"></span>
-        <span class="document-name">Untitled</span>
-      </div>
-      <div class="runtime-status">
-        <span class="status-dot" :class="{ ready: runtime.isReady }"></span>
-        <span>{{ status }}</span>
-      </div>
-      <div class="top-actions">
-        <span v-if="running" class="running-label">Evaluating…</span>
-        <Button label="Evaluate" icon="pi pi-play" size="small" severity="secondary" :disabled="!runtime.isReady" @click="evaluate" />
-        <Button label="Export STEP" icon="pi pi-download" size="small" :disabled="!runtime.isReady" @click="downloadStep" />
-      </div>
-    </header>
+    <Toolbar class="topbar">
+      <template #start>
+        <div class="brand">
+          <span class="brand-mark">b3d</span>
+          <strong>build123d-flow</strong>
+          <span class="brand-divider"></span>
+          <span class="document-name">Untitled</span>
+        </div>
+      </template>
+      <template #center>
+        <div class="runtime-status">
+          <span class="status-dot" :class="{ ready: runtime.isReady }"></span>
+          <span>{{ status }}</span>
+        </div>
+      </template>
+      <template #end>
+        <div class="top-actions">
+          <Tag v-if="running" value="Evaluating" severity="warn" />
+          <Button label="Evaluate" icon="pi pi-play" size="small" severity="secondary" :disabled="!runtime.isReady" @click="evaluate" />
+          <Button label="Export STEP" icon="pi pi-download" size="small" :disabled="!runtime.isReady" @click="downloadStep" />
+        </div>
+      </template>
+    </Toolbar>
 
-    <Splitter class="workspace" :gutterSize="5">
-      <SplitterPanel :size="19" :minSize="14" class="library-panel">
+    <Splitter class="workspace" :gutter-size="5">
+      <SplitterPanel :size="19" :min-size="14" class="library-panel">
         <div class="panel-heading">
           <div><span class="eyebrow">BUILD</span><strong>Node library</strong></div>
-          <span class="panel-count">{{ catalog.length }}</span>
+          <Tag :value="String(catalog.length)" severity="secondary" />
         </div>
         <div class="library-tools">
           <InputText v-model="search" placeholder="Find a node…" size="small" class="search-input" />
           <Select v-model="selectedCategory" :options="categories" size="small" class="category-select" />
         </div>
         <div class="catalog-list">
-          <button
+          <Button
             v-for="item in filteredCatalog"
             :key="item.id"
+            :label="item.name"
+            text
+            severity="secondary"
+            size="small"
             class="catalog-item"
             draggable="true"
             @dragstart="dragNode($event, item)"
-            @dblclick="addDefinition(item)"
+            @click="addDefinition(item)"
           >
-            <span class="catalog-item-name">{{ item.name }}</span>
-            <span class="catalog-item-category">{{ item.category }}</span>
-          </button>
+            <template #default>
+              <span class="catalog-item-name">{{ item.name }}</span>
+              <span class="catalog-item-category">{{ item.category }}</span>
+            </template>
+          </Button>
           <p v-if="!filteredCatalog.length" class="empty-state">No matching nodes.</p>
         </div>
-        <div class="panel-footnote">Drag onto canvas · double-click to add</div>
+        <div class="panel-footnote">Drag or click to add to graph</div>
       </SplitterPanel>
 
-      <SplitterPanel :size="81" :minSize="35" class="main-panel">
-        <Splitter class="main-splitter" :gutterSize="5">
-          <SplitterPanel :size="72" :minSize="40" class="graph-panel">
+      <SplitterPanel :size="81" :min-size="35" class="main-panel">
+        <Splitter class="main-splitter" :gutter-size="5">
+          <SplitterPanel :size="72" :min-size="40" class="graph-panel">
             <div class="canvas-toolbar">
               <span class="eyebrow">WORKSPACE</span>
               <strong>Graph</strong>
@@ -243,15 +262,19 @@ function downloadStep() {
               >
                 <Background pattern-color="#39352e" :gap="22" />
                 <MiniMap pannable zoomable />
-                <Controls />
+                <Dock :model="canvasActions" position="bottom" class="canvas-dock">
+                  <template #item="{ item }">
+                    <Button :icon="item.icon" text rounded severity="secondary" :aria-label="item.label" v-tooltip.top="item.label" @click="item.command()" />
+                  </template>
+                </Dock>
               </VueFlow>
             </div>
           </SplitterPanel>
 
-          <SplitterPanel :size="28" :minSize="18" class="preview-panel">
+          <SplitterPanel :size="28" :min-size="18" class="preview-panel">
             <div class="panel-heading preview-heading">
               <div><span class="eyebrow">OUTPUT</span><strong>Geometry preview</strong></div>
-              <span class="panel-count">{{ Object.keys(previews).length }}</span>
+              <Tag :value="String(Object.keys(previews).length)" severity="secondary" />
             </div>
             <GeometryViewport :previews="previews" />
             <div class="preview-details">
@@ -259,10 +282,7 @@ function downloadStep() {
                 <strong>{{ id }}</strong>
                 <span>{{ mesh.vertices.length / 3 }} vertices · {{ mesh.triangles.length / 3 }} triangles</span>
               </div>
-              <div v-if="!Object.keys(previews).length && !errors.length" class="preview-placeholder">
-                <span class="placeholder-mark">◇</span>
-                <span>Geometry output appears here</span>
-              </div>
+              <div v-if="!Object.keys(previews).length && !errors.length" class="preview-placeholder">Geometry output appears here</div>
               <div v-if="errors.length" class="error-list">
                 <strong>Evaluation errors</strong>
                 <pre v-for="(error, index) in errors" :key="index">{{ error }}</pre>

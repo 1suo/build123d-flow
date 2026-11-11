@@ -18,7 +18,7 @@ export function createGraphNode(
 }
 
 function compatible(source: string, target: string): boolean {
-  if (target === "Any" || source === target) return true;
+  if (target === "Any" || source === "Any" || source === target) return true;
   if (target === "Shape" && ["Solid", "Compound", "Face", "Edge", "Wire"].includes(source)) return true;
   return false;
 }

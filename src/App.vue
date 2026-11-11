@@ -41,6 +41,24 @@ const inspectedValue = computed(() => {
   return socketValues.value[nodeId]?.[outputName] ?? null;
 });
 const inspectedJson = computed(() => inspectedValue.value ? JSON.stringify(inspectedValue.value, null, 2) : "No evaluated value. Connect the input or wait for evaluation.");
+const inspectorOpen = ref(true);
+const selectedNode = computed(() => nodes.value.find((node: any) => node.selected) as any ?? null);
+const selectedNodeInputs = computed(() => {
+  const node = selectedNode.value;
+  if (!node) return [];
+  return node.data.definition.inputs.map((socket: any) => {
+    const edge = edges.value.find((item: any) => item.target === node.id && item.targetHandle === socket.name) as any;
+    const value = edge ? socketValues.value[edge.source]?.[edge.sourceHandle || "result"] : node.data.params[socket.name] ?? socket.default;
+    return { ...socket, connected: Boolean(edge), value };
+  });
+});
+const selectedNodeOutputs = computed(() => {
+  const node = selectedNode.value;
+  if (!node) return [];
+  return node.data.definition.outputs.map((socket: any) => ({
+    ...socket, value: socketValues.value[node.id]?.[socket.name] ?? null,
+  }));
+});
 const running = ref(false);
 const nodes = ref<Node[]>([]);
 const edges = ref<Edge[]>([]);
@@ -471,21 +489,34 @@ function downloadStep() {
               </template>
             </Dock>
           </VueFlow>
+          <aside v-if="selectedNode && inspectorOpen" class="canvas-node-inspector">
+            <header class="canvas-inspector-header">
+              <div><small>NODE INSPECTOR</small><strong>{{ selectedNode.data.definition.name }}</strong></div>
+              <Button icon="pi pi-times" text rounded severity="secondary" size="small" aria-label="Close inspector" @click="inspectorOpen = false" />
+            </header>
+            <div class="canvas-inspector-body">
+              <section>
+                <h4>Inputs</h4>
+                <div v-for="socket in selectedNodeInputs" :key="socket.name" class="inspector-socket">
+                  <div><strong>{{ socket.name }}</strong><small>{{ socket.type }}{{ socket.connected ? ' · linked' : '' }}</small></div>
+                  <pre>{{ JSON.stringify(socket.value, null, 2) ?? '—' }}</pre>
+                </div>
+              </section>
+              <section>
+                <h4>Outputs</h4>
+                <div v-for="socket in selectedNodeOutputs" :key="socket.name" class="inspector-socket">
+                  <div><strong>{{ socket.name }}</strong><small>{{ socket.type }}</small></div>
+                  <pre>{{ socket.value === null ? 'Not evaluated' : JSON.stringify(socket.value, null, 2) }}</pre>
+                </div>
+              </section>
+            </div>
+          </aside>
+          <Button v-if="selectedNode && !inspectorOpen" class="canvas-inspector-reopen" icon="pi pi-panel" text rounded severity="secondary" aria-label="Open node inspector" title="Open node inspector" @click="inspectorOpen = true" />
         </div>
       </SplitterPanel>
 
       <SplitterPanel :size="32" :min-size="20" class="preview-panel">
-        <div class="preview-stack">
-          <section class="geometry-panel"><GeometryViewport :previews="previews" :running="running" /></section>
-          <section class="socket-inspector">
-            <div class="inspector-heading">
-              <strong>Socket data</strong>
-              <span v-if="inspectedSocket">{{ inspectedSocket.direction }} · {{ inspectedSocket.socketName }}</span>
-              <span v-else>Select a socket on a node</span>
-            </div>
-            <pre class="inspector-value">{{ inspectedJson }}</pre>
-          </section>
-        </div>
+        <GeometryViewport :previews="previews" :running="running" />
       </SplitterPanel>
     </Splitter>
 

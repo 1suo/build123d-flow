@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { Handle, Position } from "@vue-flow/core";
+import InputNumber from "primevue/inputnumber";
+import InputText from "primevue/inputtext";
+import Checkbox from "primevue/checkbox";
+import Textarea from "primevue/textarea";
+import Select from "primevue/select";
 import type { NodeDefinition } from "../types";
 
 const props = defineProps<{
@@ -11,13 +16,8 @@ const props = defineProps<{
 const inputs = computed(() => props.data.definition.inputs);
 const outputs = computed(() => props.data.definition.outputs);
 
-function update(name: string, event: Event) {
-  const target = event.target as HTMLInputElement;
-  const old = inputs.value.find((input) => input.name === name);
-  let value: unknown = target.value === "" ? undefined : target.value;
-  if (old?.type === "Number" && value !== undefined) value = Number(target.value);
-  if (old?.type === "Boolean") value = target.checked;
-  props.data.onParameter?.(props.id, name, value);
+function update(name: string, value: unknown) {
+  props.data.onParameter?.(props.id, name, value === "" ? undefined : value);
 }
 </script>
 
@@ -27,40 +27,48 @@ function update(name: string, event: Event) {
       <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
       <strong>{{ data.definition.name }}</strong>
     </header>
-    <p v-if="data.definition.description" class="node-description">
-      {{ data.definition.description }}
-    </p>
+    <p v-if="data.definition.description" class="node-description">{{ data.definition.description }}</p>
     <div class="node-body">
       <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
         <Handle :id="input.name" type="target" :position="Position.Left" />
         <label :title="input.annotation">{{ input.label || input.name }}</label>
-        <input
+        <InputNumber
           v-if="input.type === 'Number'"
-          :value="data.params[input.name] ?? ''"
-          type="number"
-          step="any"
-          @change="update(input.name, $event)"
+          :model-value="Number(data.params[input.name] ?? input.default ?? 0)"
+          :use-grouping="false"
+          :max-fraction-digits="8"
+          input-class="node-number"
+          @update:model-value="update(input.name, $event)"
         />
-        <input
+        <Checkbox
           v-else-if="input.type === 'Boolean'"
-          :checked="Boolean(data.params[input.name])"
-          type="checkbox"
-          @change="update(input.name, $event)"
+          :model-value="Boolean(data.params[input.name] ?? input.default)"
+          binary
+          @update:model-value="update(input.name, $event)"
         />
-        <textarea
+        <Textarea
           v-else-if="input.type === 'Code'"
-          :value="String(data.params[input.name] ?? '')"
+          :model-value="String(data.params[input.name] ?? input.default ?? '')"
+          :auto-resize="false"
           rows="5"
           spellcheck="false"
-          @change="update(input.name, $event)"
+          class="node-code"
+          @update:model-value="update(input.name, $event)"
         />
-        <input
+        <InputText
           v-else-if="input.type === 'String'"
-          :value="String(data.params[input.name] ?? '')"
-          type="text"
-          @change="update(input.name, $event)"
+          :model-value="String(data.params[input.name] ?? input.default ?? '')"
+          class="node-text"
+          @update:model-value="update(input.name, $event)"
         />
-        <select v-else-if="input.type === 'Enum'" :value="String(data.params[input.name] ?? '')" @change="update(input.name, $event)"><option value="">Default</option><option v-for="option in input.options || []" :key="option" :value="option">{{ option }}</option></select>
+        <Select
+          v-else-if="input.type === 'Enum'"
+          :model-value="String(data.params[input.name] ?? input.default ?? '')"
+          :options="input.options || []"
+          placeholder="Default"
+          class="node-select"
+          @update:model-value="update(input.name, $event)"
+        />
         <span v-else class="socket-type-hint">{{ input.type }}</span>
       </div>
       <div v-for="output in outputs" :key="output.name" class="socket-row output-row">

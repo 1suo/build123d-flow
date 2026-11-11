@@ -1,7 +1,7 @@
 export type SocketType =
   | "Number" | "Boolean" | "String" | "Vector3" | "Plane" | "Location"
   | "Shape" | "Solid" | "Compound" | "Face" | "Edge" | "Wire"
-  | "List" | "Enum" | "Code" | "Any";
+  | "List" | "Dict" | "Enum" | "Code" | "Any";
 
 export interface SocketDefinition {
   name: string;
@@ -12,6 +12,8 @@ export interface SocketDefinition {
   default?: unknown;
   default_repr?: string;
   options?: string[];
+  item_type?: SocketType;
+  variants?: SocketType[];
 }
 
 export interface NodeDefinition {

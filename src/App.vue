@@ -264,7 +264,7 @@ function downloadStep() {
                 <MiniMap pannable zoomable />
                 <Dock :model="canvasActions" position="bottom" class="canvas-dock">
                   <template #item="{ item }">
-                    <Button :icon="item.icon" text rounded severity="secondary" :aria-label="item.label" v-tooltip.top="item.label" @click="item.command()" />
+                    <Button :icon="item.icon" text rounded severity="secondary" :aria-label="item.label" @click="item.command()" />
                   </template>
                 </Dock>
               </VueFlow>

@@ -105,6 +105,10 @@ const canvasActions = [
   { label: "Export STEP", icon: "pi pi-download", command: () => downloadStep() },
 ];
 
+function runCanvasAction(label: string) {
+  canvasActions.find((item) => item.label === label)?.command();
+}
+
 function categoryIcon(category: string): string {
   const value = category.toLowerCase();
   if (value.includes("primitive") || value.includes("geometry") || value.includes("solid")) return "pi pi-box";
@@ -306,7 +310,7 @@ function downloadStep() {
             <MiniMap pannable zoomable />
             <Dock :model="canvasActions" position="bottom" class="canvas-dock">
               <template #item="{ item }">
-                <Button :icon="item.icon" text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Canvas action'" :title="typeof item.label === 'string' ? item.label : 'Canvas action'" @click="item.command?.($event)" />
+                <Button :icon="item.icon" text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Canvas action'" :title="typeof item.label === 'string' ? item.label : 'Canvas action'" @click="typeof item.label === 'string' && runCanvasAction(item.label)" />
               </template>
             </Dock>
           </VueFlow>

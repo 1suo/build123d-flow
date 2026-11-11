@@ -73,17 +73,26 @@ def _json_default(value):
 def _safe_default(value):
     if value is inspect.Signature.empty:
         return None, None, True, False
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value, repr(value), False, True
     if isinstance(value, enum.Enum):
         return value.name, repr(value), False, True
+    if value is None or isinstance(value, (bool, int, float, str)):
+        try:
+            json.dumps(value, allow_nan=False)
+            return value, repr(value), False, True
+        except (TypeError, ValueError, OverflowError):
+            return None, repr(value), False, False
     if isinstance(value, (tuple, list, dict)):
         try:
-            return json.loads(json.dumps(value)), repr(value), False, True
-        except (TypeError, ValueError):
+            return json.loads(json.dumps(value, allow_nan=False)), repr(value), False, True
+        except (TypeError, ValueError, OverflowError):
             pass
     if type(value).__name__.lower() == "vector" and all(hasattr(value, axis) for axis in ("X", "Y", "Z")):
-        return [float(value.X), float(value.Y), float(value.Z)], repr(value), False, True
+        try:
+            vector = [float(value.X), float(value.Y), float(value.Z)]
+            json.dumps(vector, allow_nan=False)
+            return vector, repr(value), False, True
+        except (TypeError, ValueError, OverflowError):
+            return None, repr(value), False, False
     return None, repr(value), False, False
 
 
@@ -632,11 +641,11 @@ def discovery_report_json():
 def catalog_json():
     if not _CATALOG:
         discover(include_full=False)
-    return json.dumps(list(_CATALOG.values()))
+    return json.dumps(list(_CATALOG.values()), allow_nan=False)
 
 
 def discover_full():
-    return json.dumps(discover(include_full=True))
+    return json.dumps(discover(include_full=True), allow_nan=False)
 
 
 def _mesh_preview(value):

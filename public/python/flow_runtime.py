@@ -8,6 +8,7 @@ import json
 import pkgutil
 import typing
 import types
+import collections.abc
 
 import build123d as b3d
 
@@ -26,9 +27,9 @@ def _type_name(annotation):
     if origin in (typing.Union, types.UnionType):
         names = {_type_name(arg) for arg in args if arg is not type(None)}
         return names.pop() if len(names) == 1 else "Any"
-    if origin in (list, tuple, set, frozenset, typing.Sequence, typing.Iterable):
+    if origin in (list, tuple, set, frozenset, collections.abc.Sequence, collections.abc.Iterable):
         return "List"
-    if origin in (dict, typing.Dict, typing.Mapping):
+    if origin in (dict, typing.Dict, collections.abc.Mapping):
         return "Dict"
     if origin is typing.Literal:
         return "Enum"
@@ -81,6 +82,8 @@ def _safe_default(value):
             return json.loads(json.dumps(value)), repr(value), False, True
         except (TypeError, ValueError):
             pass
+    if type(value).__name__.lower() == "vector" and all(hasattr(value, axis) for axis in ("X", "Y", "Z")):
+        return [float(value.X), float(value.Y), float(value.Z)], repr(value), False, True
     return None, repr(value), False, False
 
 
@@ -400,7 +403,7 @@ def discover(include_full=True):
                     item_args = typing.get_args(annotation)
                     if item_args:
                         socket["item_type"] = _type_name(item_args[0])
-                if typing.get_origin(annotation) in (dict, typing.Dict, typing.Mapping):
+                if typing.get_origin(annotation) in (dict, typing.Dict, collections.abc.Mapping):
                     mapping_args = typing.get_args(annotation)
                     socket["key_type"] = _type_name(mapping_args[0]) if mapping_args else "String"
                     socket["value_type"] = _type_name(mapping_args[1]) if len(mapping_args) > 1 else "Any"
@@ -718,6 +721,19 @@ def _call_with_coercion(callable_obj, params):
                     continue
             except (TypeError, KeyError):
                 pass
+        origin = typing.get_origin(annotation)
+        if origin is tuple and isinstance(value, list):
+            converted[name] = tuple(value)
+            value = converted[name]
+        elif origin is set and isinstance(value, list):
+            converted[name] = set(value)
+            value = converted[name]
+        elif origin is list and not isinstance(value, list):
+            converted[name] = list(value)
+            value = converted[name]
+        elif origin in (dict, collections.abc.Mapping) and isinstance(value, dict):
+            converted[name] = dict(value)
+            value = converted[name]
         if inspect.isclass(annotation):
             type_name = annotation.__name__.lower()
             if type_name == "vector" and isinstance(value, (list, tuple)):

@@ -63,9 +63,26 @@ onMounted(async () => {
 
 function addStarterGraph() {
   const box = catalog.value.find((item) => item.name === "Box");
-  if (!box) return;
-  addDefinition(box, { x: 180, y: 120 });
+  const union = catalog.value.find((item) => item.id === "build123d_flow.union");
+  if (!box || !union) return;
+
+  const left = createGraphNode(box, `n${nextId++}`, { x: 100, y: 100 });
+  const right = createGraphNode(box, `n${nextId++}`, { x: 100, y: 360 });
+  const combine = createGraphNode(union, `n${nextId++}`, { x: 500, y: 230 });
+
+  left.data.params = { ...left.data.params, length: 20, width: 20, height: 10 };
+  right.data.params = { ...right.data.params, length: 15, width: 15, height: 15 };
+  left.data.onParameter = onParameter;
+  right.data.onParameter = onParameter;
+  combine.data.onParameter = onParameter;
+
+  addNodes([left, right, combine] as unknown as Node[]);
+  addEdges([
+    { id: `e${nextId++}`, source: left.id, sourceHandle: "result", target: combine.id, targetHandle: "a" },
+    { id: `e${nextId++}`, source: right.id, sourceHandle: "result", target: combine.id, targetHandle: "b" },
+  ] as Edge[]);
   fitView({ padding: 0.25 });
+  scheduleEvaluation();
 }
 
 function addDefinition(definition: NodeDefinition, position?: { x: number; y: number }) {

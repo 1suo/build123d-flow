@@ -16,6 +16,13 @@ let animationFrame = 0;
 
 function rebuild() {
   if (!scene || !modelGroup) return;
+  for (const child of modelGroup.children) {
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose();
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach((material) => material.dispose());
+    }
+  }
   modelGroup.clear();
   for (const [id, preview] of Object.entries(props.previews)) {
     const geometry = new THREE.BufferGeometry();
@@ -118,7 +125,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.geometry-viewport { position: relative; width: 100%; height: 100%; min-height: 240px; overflow: hidden; }
+.geometry-viewport { position: relative; width: 100%; height: auto; flex: 1 1 auto; min-height: 240px; overflow: hidden; }
 .geometry-viewport :deep(canvas) { display: block; width: 100%; height: 100%; }
 .viewport-empty { position: absolute; inset: 0; display: grid; place-items: center; color: #81796d; font-size: 11px; pointer-events: none; }
 </style>

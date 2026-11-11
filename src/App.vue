@@ -373,7 +373,7 @@ function downloadStep() {
       </SplitterPanel>
     </Splitter>
 
-    <Popover ref="palettePopover" class="palette-popover">
+    <Popover ref="palettePopover" appendTo="self" class="palette-popover">
       <div class="palette-content">
         <InputText v-model="paletteSearch" placeholder="Search nodes…" class="palette-search" />
         <Accordion v-model:value="expandedGroups" multiple class="palette-accordion">
@@ -410,7 +410,7 @@ function downloadStep() {
       </div>
     </Popover>
 
-    <Popover ref="contextPopover" class="context-popover">
+    <Popover ref="contextPopover" appendTo="self" class="context-popover">
       <div class="context-content">
         <InputText v-model="contextSearch" placeholder="Add node…" class="context-search" autofocus />
         <div class="context-results">

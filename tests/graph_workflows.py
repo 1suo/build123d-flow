@@ -61,8 +61,43 @@ def _edge(source, target, target_handle):
     }
 
 
+
+def _core_node(node_id, instance_id, params=None):
+    definition = runtime._CATALOG[node_id]
+    return _node(definition, instance_id, params)
+
+
+def run_collection_workflow_tests():
+    nodes = [
+        _core_node("core.series.range", "range", {"start": 0, "stop": 5, "step": 1}),
+        _core_node("core.list.map", "mapped", {"expression": "x * 2"}),
+        _core_node("core.dict.construct", "dictionary", {"keys": ["a", "b"], "values": [2, 4]}),
+        _core_node("core.set.construct", "set_a", {"items": [1, 2, 2, 3]}),
+        _core_node("core.set.construct", "set_b", {"items": [3, 4]}),
+        _core_node("core.set.union", "set_union"),
+    ]
+    edges = [
+        _edge("range", "mapped", "items"),
+        _edge("set_a", "set_union", "a"),
+        _edge("set_b", "set_union", "b"),
+    ]
+    result = json.loads(runtime.evaluate_graph_json(json.dumps({"nodes": nodes, "edges": edges})))
+    if result["errors"]:
+        raise AssertionError("Collection workflows failed: " + json.dumps(result["errors"]))
+    mapped = result["socket_values"]["mapped"]["result"]
+    if [item["value"] for item in mapped["items"]] != [0, 2, 4, 6, 8]:
+        raise AssertionError("List Map returned unexpected values: " + json.dumps(mapped))
+    dictionary = result["socket_values"]["dictionary"]["result"]
+    if dictionary["items"]["a"]["value"] != 2 or dictionary["items"]["b"]["value"] != 4:
+        raise AssertionError("Dictionary construction returned unexpected values")
+    union = result["socket_values"]["set_union"]["result"]
+    if union["length"] != 4:
+        raise AssertionError("Set union returned an unexpected number of unique values")
+    return {"name": "collections and series", "map": True, "dict": True, "set_union": True}
+
+
 def run_graph_workflow_tests():
-    results = []
+    results = [run_collection_workflow_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

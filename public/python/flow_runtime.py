@@ -138,6 +138,21 @@ def _add_core_nodes(found, callables):
     import math
     import operator
 
+    # Editable literal sources make primitive values available without an upstream node.
+    for node_id, name, socket_type, default, fn in [
+        ("core.value.number", "Number", "Number", 0.0, lambda value: float(value)),
+        ("core.value.string", "String", "String", "", lambda value: str(value)),
+        ("core.value.boolean", "Boolean", "Boolean", False, lambda value: bool(value)),
+    ]:
+        found[node_id] = {
+            "id": node_id, "kind": "value", "name": name, "category": "Values",
+            "description": "Literal " + socket_type.lower() + " value",
+            "inputs": [{"name": "value", "type": socket_type, "annotation": socket_type,
+                        "required": False, "default": default}],
+            "outputs": [{"name": "result", "type": socket_type, "annotation": socket_type}],
+        }
+        callables[node_id] = fn
+
     # Scalar arithmetic and comparisons.
     numeric_binary = [
         ("add", "Add", lambda a, b: operator.add(a, b)), ("subtract", "Subtract", lambda a, b: operator.sub(a, b)),

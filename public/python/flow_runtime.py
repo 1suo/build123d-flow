@@ -79,9 +79,14 @@ def _is_candidate(obj, module_name):
         signature = inspect.signature(obj)
     except (TypeError, ValueError):
         return False
-    for parameter in signature.parameters.values():
-        if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
-            return False
+    parameters = list(signature.parameters.values())
+    if any(parameter.kind == parameter.POSITIONAL_ONLY for parameter in parameters):
+        return False
+    if parameters and not any(
+        parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD)
+        for parameter in parameters
+    ):
+        return False
     return True
 
 
@@ -343,6 +348,8 @@ def discover():
                 hints = {}
 
             for parameter in signature.parameters.values():
+                if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
+                    continue
                 if parameter.kind == parameter.POSITIONAL_ONLY:
                     unsupported = True
                     break
@@ -411,8 +418,9 @@ def discover():
             parameters = list(signature.parameters.values())
             if not parameters or parameters[0].name != "self":
                 continue
-            if any(p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD, p.POSITIONAL_ONLY) for p in parameters):
+            if any(p.kind == p.POSITIONAL_ONLY for p in parameters):
                 continue
+            parameters = [p for p in parameters if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)]
             try:
                 hints = typing.get_type_hints(method)
             except Exception:

@@ -35,7 +35,7 @@ The browser downloads Pyodide and the CAD wheels on first launch. This is a rela
 - Each graph evaluation currently recomputes the full graph in topological order; incremental caching is not implemented yet.
 - Socket inference is annotation-driven. Unsupported or ambiguous Python types appear as `Any` and are not directly editable.
 - The first preview path tessellates output shapes into triangle meshes; the authoritative B-rep stays inside Pyodide.
-- Graph persistence, type-compatible connection validation, and multi-output nodes are not implemented yet.
+- Graph persistence, incremental evaluation caching, and multi-output nodes are not implemented yet.
 
 ## Design principles
 

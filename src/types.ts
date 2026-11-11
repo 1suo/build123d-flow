@@ -31,6 +31,8 @@ export interface GraphNode {
   data: {
     definition: NodeDefinition;
     params: Record<string, unknown>;
+    visible?: boolean;
+    onVisibility?: (nodeId: string, visible: boolean) => void;
     onParameter?: (nodeId: string, name: string, value: unknown) => void;
   };
 }

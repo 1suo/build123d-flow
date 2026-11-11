@@ -24,7 +24,7 @@ function update(name: string, event: Event) {
 <template>
   <article class="api-node" :class="{ 'has-error': data.error }">
     <header class="node-header">
-      <span class="node-category">{{ data.definition.category }}</span>
+      <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
       <strong>{{ data.definition.name }}</strong>
     </header>
     <p v-if="data.definition.description" class="node-description">

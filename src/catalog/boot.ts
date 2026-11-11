@@ -6,31 +6,31 @@ export const bootCatalog: NodeDefinition[] = [
     { name: "length", type: "Number", annotation: "Number", required: false, default: 1 },
     { name: "width", type: "Number", annotation: "Number", required: false, default: 1 },
     { name: "height", type: "Number", annotation: "Number", required: false, default: 1 },
-  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape" }] },
+  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape", required: false }] },
   { id: "boot.Cylinder", kind: "geometry", name: "Cylinder", category: "Primitives", description: "Cylindrical solid", inputs: [
     { name: "radius", type: "Number", annotation: "Number", required: false, default: 1 },
     { name: "height", type: "Number", annotation: "Number", required: false, default: 1 },
-  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape" }] },
+  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape", required: false }] },
   { id: "boot.Sphere", kind: "geometry", name: "Sphere", category: "Primitives", description: "Spherical solid", inputs: [
     { name: "radius", type: "Number", annotation: "Number", required: false, default: 1 },
-  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape" }] },
+  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape", required: false }] },
   { id: "boot.Rectangle", kind: "geometry", name: "Rectangle", category: "2D Profiles", description: "Rectangular planar profile", inputs: [
     { name: "width", type: "Number", annotation: "Number", required: false, default: 1 },
     { name: "height", type: "Number", annotation: "Number", required: false, default: 1 },
-  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape" }] },
+  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape", required: false }] },
   { id: "boot.Circle", kind: "geometry", name: "Circle", category: "2D Profiles", description: "Circular planar profile", inputs: [
     { name: "radius", type: "Number", annotation: "Number", required: false, default: 1 },
-  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape" }] },
+  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape", required: false }] },
   { id: "boot.Union", kind: "operation", name: "Union", category: "Boolean", description: "Combine two solids", inputs: [
     { name: "a", type: "Shape", annotation: "Shape", required: true },
     { name: "b", type: "Shape", annotation: "Shape", required: true },
-  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape" }] },
+  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape", required: false }] },
   { id: "boot.Difference", kind: "operation", name: "Difference", category: "Boolean", description: "Subtract one solid from another", inputs: [
     { name: "a", type: "Shape", annotation: "Shape", required: true },
     { name: "b", type: "Shape", annotation: "Shape", required: true },
-  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape" }] },
+  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape", required: false }] },
   { id: "boot.Intersection", kind: "operation", name: "Intersection", category: "Boolean", description: "Keep the common volume", inputs: [
     { name: "a", type: "Shape", annotation: "Shape", required: true },
     { name: "b", type: "Shape", annotation: "Shape", required: true },
-  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape" }] },
+  ], outputs: [{ name: "result", type: "Shape", annotation: "Shape", required: false }] },
 ];

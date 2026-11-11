@@ -79,6 +79,7 @@ const canvasActions = [
   { label: "Fit graph", icon: "pi pi-expand", command: () => fitView({ padding: 0.2 }) },
   { label: "Zoom in", icon: "pi pi-plus", command: () => zoomIn() },
   { label: "Zoom out", icon: "pi pi-minus", command: () => zoomOut() },
+  { label: "Export STEP", icon: "pi pi-download", command: () => downloadStep() },
 ];
 
 function categoryIcon(category: string): string {

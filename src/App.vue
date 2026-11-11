@@ -44,7 +44,28 @@ let nextId = 1;
 let evaluationRevision = 0;
 let evaluationTimer: ReturnType<typeof setTimeout> | undefined;
 
-const categories = computed(() => [...new Set(catalog.value.map((node) => node.category))].sort());
+function paletteGroup(item: NodeDefinition): string {
+  const category = item.category.toLowerCase();
+  const name = item.name.toLowerCase();
+  const id = item.id.toLowerCase();
+  if (category === "primitives") return "Primitives";
+  if (category.includes("profile") || category.includes("sketch")) return "2D Profiles";
+  if (category === "values" || category === "constants" || category === "convert") return "Values";
+  if (category === "math") return "Math";
+  if (category === "logic" || category === "compare") return "Logic";
+  if (category === "string" || category === "strings") return "Text";
+  if (category.includes("vector")) return "Vectors";
+  if (category === "python") return "Python";
+  if (category === "boolean" || id.includes("boolean")) return "Boolean";
+  if (/move|rotate|mirror|scale|transform|translate/.test(name)) return "Transforms";
+  if (/area|volume|length|center|bounding|measure/.test(name)) return "Measurements";
+  if (category.includes("method")) return "Shape Operations";
+  if (/extrude|revolve|loft|sweep|fillet|chamfer|shell|offset|fuse|cut|intersect/.test(name)) return "Modeling Operations";
+  if (item.kind === "geometry") return "Geometry";
+  return "Build123d API";
+}
+
+const categories = computed(() => [...new Set(catalog.value.map(paletteGroup))].sort());
 const categoryItems = computed(() => categories.value.map((category) => ({
   label: category,
   category,
@@ -53,7 +74,7 @@ const categoryItems = computed(() => categories.value.map((category) => ({
 const groupedCatalog = computed(() => categories.value.map((category) => ({
   category,
   items: catalog.value.filter((item) =>
-    item.category === category &&
+    paletteGroup(item) === category &&
     (item.name + " " + item.id + " " + item.description).toLowerCase().includes(paletteSearch.value.toLowerCase())
   ).sort((a, b) => a.name.localeCompare(b.name)),
 })).filter((group) => group.items.length > 0));
@@ -86,10 +107,10 @@ const canvasActions = [
 
 function categoryIcon(category: string): string {
   const value = category.toLowerCase();
-  if (value.includes("primitive") || value.includes("solid")) return "pi pi-box";
-  if (value.includes("profile") || value.includes("sketch") || value.includes("face")) return "pi pi-stop";
+  if (value.includes("primitive") || value.includes("geometry") || value.includes("solid")) return "pi pi-box";
+  if (value.includes("profile") || value.includes("sketch")) return "pi pi-stop";
   if (value.includes("vector") || value.includes("transform") || value.includes("location")) return "pi pi-arrows-alt";
-  if (value.includes("boolean") || value.includes("topology") || value.includes("shape")) return "pi pi-sitemap";
+  if (value.includes("boolean") || value.includes("topology") || value.includes("shape") || value.includes("operation")) return "pi pi-sitemap";
   if (value.includes("math") || value.includes("constant") || value.includes("numeric")) return "pi pi-calculator";
   if (value.includes("logic") || value.includes("compare")) return "pi pi-sliders-h";
   if (value.includes("string") || value.includes("text")) return "pi pi-align-left";

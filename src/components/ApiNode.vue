@@ -150,7 +150,7 @@ function updateStructured(value: string) {
             :model-value="String(data.params[input.name] ?? input.default ?? '')"
             :options="input.options || []" placeholder="Default" class="node-select"
             @update:model-value="update(input.name, $event)" />
-          <Button v-else-if="['Vector3', 'Vector2', 'Rotation', 'Plane', 'Location', 'Axis', 'Color', 'List', 'Dict', 'Any'].includes(input.type)"
+          <Button v-else-if="['Vector3', 'Vector2', 'Rotation', 'Plane', 'Location', 'Axis', 'Color', 'List', 'Tuple', 'Set', 'Dict', 'Any'].includes(input.type)"
             class="node-structured-trigger" severity="secondary" outlined
             :label="structuredSummary(input.name)" :title="structuredValue(input.name)"
             @click.stop="openStructuredEditor(input.name, $event)" />

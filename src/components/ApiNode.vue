@@ -32,11 +32,12 @@ function update(name: string, value: unknown) {
 <template>
   <Card class="api-node" :class="{ 'has-error': data.error }">
     <template #title>
-      <div class="node-heading">
-        <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
-        <strong>{{ data.definition.name }}</strong>
-      </div>
-      <Button
+      <div class="node-header">
+        <div class="node-heading">
+          <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
+          <strong>{{ data.definition.name }}</strong>
+        </div>
+        <Button
         v-if="canPreview"
         :icon="data.visible ? 'pi pi-eye' : 'pi pi-eye-slash'"
         text
@@ -48,7 +49,8 @@ function update(name: string, value: unknown) {
         :aria-label="data.visible ? 'Hide in viewer' : 'Show in viewer'"
         :title="data.visible ? 'Hide in viewer' : 'Show in viewer'"
         @click.stop="toggleVisibility"
-      />
+        />
+      </div>
     </template>
     <template #content>
       <p v-if="data.definition.description" class="node-description">{{ data.definition.description }}</p>

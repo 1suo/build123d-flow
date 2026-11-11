@@ -8,10 +8,6 @@ import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Dock from "primevue/dock";
 import Popover from "primevue/popover";
-import Accordion from "primevue/accordion";
-import AccordionPanel from "primevue/accordionpanel";
-import AccordionHeader from "primevue/accordionheader";
-import AccordionContent from "primevue/accordioncontent";
 import ProgressSpinner from "primevue/progressspinner";
 import Message from "primevue/message";
 import Splitter from "primevue/splitter";
@@ -51,37 +47,24 @@ let wantsFullCatalog = false;
 function paletteGroup(item: NodeDefinition): string {
   const category = item.category.toLowerCase();
   const name = item.name.toLowerCase();
-  const id = item.id.toLowerCase();
-  if (category === "primitives") return "Primitives";
-  if (category.includes("profile") || category.includes("sketch")) return "2D Profiles";
-  if (category === "values" || category === "constants" || category === "convert") return "Values";
-  if (category === "math") return "Math";
-  if (category === "logic" || category === "compare") return "Logic";
-  if (category === "string" || category === "strings") return "Text";
-  if (category.includes("vector")) return "Vectors";
-  if (category === "python") return "Python";
-  if (category === "boolean" || id.includes("boolean")) return "Boolean";
-  if (/move|rotate|mirror|scale|transform|translate/.test(name)) return "Transforms";
-  if (/area|volume|length|center|bounding|measure/.test(name)) return "Measurements";
-  if (category.includes("method")) return "Shape Operations";
-  if (/extrude|revolve|loft|sweep|fillet|chamfer|shell|offset|fuse|cut|intersect/.test(name)) return "Modeling Operations";
-  if (item.kind === "geometry") return "Geometry";
-  return "Build123d API";
+  const dataCategory = /^(values|constants|convert|math|logic|compare|strings?|python|vectors?)$/.test(category);
+  if (dataCategory || item.id.startsWith("core.")) return "Data";
+  if (item.kind === "geometry" || /^(primitives|2d profiles|sketch|profiles)$/.test(category)) return "Geometry";
+  if (/area|volume|length|center|bounding|measure/.test(name)) return "Data";
+  return "Operations";
 }
 
-const categories = computed(() => [...new Set(catalog.value.map(paletteGroup))].sort());
-const categoryItems = computed(() => categories.value.map((category) => ({
+const categories = ["Geometry", "Operations", "Data"];
+const categoryItems = computed(() => categories.map((category) => ({
   label: category,
   category,
   icon: categoryIcon(category),
 })));
-const groupedCatalog = computed(() => categories.value.map((category) => ({
-  category,
-  items: catalog.value.filter((item) =>
-    paletteGroup(item) === category &&
-    (item.name + " " + item.id + " " + item.description).toLowerCase().includes(paletteSearch.value.toLowerCase())
-  ).sort((a, b) => a.name.localeCompare(b.name)),
-})).filter((group) => group.items.length > 0));
+const activeCategory = ref("Geometry");
+const activePaletteItems = computed(() => catalog.value.filter((item) =>
+  paletteGroup(item) === activeCategory.value &&
+  (item.name + " " + item.id + " " + item.description).toLowerCase().includes(paletteSearch.value.toLowerCase())
+).sort((a, b) => a.name.localeCompare(b.name)));
 const contextResults = computed(() => catalog.value.filter((item) =>
   (item.name + " " + item.category + " " + item.id).toLowerCase().includes(contextSearch.value.toLowerCase())
 ).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name)).slice(0, 60));
@@ -115,7 +98,10 @@ function runCanvasAction(label: string) {
 
 function categoryIcon(category: string): string {
   const value = category.toLowerCase();
-  if (value.includes("primitive") || value.includes("geometry") || value.includes("solid")) return asset("icons/cad/shape.svg");
+  if (value.includes("geometry")) return asset("icons/cad/shape.svg");
+  if (value.includes("operation")) return asset("icons/cad/union.svg");
+  if (value.includes("data")) return asset("icons/cad/value.svg");
+  if (value.includes("primitive") || value.includes("solid")) return asset("icons/cad/shape.svg");
   if (value.includes("profile") || value.includes("sketch")) return asset("icons/cad/rectangle.svg");
   if (value.includes("vector") || value.includes("transform") || value.includes("location")) return asset("icons/cad/move.svg");
   if (value.includes("boolean") || value.includes("topology") || value.includes("shape") || value.includes("operation")) return asset("icons/cad/union.svg");
@@ -229,7 +215,7 @@ function ensureFullCatalog() {
 function openPalette(category: string, event: MouseEvent) {
   void ensureFullCatalog();
   paletteSearch.value = "";
-  expandedGroups.value = [category];
+  activeCategory.value = category;
   palettePopover.value?.show(event);
 }
 
@@ -336,14 +322,6 @@ function downloadStep() {
       <span>{{ status }}</span>
     </div>
     <Message v-if="runtimeError" severity="error" :closable="false" class="runtime-error">{{ runtimeError }}</Message>
-    <Dock :model="categoryItems" position="top" class="category-dock">
-      <template #item="{ item }">
-        <Button text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Node category'" :title="typeof item.label === 'string' ? item.label : 'Node category'" @click="openPalette(item.category, $event)">
-          <template #icon><img class="dock-category-icon" :src="item.icon" alt="" /></template>
-        </Button>
-      </template>
-    </Dock>
-
     <Splitter class="workspace" :gutter-size="4">
       <SplitterPanel :size="68" :min-size="35" class="graph-panel">
         <div ref="canvasSurface" class="canvas-surface" @drop="onDrop" @dragover.prevent @contextmenu.prevent="openContextMenu">
@@ -359,6 +337,13 @@ function downloadStep() {
             @edges-change="scheduleEvaluation"
           >
             <Background pattern-color="#39352e" :gap="22" />
+            <Dock :model="categoryItems" position="top" class="category-dock">
+              <template #item="{ item }">
+                <Button text rounded severity="secondary" :aria-label="item.category" :title="item.category" @click="openPalette(item.category, $event)">
+                  <template #icon><img class="dock-category-icon" :src="item.icon" alt="" /></template>
+                </Button>
+              </template>
+            </Dock>
             <Dock :model="canvasActions" position="bottom" class="canvas-dock">
               <template #item="{ item }">
                 <Button :icon="item.icon" text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Canvas action'" :title="typeof item.label === 'string' ? item.label : 'Canvas action'" @click="typeof item.label === 'string' && runCanvasAction(item.label)" />
@@ -375,35 +360,28 @@ function downloadStep() {
 
     <Popover ref="palettePopover" appendTo="self" class="palette-popover">
       <div class="palette-content">
+        <div class="palette-heading">
+          <img class="palette-group-icon" :src="categoryIcon(activeCategory)" alt="" />
+          <span>{{ activeCategory }}</span>
+          <span class="palette-group-count">{{ activePaletteItems.length }}</span>
+        </div>
         <InputText v-model="paletteSearch" placeholder="Search nodes…" class="palette-search" />
-        <Accordion v-model:value="expandedGroups" multiple class="palette-accordion">
-          <AccordionPanel v-for="group in groupedCatalog" :key="group.category" :value="group.category">
-            <AccordionHeader>
-              <span class="palette-group-title"><img class="palette-group-icon" :src="categoryIcon(group.category)" alt="" />{{ group.category }}</span>
-              <span class="palette-group-count">{{ group.items.length }}</span>
-            </AccordionHeader>
-            <AccordionContent>
-              <div class="palette-node-list">
-                <Button
-                  v-for="item in group.items"
-                  :key="item.id"
-                  text
-                  severity="secondary"
-                  class="palette-node"
-                  draggable="true"
-                  @dragstart="dragNode($event, item)"
-                  @click="addDefinition(item)"
-                >
-                  <template #icon>
-                    <img class="palette-node-icon" :src="nodeIcon(item)" alt="" />
-                  </template>
-                  <template #default><span class="palette-node-label">{{ item.name }}</span></template>
-                </Button>
-              </div>
-            </AccordionContent>
-          </AccordionPanel>
-        </Accordion>
-        <div v-if="!groupedCatalog.length" class="palette-empty">
+        <div class="palette-node-list">
+          <Button
+            v-for="item in activePaletteItems"
+            :key="item.id"
+            text
+            severity="secondary"
+            class="palette-node"
+            draggable="true"
+            @dragstart="dragNode($event, item)"
+            @click="addDefinition(item)"
+          >
+            <template #icon><img class="palette-node-icon" :src="nodeIcon(item)" alt="" /></template>
+            <template #default><span class="palette-node-label">{{ item.name }}</span></template>
+          </Button>
+        </div>
+        <div v-if="!activePaletteItems.length" class="palette-empty">
           <ProgressSpinner v-if="!catalog.length && !errors.length" style="width:20px;height:20px" stroke-width="4" />
           <span v-else>{{ errors.length ? "Python runtime failed" : "No matching nodes" }}</span>
         </div>

@@ -380,12 +380,22 @@ def evaluate_graph_json(payload):
             callable_obj = _resolve_callable(definition_id)
             result = _call_with_coercion(callable_obj, params)
             values[node_id] = {"result": result}
+        except Exception as exc:
+            errors[node_id] = type(exc).__name__ + ": " + str(exc)
+
+    # Preview only terminal graph outputs; intermediate solids stay in Python.
+    source_nodes = {edge.get("source") for edge in edges}
+    for node_id in order:
+        if node_id in source_nodes or node_id not in values:
+            continue
+        result = values[node_id].get("result")
+        try:
             preview = _mesh_preview(result)
             if preview is not None:
                 previews[node_id] = preview
                 _LAST_SHAPE = result
         except Exception as exc:
-            errors[node_id] = type(exc).__name__ + ": " + str(exc)
+            errors[node_id] = "Preview: " + str(exc)
 
     _LAST_VALUES = values
     return json.dumps({"previews": previews, "errors": errors, "order": order})

@@ -13,6 +13,7 @@ const props = defineProps<{
     params: Record<string, unknown>;
     visible?: boolean;
     collapsed?: boolean;
+    icon?: string;
     error?: string;
     onParameter?: (nodeId: string, name: string, value: unknown) => void;
     onVisibility?: (nodeId: string, visible: boolean) => void;
@@ -54,21 +55,22 @@ function toggleCollapse() {
       <div v-if="data.collapsed" class="node-header collapsed-node-header">
         <Button icon="pi pi-chevron-right" text rounded size="small" severity="secondary"
           class="node-collapse" aria-label="Expand node" title="Expand node" @click.stop="toggleCollapse" />
-        <div class="collapsed-socket-group collapsed-inputs">
+        <div class="collapsed-socket-group collapsed-inputs" aria-label="Inputs">
           <span v-for="input in inputs" :key="input.name" class="collapsed-socket" :title="input.name + ' · ' + input.type">
-            <Handle :id="input.name" type="target" :position="Position.Left" class="socket-handle" :style="{ '--socket-color': socketColor(input.type) }" />
+            <Handle :id="input.name" type="target" :position="Position.Top" class="socket-handle" :style="{ '--socket-color': socketColor(input.type) }" />
           </span>
         </div>
         <div class="collapsed-node-title">
+          <img v-if="data.icon" class="node-title-icon" :src="data.icon" alt="" />
           <strong>{{ data.definition.name }}</strong>
           <Button v-if="data.definition.description" icon="pi pi-info-circle" text rounded size="small"
             severity="secondary" class="node-description-trigger nodrag nopan"
             v-tooltip.top="data.definition.description"
             :aria-label="`Description: ${data.definition.name}`" />
         </div>
-        <div class="collapsed-socket-group collapsed-outputs">
+        <div class="collapsed-socket-group collapsed-outputs" aria-label="Outputs">
           <span v-for="output in outputs" :key="output.name" class="collapsed-socket" :title="output.name + ' · ' + output.type">
-            <Handle :id="output.name" type="source" :position="Position.Right" class="socket-handle" :style="{ '--socket-color': socketColor(output.type) }" />
+            <Handle :id="output.name" type="source" :position="Position.Bottom" class="socket-handle" :style="{ '--socket-color': socketColor(output.type) }" />
           </span>
         </div>
       </div>

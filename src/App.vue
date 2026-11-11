@@ -178,32 +178,35 @@ function categoryIcon(category: string): string {
 }
 
 function nodeIcon(item: NodeDefinition): string {
-  const name = item.name.toLowerCase();
+  const name = item.name.toLowerCase().replaceAll("_", " ");
   const id = item.id.toLowerCase();
-  if (/^box$/.test(name)) return asset("icons/cad/box.svg");
-  if (/cylinder/.test(name)) return asset("icons/cad/cylinder.svg");
-  if (/sphere/.test(name)) return asset("icons/cad/sphere.svg");
-  if (/union|fuse/.test(name) || id.endsWith(".union")) return asset("icons/cad/union.svg");
-  if (/difference|subtract|cut/.test(name) || id.endsWith(".difference")) return asset("icons/cad/difference.svg");
-  if (/intersection|common/.test(name) || id.endsWith(".intersection")) return asset("icons/cad/intersection.svg");
-  if (/extrude/.test(name)) return asset("icons/cad/extrude.svg");
-  if (/revolve/.test(name)) return asset("icons/cad/revolve.svg");
-  if (/fillet/.test(name)) return asset("icons/cad/fillet.svg");
-  if (/chamfer/.test(name)) return asset("icons/cad/chamfer.svg");
-  if (/rectangle|square/.test(name)) return asset("icons/cad/rectangle.svg");
-  if (/circle/.test(name)) return asset("icons/cad/circle.svg");
-  if (/ellipse/.test(name)) return asset("icons/cad/ellipse.svg");
-  if (/polygon/.test(name)) return asset("icons/cad/polygon.svg");
-  if (/move|translate/.test(name)) return asset("icons/cad/move.svg");
-  if (/rotate/.test(name)) return asset("icons/cad/rotate.svg");
-  if (/mirror/.test(name)) return asset("icons/cad/mirror.svg");
-  if (/scale/.test(name)) return asset("icons/cad/scale.svg");
-  if (item.kind === "geometry") return asset("icons/cad/shape.svg");
-  if (item.kind === "value") return asset("icons/cad/value.svg");
-  if (item.category === "Math") return asset("icons/cad/math.svg");
-  if (item.category === "Logic") return asset("icons/cad/logic.svg");
-  if (item.category === "Python") return asset("icons/cad/code.svg");
-  return asset("icons/cad/node.svg");
+  const key = `${name} ${id}`;
+  const icon = (file: string) => asset(`icons/cad/${file}.svg`);
+
+  if (/\\bbox\\b|\\bblock\\b/.test(key)) return icon("box");
+  if (/cylinder/.test(key)) return icon("cylinder");
+  if (/sphere/.test(key)) return icon("sphere");
+  if (/union|fuse|combine/.test(key)) return icon("union");
+  if (/difference|subtract|cut/.test(key)) return icon("difference");
+  if (/intersection|common/.test(key)) return icon("intersection");
+  if (/extrud|loft|sweep|thicken/.test(key)) return icon("extrude");
+  if (/revolv/.test(key)) return icon("revolve");
+  if (/fillet|round/.test(key)) return icon("fillet");
+  if (/chamfer|bevel/.test(key)) return icon("chamfer");
+  if (/rectangle|square/.test(key)) return icon("rectangle");
+  if (/circle/.test(key)) return icon("circle");
+  if (/ellipse/.test(key)) return icon("ellipse");
+  if (/polygon|polyline|trapezoid|slot/.test(key)) return icon("polygon");
+  if (/mirror|reflect/.test(key)) return icon("mirror");
+  if (/rotate|rotation/.test(key)) return icon("rotate");
+  if (/scale/.test(key)) return icon("scale");
+  if (/move|translat|transform|location|position|offset/.test(key)) return icon("move");
+  if (/math|numeric|number|measure|area|volume|length|distance|center|mass|inertia/.test(key) || item.category === "Math") return icon("math");
+  if (/logic|compare|boolean|condition/.test(key) || item.category === "Logic") return icon("logic");
+  if (/string|text|python|code|expression/.test(key) || item.category === "Python") return icon("code");
+  if (/list|tuple|dict|set|series|value|constant|convert/.test(key) || item.kind === "value") return icon("value");
+  if (/cone|torus|wedge|prism|primitive|shape|solid|compound|part|face|wire|edge|vertex|shell|sketch|plane|axis/.test(key) || item.kind === "geometry") return icon("shape");
+  return icon("node");
 }
 
 onMounted(() => {
@@ -216,6 +219,7 @@ onMounted(() => {
     for (const node of nodes.value as any[]) {
       const resolved = byName.get(node.data.definition.name);
       if (resolved) node.data.definition = resolved;
+      node.data.icon = nodeIcon(node.data.definition);
     }
     status.value = "Ready";
     logActivity("Python runtime ready", "success");
@@ -265,6 +269,7 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
     ? screenToFlowCoordinate({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
     : { x: 160, y: 120 };
   const node = createGraphNode(definition, id, position ?? center);
+  node.data.icon = nodeIcon(definition);
   node.data.onParameter = onParameter;
   node.data.onVisibility = onVisibility;
   node.data.onCollapse = onCollapse;
@@ -319,14 +324,18 @@ function deleteSelected() {
   const selectedIds = new Set<string>(
     nodes.value.filter((node: any) => node.selected).map((node: any) => String(node.id)),
   );
-  if (!selectedIds.size) return;
+  const selectedEdgeIds = new Set<string>(
+    edges.value.filter((edge: any) => edge.selected).map((edge: any) => String(edge.id)),
+  );
+  if (!selectedIds.size && !selectedEdgeIds.size) return;
 
   for (let i = nodes.value.length - 1; i >= 0; i--) {
     if (selectedIds.has(String((nodes.value[i] as any).id))) nodes.value.splice(i, 1);
   }
   for (let i = edges.value.length - 1; i >= 0; i--) {
     const edge = edges.value[i] as any;
-    if (selectedIds.has(String(edge.source)) || selectedIds.has(String(edge.target))) {
+    if (selectedEdgeIds.has(String(edge.id)) ||
+        selectedIds.has(String(edge.source)) || selectedIds.has(String(edge.target))) {
       edges.value.splice(i, 1);
     }
   }
@@ -340,9 +349,9 @@ function onGlobalKeydown(event: KeyboardEvent) {
   const target = event.target as HTMLElement | null;
   if (target?.closest("input, textarea, select, [contenteditable='true'], .p-inputtext, .p-textarea")) return;
   const selected = nodes.value.filter((node: any) => node.selected) as any[];
-  if (!selected.length) return;
+  const selectedEdges = edges.value.some((edge: any) => edge.selected);
 
-  if (event.key.toLowerCase() === "h" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+  if (event.key.toLowerCase() === "h" && !event.ctrlKey && !event.altKey && !event.metaKey && selected.length) {
     const collapse = selected.some((node) => !node.data.collapsed);
     event.preventDefault();
     event.stopPropagation();
@@ -352,6 +361,7 @@ function onGlobalKeydown(event: KeyboardEvent) {
     return;
   }
   if (event.key !== "Delete" && event.key !== "Backspace") return;
+  if (!selected.length && !selectedEdges) return;
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();

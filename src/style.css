@@ -208,3 +208,20 @@
 .inspector-socket.is-linked{border-color:#458b74}
 .inspector-json-editor{position:absolute;z-index:25;right:12px;bottom:12px;left:12px;display:flex;flex-direction:column;gap:7px;padding:10px;border:1px solid #2f4f4f;border-radius:5px;background:#080808;box-shadow:0 8px 28px #000a}
 .inspector-json-editor>div{display:flex;align-items:center;justify-content:space-between;color:#F5DEB3}
+
+
+/* Collapsed nodes use top input rails and bottom output rails. */
+.collapsed-node-header{position:relative;display:flex;min-width:150px;min-height:0;flex-direction:column;align-items:stretch;gap:5px;padding:5px 9px 4px}
+.collapsed-node-header>.node-collapse{position:absolute;z-index:5;top:3px;left:3px;width:20px;height:20px}
+.collapsed-socket-group{display:flex;max-width:none;min-height:13px;align-items:center;justify-content:center;gap:9px;overflow:visible;padding:0 5px}
+.collapsed-inputs{order:0}
+.collapsed-node-title{order:1;display:flex;max-width:none;min-height:27px;align-items:center;justify-content:center;gap:6px;overflow:visible;padding:0 20px;white-space:nowrap}
+.collapsed-node-title>strong{max-width:190px;font-size:11px}
+.collapsed-outputs{order:2}
+.collapsed-socket{width:14px;height:10px;flex:0 0 14px}
+.collapsed-inputs .collapsed-socket .vue-flow__handle{top:0;left:50%}
+.collapsed-outputs .collapsed-socket .vue-flow__handle{top:auto;bottom:0;left:50%}
+.collapsed-socket .vue-flow__handle{width:18px;height:18px}
+.node-title-icon{display:block;width:20px;height:20px;flex:0 0 20px;object-fit:contain}
+.node-header>.node-title-icon{width:22px;height:22px;flex:0 0 22px}
+.vue-flow__edge.selected .vue-flow__edge-path{stroke:#FFD700!important;stroke-width:4!important}

@@ -33,7 +33,7 @@ The browser downloads Pyodide and the CAD wheels on first launch. This is a rela
 ## Current limitations
 
 - Each graph evaluation currently recomputes the full graph in topological order; incremental caching is not implemented yet.
-- Socket inference is annotation-driven. Unsupported or ambiguous Python types appear as `Any` and are not directly editable. The core dataflow catalog currently includes scalar arithmetic, math functions/constants, comparisons, boolean logic, string operations, conversions and build123d Vector operations.
+- Socket inference is annotation-driven. Unsupported or ambiguous Python types appear as `Any` and are not directly editable. The core dataflow catalog currently includes scalar arithmetic, math functions/constants, comparisons, boolean logic, string operations, conversions, build123d Vector operations, and a Python Function node. The Python Function node receives optional `a`, `b`, and `c` inputs, has access to `math`, `operator`, `b3d`, and `Vector`, and must assign its output to `result`.
 - The first preview path tessellates output shapes into triangle meshes; the authoritative B-rep stays inside Pyodide. The browser bootstrap installs only the OCP.wasm wheels and build123d; it deliberately omits `ocp_vscode` and `ocp-tessellate`, because the app has its own Three.js mesh viewer. Python bootstrap output is surfaced in the runtime status. The initial canvas now opens with two parameterized `Box` nodes connected to a `Union` node, so the first run exercises a real multi-node graph.
 - Graph persistence, incremental evaluation caching, and multi-output nodes are not implemented yet.
 

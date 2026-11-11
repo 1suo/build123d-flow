@@ -64,4 +64,5 @@ export interface EvaluationResult {
   previews: Record<string, MeshPreview>;
   errors: Record<string, string>;
   order: string[];
+  socket_values?: Record<string, Record<string, unknown>>;
 }

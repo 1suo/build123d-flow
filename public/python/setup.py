@@ -40,6 +40,11 @@ ocp_version = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm")
 micropip.add_mock_package("cadquery-ocp-novtk", ocp_version, modules={})
 micropip.add_mock_package("cadquery-ocp", ocp_version, modules={})
 
+# build123d 0.13.0 marks lib3mf as required on every platform except Linux/aarch64.
+# Pyodide reports a wasm platform, but this app does not use 3MF import/export.
+# Register a metadata-only mock so micropip skips the unavailable native package.
+micropip.add_mock_package("lib3mf", "2.4.1", modules={})
+
 print("Installing build123d dependencies…")
 await micropip.install(["webcolors==24.8.0"])
 await micropip.install(["build123d==0.13.0"])

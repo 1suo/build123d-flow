@@ -805,6 +805,23 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
                 except Exception:
                     pass
             resolved_candidates.append(candidate)
+
+        # RotationLike is Rotation | tuple[float, float, float]. Keep browser
+        # arrays as tuples: Build123d explicitly accepts that representation
+        # throughout its placement APIs, while eagerly wrapping it as Rotation
+        # can route through a different constructor overload.
+        is_rotation_like = (
+            isinstance(value, list)
+            and any(
+                inspect.isclass(candidate) and candidate.__name__ == "Rotation"
+                for candidate in resolved_candidates
+            )
+            and any(typing.get_origin(candidate) is tuple for candidate in resolved_candidates)
+        )
+        if is_rotation_like:
+            converted[name] = tuple(value)
+            continue
+
         annotation = next((candidate for candidate in resolved_candidates if inspect.isclass(candidate)), annotation)
         if isinstance(value, str) and inspect.isclass(annotation):
             try:

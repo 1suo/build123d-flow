@@ -33,7 +33,7 @@ const canvasSurface = ref<HTMLElement | null>(null);
 const palettePopover = ref<any>();
 const contextPopover = ref<any>();
 const contextPosition = ref<{ x: number; y: number } | undefined>();
-const { addNodes, addEdges, removeNodes, removeEdges, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
+const { addNodes, addEdges, removeNodes, removeEdges, updateEdge, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
 
 let nextId = 1;
 let evaluationRevision = 0;
@@ -206,8 +206,8 @@ function addStarterGraph() {
   combine.data.onVisibility = onVisibility;
   addNodes([left, right, combine] as unknown as Node[]);
   addEdges([
-    { id: `e${nextId++}`, source: left.id, sourceHandle: "result", target: combine.id, targetHandle: "a" },
-    { id: `e${nextId++}`, source: right.id, sourceHandle: "result", target: combine.id, targetHandle: "b" },
+    { id: `e${nextId++}`, source: left.id, sourceHandle: "result", target: combine.id, targetHandle: "a", updatable: "target" },
+    { id: `e${nextId++}`, source: right.id, sourceHandle: "result", target: combine.id, targetHandle: "b", updatable: "target" },
   ] as Edge[]);
   fitView({ padding: 0.25 });
   scheduleEvaluation();
@@ -283,7 +283,22 @@ function isValidConnection(connection: Connection) {
 
 function onConnect(connection: Connection) {
   if (!isValidConnection(connection)) return;
-  addEdges([{ ...connection, id: `e${Date.now()}`, animated: false } as Edge]);
+  const replaced = edges.value
+    .filter((edge: any) => edge.target === connection.target && edge.targetHandle === connection.targetHandle)
+    .map((edge) => edge.id);
+  if (replaced.length) removeEdges(replaced);
+  addEdges([{ ...connection, id: `e${Date.now()}`, animated: false, updatable: "target" } as Edge]);
+  scheduleEvaluation();
+}
+
+function onEdgeUpdate({ edge, connection }: { edge: Edge; connection: Connection }) {
+  if (!canConnect(graph.value, connection, edge.id)) return;
+  const replaced = edges.value
+    .filter((candidate: any) => candidate.id !== edge.id &&
+      candidate.target === connection.target && candidate.targetHandle === connection.targetHandle)
+    .map((candidate) => candidate.id);
+  if (replaced.length) removeEdges(replaced);
+  updateEdge(edge, connection);
   scheduleEvaluation();
 }
 
@@ -368,6 +383,7 @@ function downloadStep() {
             delete-key-code="Delete"
             :default-viewport="{ zoom: 0.85, x: 60, y: 60 }"
             @connect="onConnect"
+            @edge-update="onEdgeUpdate"
             @keydown.delete.stop.prevent="deleteSelected"
             @nodes-change="scheduleEvaluation"
             @edges-change="scheduleEvaluation"

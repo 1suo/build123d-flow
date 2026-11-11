@@ -33,7 +33,7 @@ const canvasSurface = ref<HTMLElement | null>(null);
 const palettePopover = ref<any>();
 const contextPopover = ref<any>();
 const contextPosition = ref<{ x: number; y: number } | undefined>();
-const { addNodes, addEdges, updateEdge, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
+const { addNodes, addEdges, removeEdges, updateEdge, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
 
 let nextId = 1;
 let evaluationRevision = 0;
@@ -275,10 +275,15 @@ function deleteSelected() {
   );
   if (!selectedIds.size) return;
 
-  nodes.value = nodes.value.filter((node: any) => !selectedIds.has(String(node.id)));
-  edges.value = edges.value.filter((edge: any) =>
-    !selectedIds.has(String(edge.source)) && !selectedIds.has(String(edge.target)),
-  );
+  for (let i = nodes.value.length - 1; i >= 0; i--) {
+    if (selectedIds.has(String((nodes.value[i] as any).id))) nodes.value.splice(i, 1);
+  }
+  for (let i = edges.value.length - 1; i >= 0; i--) {
+    const edge = edges.value[i] as any;
+    if (selectedIds.has(String(edge.source)) || selectedIds.has(String(edge.target))) {
+      edges.value.splice(i, 1);
+    }
+  }
   previews.value = Object.fromEntries(
     Object.entries(previews.value).filter(([id]) => !selectedIds.has(id)),
   );

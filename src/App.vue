@@ -205,6 +205,9 @@ function addStarterGraph() {
   left.data.onVisibility = onVisibility;
   right.data.onVisibility = onVisibility;
   combine.data.onVisibility = onVisibility;
+  left.data.onCollapse = onCollapse;
+  right.data.onCollapse = onCollapse;
+  combine.data.onCollapse = onCollapse;
   addNodes([left, right, combine] as unknown as Node[]);
   addEdges([
     { id: `e${nextId++}`, source: left.id, sourceHandle: "result", target: combine.id, targetHandle: "a", updatable: true },
@@ -223,6 +226,7 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
   const node = createGraphNode(definition, id, position ?? center);
   node.data.onParameter = onParameter;
   node.data.onVisibility = onVisibility;
+  node.data.onCollapse = onCollapse;
   addNodes([node as unknown as Node]);
   scheduleEvaluation();
 }
@@ -344,6 +348,11 @@ function onVisibility(nodeId: string, visible: boolean) {
   if (!node) return;
   node.data.visible = visible;
   scheduleEvaluation();
+}
+
+function onCollapse(nodeId: string, collapsed: boolean) {
+  const node = nodes.value.find((item: any) => item.id === nodeId) as any;
+  if (node) node.data.collapsed = collapsed;
 }
 
 function dragNode(event: DragEvent, definition: NodeDefinition) {

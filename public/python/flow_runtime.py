@@ -440,8 +440,6 @@ def discover(include_full=True):
             callables[node_id] = method
 
     # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.
-    _register_curated_geometry(found, callables)
-
     _add_core_nodes(found, callables)
 
 

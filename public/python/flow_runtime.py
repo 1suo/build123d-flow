@@ -377,91 +377,111 @@ def discover(include_full=True):
             if node_id in found:
                 continue
             try:
-                signature = _api_signature(obj)
-            except (TypeError, ValueError):
+                overloads = typing.get_overloads(obj.__init__) if inspect.isclass(obj) else []
+                constructor_signatures = []
+                for overload in overloads:
+                    overload_signature = inspect.signature(overload)
+                    parameters = list(overload_signature.parameters.values())
+                    if parameters and parameters[0].name in ("self", "cls"):
+                        overload_signature = overload_signature.replace(parameters=parameters[1:])
+                    constructor_signatures.append((overload_signature, overload))
+                if not constructor_signatures:
+                    constructor_signatures = [(_api_signature(obj), obj.__init__ if inspect.isclass(obj) else obj)]
+            except (TypeError, ValueError, AttributeError):
                 continue
 
-            inputs = []
-            try:
-                hint_target = obj.__init__ if inspect.isclass(obj) else obj
-                hints = typing.get_type_hints(hint_target)
-            except Exception:
-                hints = {}
-
-            for parameter in signature.parameters.values():
-                annotation = hints.get(parameter.name, parameter.annotation)
-                if parameter.kind == parameter.VAR_POSITIONAL:
-                    default, default_repr, required, has_default = [], "()", False, True
-                    socket_type = "List"
-                elif parameter.kind == parameter.VAR_KEYWORD:
-                    default, default_repr, required, has_default = {}, "{}", False, True
-                    socket_type = "Any"
-                else:
-                    default, default_repr, required, has_default = _safe_default(parameter.default)
-                    socket_type = _type_name(annotation)
-                socket = {
-                    "name": parameter.name,
-                    "kind": parameter.kind.name.lower(),
-                    "type": socket_type,
-                    "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
-                    "required": required,
-                    "default_repr": default_repr,
-                }
-                if has_default:
-                    socket["default"] = default
-                if inspect.isclass(annotation):
-                    try:
-                        if issubclass(annotation, enum.Enum):
-                            socket["options"] = [member.name for member in annotation]
-                    except TypeError:
-                        pass
-                if typing.get_origin(annotation) is typing.Literal:
-                    socket["options"] = list(typing.get_args(annotation))
-                if typing.get_origin(annotation) in (list, tuple, set, frozenset):
-                    item_args = typing.get_args(annotation)
-                    if item_args:
-                        socket["item_type"] = _type_name(item_args[0])
-                if typing.get_origin(annotation) in (dict, typing.Dict, collections.abc.Mapping):
-                    mapping_args = typing.get_args(annotation)
-                    socket["key_type"] = _type_name(mapping_args[0]) if mapping_args else "String"
-                    socket["value_type"] = _type_name(mapping_args[1]) if len(mapping_args) > 1 else "Any"
-                if typing.get_origin(annotation) in (typing.Union, types.UnionType):
-                    socket["variants"] = sorted({_type_name(arg) for arg in typing.get_args(annotation) if arg is not type(None)})
-                _populate_editor_default(socket)
-                inputs.append(socket)
-            if inspect.isclass(obj):
+            is_overloaded_constructor = inspect.isclass(obj) and len(constructor_signatures) > 1
+            for overload_index, (signature, hint_target) in enumerate(constructor_signatures, start=1):
+                inputs = []
                 try:
-                    if issubclass(obj, getattr(b3d, "Shape", object)):
-                        output_type = _type_name(obj)
-                        node_kind = "geometry"
-                    elif issubclass(obj, enum.Enum):
-                        node_kind, output_type = "enum", "Enum"
-                    else:
-                        node_kind, output_type = "value", _type_name(obj)
-                except TypeError:
-                    node_kind, output_type = "value", "Any"
-            else:
-                node_kind = "operation"
-                output_type = _type_name(hints.get("return", signature.return_annotation))
+                    hints = typing.get_type_hints(hint_target)
+                except Exception:
+                    hints = {}
 
-            module_parts = canonical_module.split(".")
-            category = module_parts[-1].replace("_", " ").title() if len(module_parts) > 1 else "Build123d"
-            doc = inspect.getdoc(obj) or ""
-            found[node_id] = {
-                "id": node_id,
-                "kind": node_kind,
-                "name": name,
-                "category": category,
-                "description": doc.split("\n")[0][:180],
-                "inputs": inputs,
-                "outputs": [{
-                    "name": "result", "type": output_type, "annotation": "",
-                    **({"variants": sorted({_type_name(arg) for arg in typing.get_args(hints.get("return", signature.return_annotation)) if arg is not type(None)})}
-                       if typing.get_origin(hints.get("return", signature.return_annotation)) in (typing.Union, types.UnionType) else {}),
-                }],
-            }
-            callables[node_id] = obj
-            report["accepted"].append({"id": node_id, "kind": node_kind})
+                for parameter in signature.parameters.values():
+                    annotation = hints.get(parameter.name, parameter.annotation)
+                    if parameter.kind == parameter.VAR_POSITIONAL:
+                        default, default_repr, required, has_default = [], "()", False, True
+                        socket_type = "List"
+                    elif parameter.kind == parameter.VAR_KEYWORD:
+                        default, default_repr, required, has_default = {}, "{}", False, True
+                        socket_type = "Any"
+                    else:
+                        default, default_repr, required, has_default = _safe_default(parameter.default)
+                        socket_type = _type_name(annotation)
+                    socket = {
+                        "name": parameter.name,
+                        "kind": parameter.kind.name.lower(),
+                        "type": socket_type,
+                        "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
+                        "required": required,
+                        "default_repr": default_repr,
+                    }
+                    if has_default:
+                        socket["default"] = default
+                    if inspect.isclass(annotation):
+                        try:
+                            if issubclass(annotation, enum.Enum):
+                                socket["options"] = [member.name for member in annotation]
+                        except TypeError:
+                            pass
+                    if typing.get_origin(annotation) is typing.Literal:
+                        socket["options"] = list(typing.get_args(annotation))
+                    if typing.get_origin(annotation) in (list, tuple, set, frozenset):
+                        item_args = typing.get_args(annotation)
+                        if item_args:
+                            socket["item_type"] = _type_name(item_args[0])
+                    if typing.get_origin(annotation) in (dict, typing.Dict, collections.abc.Mapping):
+                        mapping_args = typing.get_args(annotation)
+                        socket["key_type"] = _type_name(mapping_args[0]) if mapping_args else "String"
+                        socket["value_type"] = _type_name(mapping_args[1]) if len(mapping_args) > 1 else "Any"
+                    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+                        socket["variants"] = sorted({_type_name(arg) for arg in typing.get_args(annotation) if arg is not type(None)})
+                    _populate_editor_default(socket)
+                    inputs.append(socket)
+
+                if inspect.isclass(obj):
+                    try:
+                        if issubclass(obj, getattr(b3d, "Shape", object)):
+                            output_type = _type_name(obj)
+                            node_kind = "geometry"
+                        elif issubclass(obj, enum.Enum):
+                            node_kind, output_type = "enum", "Enum"
+                        else:
+                            node_kind, output_type = "value", _type_name(obj)
+                    except TypeError:
+                        node_kind, output_type = "value", "Any"
+                else:
+                    node_kind = "operation"
+                    output_type = _type_name(hints.get("return", signature.return_annotation))
+
+                overload_id = node_id + ".overload-" + str(overload_index) if is_overloaded_constructor else node_id
+                display_name = name
+                if is_overloaded_constructor:
+                    typed_args = ", ".join(
+                        parameter.name + ": " + _type_name(hints.get(parameter.name, parameter.annotation))
+                        for parameter in signature.parameters.values()
+                    )
+                    display_name = name + "(" + typed_args + ")"
+
+                module_parts = canonical_module.split(".")
+                category = module_parts[-1].replace("_", " ").title() if len(module_parts) > 1 else "Build123d"
+                doc = inspect.getdoc(obj) or ""
+                found[overload_id] = {
+                    "id": overload_id,
+                    "kind": node_kind,
+                    "name": display_name,
+                    "category": category,
+                    "description": doc.split("\\n")[0][:180],
+                    "inputs": inputs,
+                    "outputs": [{
+                        "name": "result", "type": output_type, "annotation": "",
+                        **({"variants": sorted({_type_name(arg) for arg in typing.get_args(hints.get("return", signature.return_annotation)) if arg is not type(None)})}
+                           if typing.get_origin(hints.get("return", signature.return_annotation)) in (typing.Union, types.UnionType) else {}),
+                    }],
+                }
+                callables[overload_id] = obj
+                report["accepted"].append({"id": overload_id, "kind": node_kind})
 
     # Discover useful instance methods on actual B-rep classes as operation nodes.
     for cls in shape_classes:

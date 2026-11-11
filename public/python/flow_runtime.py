@@ -347,6 +347,101 @@ def _add_core_nodes(found, callables):
               lambda value: value.normalized(),
               [("value", "Vector3")], "Vector3")
 
+    # First-class collection construction and transformation nodes.
+    _add_node(found, callables, "core.list.construct", "List", "Collections",
+              lambda items: list(items), [("items", "List")], "List",
+              "Create a list from an input sequence.")
+    _add_node(found, callables, "core.list.length", "List Length", "Collections",
+              len, [("items", "List")], "Number")
+    _add_node(found, callables, "core.list.get", "Get Item", "Collections",
+              lambda items, index: items[index], [("items", "List"), ("index", "Number")], "Any")
+    _add_node(found, callables, "core.list.set", "Set Item", "Collections",
+              lambda items, index, value: (lambda result: (result.__setitem__(index, value), result)[1])(list(items)),
+              [("items", "List"), ("index", "Number"), ("value", "Any")], "List")
+    _add_node(found, callables, "core.list.append", "Append", "Collections",
+              lambda items, value: list(items) + [value], [("items", "List"), ("value", "Any")], "List")
+    _add_node(found, callables, "core.list.extend", "Extend", "Collections",
+              lambda items, values: list(items) + list(values), [("items", "List"), ("values", "List")], "List")
+    _add_node(found, callables, "core.list.insert", "Insert", "Collections",
+              lambda items, index, value: (lambda result: (result.insert(index, value), result)[1])(list(items)),
+              [("items", "List"), ("index", "Number"), ("value", "Any")], "List")
+    _add_node(found, callables, "core.list.remove", "Remove Value", "Collections",
+              lambda items, value: (lambda result: (result.remove(value), result)[1])(list(items)),
+              [("items", "List"), ("value", "Any")], "List")
+    _add_node(found, callables, "core.list.pop", "Pop", "Collections",
+              lambda items, index: (lambda result: (result.pop(index), result)[1])(list(items)),
+              [("items", "List"), ("index", "Number")], "List")
+    _add_node(found, callables, "core.list.contains", "Contains", "Collections",
+              lambda items, value: value in items, [("items", "List"), ("value", "Any")], "Boolean")
+    _add_node(found, callables, "core.list.index", "Find Index", "Collections",
+              lambda items, value: items.index(value), [("items", "List"), ("value", "Any")], "Number")
+    _add_node(found, callables, "core.list.slice", "Slice", "Collections",
+              lambda items, start, stop, step: list(items)[slice(start, stop, step)],
+              [("items", "List"), ("start", "Number"), ("stop", "Number"), ("step", "Number")], "List")
+    _add_node(found, callables, "core.list.reverse", "Reverse", "Collections",
+              lambda items: list(reversed(items)), [("items", "List")], "List")
+    _add_node(found, callables, "core.list.sort", "Sort", "Collections",
+              lambda items, reverse: sorted(items, reverse=reverse),
+              [("items", "List"), ("reverse", "Boolean")], "List")
+    _add_node(found, callables, "core.list.unique", "Unique", "Collections",
+              lambda items: list(dict.fromkeys(items)), [("items", "List")], "List")
+    _add_node(found, callables, "core.list.flatten", "Flatten", "Collections",
+              lambda items: [value for group in items for value in group],
+              [("items", "List")], "List")
+    _add_node(found, callables, "core.list.zip", "Zip", "Collections",
+              lambda a, b: [list(pair) for pair in zip(a, b)],
+              [("a", "List"), ("b", "List")], "List")
+    _add_node(found, callables, "core.list.enumerate", "Enumerate", "Collections",
+              lambda items, start: [[index, value] for index, value in enumerate(items, int(start))],
+              [("items", "List"), ("start", "Number")], "List")
+
+    # Numeric series are explicit list-producing nodes; stop is exclusive like Python range.
+    _add_node(found, callables, "core.series.range", "Range", "Series",
+              lambda start, stop, step: list(range(int(start), int(stop), int(step))),
+              [("start", "Number"), ("stop", "Number"), ("step", "Number")], "List")
+    _add_node(found, callables, "core.series.linspace", "Linspace", "Series",
+              lambda start, stop, count: ([float(start)] if int(count) <= 1 else
+                  [float(start) + (float(stop) - float(start)) * i / (int(count) - 1) for i in range(int(count))]),
+              [("start", "Number"), ("stop", "Number"), ("count", "Number")], "List")
+    _add_node(found, callables, "core.series.arithmetic", "Arithmetic Series", "Series",
+              lambda start, step, count: [float(start) + i * float(step) for i in range(int(count))],
+              [("start", "Number"), ("step", "Number"), ("count", "Number")], "List")
+    _add_node(found, callables, "core.series.geometric", "Geometric Series", "Series",
+              lambda start, ratio, count: [float(start) * float(ratio) ** i for i in range(int(count))],
+              [("start", "Number"), ("ratio", "Number"), ("count", "Number")], "List")
+
+    # Dictionary operations.
+    _add_node(found, callables, "core.dict.construct", "Dictionary", "Collections",
+              lambda keys, values: dict(zip(keys, values)),
+              [("keys", "List"), ("values", "List")], "Dict")
+    _add_node(found, callables, "core.dict.get", "Get Value", "Collections",
+              lambda mapping, key: mapping[key], [("mapping", "Dict"), ("key", "Any")], "Any")
+    _add_node(found, callables, "core.dict.set", "Set Value", "Collections",
+              lambda mapping, key, value: {**mapping, key: value},
+              [("mapping", "Dict"), ("key", "Any"), ("value", "Any")], "Dict")
+    _add_node(found, callables, "core.dict.keys", "Keys", "Collections",
+              lambda mapping: list(mapping.keys()), [("mapping", "Dict")], "List")
+    _add_node(found, callables, "core.dict.values", "Values", "Collections",
+              lambda mapping: list(mapping.values()), [("mapping", "Dict")], "List")
+    _add_node(found, callables, "core.dict.items", "Items", "Collections",
+              lambda mapping: [[key, value] for key, value in mapping.items()], [("mapping", "Dict")], "List")
+    _add_node(found, callables, "core.dict.merge", "Merge", "Collections",
+              lambda a, b: {**a, **b}, [("a", "Dict"), ("b", "Dict")], "Dict")
+    _add_node(found, callables, "core.dict.contains", "Has Key", "Collections",
+              lambda mapping, key: key in mapping, [("mapping", "Dict"), ("key", "Any")], "Boolean")
+
+    # Tuple and set conversions/operations.
+    _add_node(found, callables, "core.tuple.construct", "Tuple", "Collections",
+              tuple, [("items", "List")], "Any")
+    _add_node(found, callables, "core.set.construct", "Set", "Collections",
+              set, [("items", "List")], "Any")
+    _add_node(found, callables, "core.set.union", "Set Union", "Collections",
+              lambda a, b: list(set(a) | set(b)), [("a", "List"), ("b", "List")], "List")
+    _add_node(found, callables, "core.set.intersection", "Set Intersection", "Collections",
+              lambda a, b: list(set(a) & set(b)), [("a", "List"), ("b", "List")], "List")
+    _add_node(found, callables, "core.set.difference", "Set Difference", "Collections",
+              lambda a, b: list(set(a) - set(b)), [("a", "List"), ("b", "List")], "List")
+
 
 def _python_function(code, a=None, b=None, c=None):
     import math

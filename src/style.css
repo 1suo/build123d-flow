@@ -108,9 +108,12 @@ body { background: #171614; }
 .geometry-viewport { position: relative; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
 .geometry-viewport :deep(canvas) { display: block; width: 100%; height: 100%; }
 .viewport-empty { position: absolute; inset: 0; display: grid; place-items: center; color: #81796d; font-size: 11px; pointer-events: none; }
-.api-node { min-width: 218px; max-width: 290px; overflow: visible; border: 1px solid #554b3d; border-radius: 7px; background: #292620; box-shadow: 0 5px 18px #0005; color: #e9e1d5; }
+.api-node.p-card { min-width: 218px; max-width: 290px; overflow: visible; border: 1px solid #554b3d; border-radius: 7px; background: #292620; box-shadow: 0 5px 18px #0005; color: #e9e1d5; }
 .api-node.has-error { border-color: #b65b4b; }
-.node-header { display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-bottom: 1px solid #474035; }
+.api-node .p-card-body { gap: 0; padding: 0; }
+.api-node .p-card-title { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 9px; border-bottom: 1px solid #474035; font-size: inherit; }
+.api-node .p-card-content { padding: 0; }
+.api-node .p-card-footer { padding: 0 9px 8px; }
 .node-heading { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
 .node-category { color: #c79b60; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
 .node-header strong { overflow: hidden; font-size: 11px; font-weight: 620; text-overflow: ellipsis; }
@@ -132,8 +135,11 @@ body { background: #171614; }
 .output-row { justify-content: flex-end; color: #d8c9b4; }
 .output-row small { margin-left: 5px; color: #8f8577; }
 .vue-flow__handle { width: 8px; height: 8px; border: 1px solid #d6b47e; background: #9b7547; }
-.node-error { padding: 7px 9px; border-top: 1px solid #75483e; color: #ef9c8c; font-size: 9px; }
+.node-error.p-message { margin: 0; padding: 5px 0 0; border: 0; color: #ef9c8c; font-size: 9px; }
 @media (max-width: 760px) {
   .palette-node-list { grid-template-columns: 1fr; }
   .preview-panel { display: none; }
 }
+
+.runtime-indicator { position: fixed; z-index: 20; top: 55px; right: 14px; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #51483c; border-radius: 6px; background: #24211e; color: #bdb2a3; font-size: 10px; box-shadow: 0 6px 18px #0006; }
+.runtime-error.p-message { position: fixed; z-index: 30; top: 55px; right: 14px; max-width: min(520px, calc(100vw - 28px)); box-shadow: 0 6px 18px #0006; }

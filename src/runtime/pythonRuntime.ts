@@ -85,6 +85,11 @@ export class PythonRuntime {
     return JSON.parse(json);
   }
 
+  getDiscoveryReport(): Record<string, unknown> {
+    if (!this.ready) throw new Error("Python runtime is not ready");
+    return JSON.parse(this.pyodide.runPython("flow_runtime.discovery_report_json()"));
+  }
+
   async evaluate(graph: GraphDocument): Promise<EvaluationResult> {
     if (!this.ready) throw new Error("Python runtime is not ready");
     const payload = JSON.stringify(graph);

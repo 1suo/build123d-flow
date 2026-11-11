@@ -82,11 +82,19 @@ function updateStructured(value: string) {
 <template>
   <Card class="api-node" :class="{ 'has-error': data.error, 'is-collapsed': data.collapsed }">
     <template #title>
-      <div class="node-header" :title="data.definition.description || undefined">
+      <div class="node-header">
         <div class="node-heading">
           <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
           <strong>{{ data.definition.name }}</strong>
         </div>
+        <Button
+          v-if="data.definition.description"
+          icon="pi pi-info-circle"
+          text rounded size="small" severity="secondary"
+          class="node-description-trigger"
+          :aria-label="`Description: ${data.definition.name}`"
+          :title="data.definition.description"
+        />
         <Button
           :icon="data.collapsed ? 'pi pi-chevron-down' : 'pi pi-chevron-up'"
           text rounded size="small" severity="secondary"
@@ -120,10 +128,11 @@ function updateStructured(value: string) {
       </div>
     </template>
     <template #content>
-      <div v-if="!data.collapsed" class="node-body">
+      <div class="node-body" :class="{ 'is-collapsed': data.collapsed }">
         <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
           <Handle :id="input.name" type="target" :position="Position.Left" />
           <label :title="input.annotation">{{ input.label || input.name }}</label>
+          <template v-if="!data.collapsed">
           <InputNumber
             v-if="input.type === 'Number'"
             :model-value="(data.params[input.name] ?? input.default ?? null) as number | null"
@@ -164,6 +173,7 @@ function updateStructured(value: string) {
             @click.stop="openStructuredEditor(input.name, $event)"
           />
           <span v-else class="socket-type-hint">{{ input.type }}</span>
+          </template>
         </div>
         <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
           <span>{{ output.name }} <small>{{ output.type }}</small></span>

@@ -25,6 +25,22 @@ const paletteSearch = ref("");
 const contextSearch = ref("");
 const errors = ref<string[]>([]);
 const previews = shallowRef<Record<string, MeshPreview>>({});
+const socketValues = shallowRef<Record<string, Record<string, unknown>>>({});
+const inspectedSocket = ref<{ nodeId: string; socketName: string; direction: "input" | "output" } | null>(null);
+const inspectedValue = computed(() => {
+  const selection = inspectedSocket.value;
+  if (!selection) return null;
+  let nodeId = selection.nodeId;
+  let outputName = selection.socketName;
+  if (selection.direction === "input") {
+    const edge = edges.value.find((item: any) => item.target === nodeId && item.targetHandle === outputName) as any;
+    if (!edge) return null;
+    nodeId = edge.source;
+    outputName = edge.sourceHandle || "result";
+  }
+  return socketValues.value[nodeId]?.[outputName] ?? null;
+});
+const inspectedJson = computed(() => inspectedValue.value ? JSON.stringify(inspectedValue.value, null, 2) : "No evaluated value. Connect the input or wait for evaluation.");
 const running = ref(false);
 const nodes = ref<Node[]>([]);
 const edges = ref<Edge[]>([]);
@@ -208,6 +224,9 @@ function addStarterGraph() {
   left.data.onCollapse = onCollapse;
   right.data.onCollapse = onCollapse;
   combine.data.onCollapse = onCollapse;
+  left.data.onInspect = onInspect;
+  right.data.onInspect = onInspect;
+  combine.data.onInspect = onInspect;
   addNodes([left, right, combine] as unknown as Node[]);
   addEdges([
     { id: `e${nextId++}`, source: left.id, sourceHandle: "result", target: combine.id, targetHandle: "a", updatable: true },
@@ -227,6 +246,7 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
   node.data.onParameter = onParameter;
   node.data.onVisibility = onVisibility;
   node.data.onCollapse = onCollapse;
+  node.data.onInspect = onInspect;
   addNodes([node as unknown as Node]);
   scheduleEvaluation();
 }
@@ -350,6 +370,8 @@ function onVisibility(nodeId: string, visible: boolean) {
   scheduleEvaluation();
 }
 
+function onInspect(nodeId: string, socketName: string, direction: "input" | "output") { inspectedSocket.value = { nodeId, socketName, direction }; }
+
 function onCollapse(nodeId: string, collapsed: boolean) {
   const node = nodes.value.find((item: any) => item.id === nodeId) as any;
   if (node) node.data.collapsed = collapsed;
@@ -379,6 +401,7 @@ async function evaluate() {
     const result: EvaluationResult = await runtime.evaluate(graph.value);
     if (revision !== evaluationRevision) return;
     previews.value = result.previews;
+    socketValues.value = result.socket_values ?? {};
     errors.value = Object.entries(result.errors).map(([id, error]) => `${id}: ${error}`);
     for (const node of nodes.value as any[]) node.data.error = result.errors[node.id] ?? "";
   } catch (error) {
@@ -452,7 +475,17 @@ function downloadStep() {
       </SplitterPanel>
 
       <SplitterPanel :size="32" :min-size="20" class="preview-panel">
-        <GeometryViewport :previews="previews" :running="running" />
+        <div class="preview-stack">
+          <section class="geometry-panel"><GeometryViewport :previews="previews" :running="running" /></section>
+          <section class="socket-inspector">
+            <div class="inspector-heading">
+              <strong>Socket data</strong>
+              <span v-if="inspectedSocket">{{ inspectedSocket.direction }} · {{ inspectedSocket.socketName }}</span>
+              <span v-else>Select a socket on a node</span>
+            </div>
+            <pre class="inspector-value">{{ inspectedJson }}</pre>
+          </section>
+        </div>
       </SplitterPanel>
     </Splitter>
 

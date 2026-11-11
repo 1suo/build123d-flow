@@ -18,7 +18,6 @@ import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
 
 const runtime = new PythonRuntime();
-const asset = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
 const status = ref("Loading Python runtime…");
 const runtimeError = ref("");
 const catalog = ref<NodeDefinition[]>([]);

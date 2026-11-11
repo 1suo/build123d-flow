@@ -25,7 +25,7 @@ function compatible(source: string, target: string): boolean {
 
 export function canConnect(
   graph: GraphDocument,
-  connection: { source: string | null; target: string | null; sourceHandle: string | null; targetHandle: string | null },
+  connection: { source: string | null; target: string | null; sourceHandle?: string | null; targetHandle?: string | null },
 ): boolean {
   if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) return false;
   const source = graph.nodes.find((node) => node.id === connection.source);

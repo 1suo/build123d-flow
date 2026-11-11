@@ -14,8 +14,8 @@ const outputs = computed(() => props.data.definition.outputs);
 function update(name: string, event: Event) {
   const target = event.target as HTMLInputElement;
   const old = inputs.value.find((input) => input.name === name);
-  let value: unknown = target.value;
-  if (old?.type === "Number") value = Number(target.value);
+  let value: unknown = target.value === "" ? undefined : target.value;
+  if (old?.type === "Number" && value !== undefined) value = Number(target.value);
   if (old?.type === "Boolean") value = target.checked;
   props.data.onParameter?.(props.id, name, value);
 }
@@ -36,7 +36,7 @@ function update(name: string, event: Event) {
         <label :title="input.annotation">{{ input.name }}</label>
         <input
           v-if="input.type === 'Number'"
-          :value="data.params[input.name] as any ?? ''"
+          :value="data.params[input.name] ?? ''"
           type="number"
           step="any"
           @change="update(input.name, $event)"
@@ -53,6 +53,7 @@ function update(name: string, event: Event) {
           type="text"
           @change="update(input.name, $event)"
         />
+        <select v-else-if="input.type === 'Enum'" :value="String(data.params[input.name] ?? '')" @change="update(input.name, $event)"><option value="">Default</option><option v-for="option in input.options || []" :key="option" :value="option">{{ option }}</option></select>
         <span v-else class="socket-type-hint">{{ input.type }}</span>
       </div>
       <div v-for="output in outputs" :key="output.name" class="socket-row output-row">

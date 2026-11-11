@@ -87,7 +87,7 @@ function paletteGroup(item: NodeDefinition): string {
       id.startsWith("core.convert.")) return "Data";
   if (id.startsWith("core.math.") || id.startsWith("core.compare.") ||
       id.startsWith("core.logic.")) return "Math";
-  if (id.startsWith("core.vector.") || name === "vector") return "Spatial";
+  if (id.startsWith("core.vector.") || /^vector(?:\(|$)/.test(name)) return "Spatial";
   if (id.startsWith("core.python.")) return "Scripting";
 
   if (/^(union|difference|intersection|fuse|cut|common|intersect)$/.test(name) ||
@@ -123,7 +123,7 @@ function paletteSection(item: NodeDefinition): string {
   if (id.startsWith("core.convert.")) return "Conversions";
   if (id.startsWith("core.math.")) return "Arithmetic & trigonometry";
   if (id.startsWith("core.compare.") || id.startsWith("core.logic.")) return "Logic";
-  if (id.startsWith("core.vector.") || name === "vector") return "Vectors";
+  if (id.startsWith("core.vector.") || /^vector(?:\(|$)/.test(name)) return "Vectors";
   if (id.startsWith("core.utility.")) return "Numeric utilities";
   if (id.startsWith("core.spatial.")) return /voronoi|distance/.test(id) ? "Spatial operations" : "Point distributions";
   if (id.startsWith("core.python.")) return "Python";
@@ -204,38 +204,33 @@ function deleteSelectedFromDock() {
 
 function nodeIcon(item: NodeDefinition): string {
   const name = item.name.toLowerCase();
-  const iconoir: Array<[RegExp, string]> = [
-    [/^box$|^cube$/, "box"], [/^cylinder$/, "cylinder"], [/^sphere$/, "sphere"],
-    [/extrude/, "extrude"], [/fillet/, "fillet"], [/loft/, "loft-3d"],
-    [/sweep/, "sweep-3d"], [/pipe/, "pipe-3d"], [/mirror/, "mirror"],
-    [/ellipse/, "ellipse"], [/arc/, "circle"], [/edge/, "select-edge-3d"],
-    [/face/, "select-face-3d"], [/project.*curve/, "project-curve-3d"],
+  const icons: Array<[RegExp, string]> = [
+    [/^box$|^cube$/, "/icons/cad/box.svg"],
+    [/^cylinder$/, "/icons/cad/cylinder.svg"],
+    [/^sphere$/, "/icons/cad/sphere.svg"],
+    [/extrude/, "/icons/cad/extrude.svg"],
+    [/fillet/, "/icons/cad/fillet.svg"],
+    [/loft/, "/icons/iconoir/loft-3d.svg"],
+    [/sweep/, "/icons/iconoir/sweep-3d.svg"],
+    [/pipe/, "/icons/iconoir/pipe-3d.svg"],
+    [/mirror/, "/icons/cad/mirror.svg"],
+    [/ellipse/, "/icons/cad/ellipse.svg"],
+    [/\barc\b/, "/icons/cad/circle.svg"],
+    [/project.*curve/, "/icons/iconoir/project-curve-3d.svg"],
+    [/\bedges?\b/, "/icons/iconoir/select-edge-3d.svg"],
+    [/\bfaces?\b/, "/icons/iconoir/select-face-3d.svg"],
+    [/union|fuse/, "/icons/cad/union.svg"],
+    [/difference|cut/, "/icons/cad/difference.svg"],
+    [/intersection|common/, "/icons/cad/intersection.svg"],
+    [/rectangle/, "/icons/cad/rectangle.svg"],
+    [/circle/, "/icons/cad/circle.svg"],
+    [/polygon/, "/icons/cad/polygon.svg"],
+    [/revolve|revolution/, "/icons/cad/revolve.svg"],
   ];
-  for (const [pattern, icon] of iconoir) if (pattern.test(name)) {
-    const local = ["/icons/cad/box.svg","/icons/cad/cylinder.svg","/icons/cad/sphere.svg","/icons/cad/extrude.svg","/icons/cad/fillet.svg","/icons/cad/mirror.svg","/icons/cad/ellipse.svg","/icons/cad/arc.svg"];
-    if (icon === "box") return local[0];
-    if (icon === "cylinder") return local[1];
-    if (icon === "sphere") return local[2];
-    if (icon === "extrude") return local[3];
-    if (icon === "fillet") return local[4];
-    if (icon === "mirror") return local[5];
-    if (icon === "ellipse") return local[6];
-    if (icon === "circle") return "/icons/cad/circle.svg";
-    return "/icons/iconoir/" + icon + ".svg";
-  }
-  if (/union|fuse/.test(name)) return "/icons/cad/union.svg";
-  if (/difference|cut/.test(name)) return "/icons/cad/difference.svg";
-  if (/intersection|common/.test(name)) return "/icons/cad/intersection.svg";
-  if (/rectangle/.test(name)) return "/icons/cad/rectangle.svg";
-  if (/circle/.test(name)) return "/icons/cad/circle.svg";
-  if (/polygon/.test(name)) return "/icons/cad/polygon.svg";
-  if (/revolve|revolution/.test(name)) return "/icons/cad/revolve.svg";
-  if (item.kind === "geometry") return "/icons/cad/shape.svg";
-  if (item.kind === "value" || item.kind === "enum") return "/icons/cad/value.svg";
-  if (item.kind === "operation") return "/icons/cad/node.svg";
-  return "/icons/cad/shape.svg";
+  return icons.find(([pattern]) => pattern.test(name))?.[1]
+    ?? (item.kind === "value" || item.kind === "enum" ? "/icons/cad/value.svg"
+      : item.kind === "operation" ? "/icons/cad/node.svg" : "/icons/cad/shape.svg");
 }
-
 onMounted(() => {
   window.addEventListener("keydown", onGlobalKeydown, true);
   void runtime.initialize(updateRuntimeStatus).then(() => {
@@ -714,8 +709,7 @@ async function downloadStep() {
           >
             <template #default>
               <span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
-              <span class="context-result-name">{{ item.name }}</span>
-              <span class="context-result-category">{{ item.category }}</span>
+              <span class="context-result-main"><span class="context-result-name">{{ item.name }}</span><span class="context-result-category">{{ item.category }}</span></span>
             </template>
           </Button>
           <span v-if="!contextResults.length" class="context-empty">No matching nodes</span>

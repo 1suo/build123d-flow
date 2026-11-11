@@ -69,6 +69,30 @@ def _safe_default(value):
     return None, repr(value), False, False
 
 
+def _api_signature(obj):
+    """Return the callable signature, using __init__ for classes when needed."""
+    try:
+        signature = inspect.signature(obj)
+    except (TypeError, ValueError):
+        signature = None
+    if inspect.isclass(obj):
+        try:
+            init_signature = inspect.signature(obj.__init__)
+            parameters = list(init_signature.parameters.values())
+            if parameters and parameters[0].name in ("self", "cls"):
+                init_signature = init_signature.replace(parameters=parameters[1:])
+            # A generic *args/**kwargs class signature hides a useful __init__ signature.
+            useful = [p for p in init_signature.parameters.values()
+                      if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)]
+            if useful or signature is None:
+                return init_signature
+        except (TypeError, ValueError, AttributeError):
+            pass
+    if signature is None:
+        raise ValueError("No inspectable signature")
+    return signature
+
+
 def _candidate_rejection(obj):
     if not (inspect.isclass(obj) or inspect.isfunction(obj) or inspect.isbuiltin(obj)):
         return "not a class/function/builtin"
@@ -77,7 +101,7 @@ def _candidate_rejection(obj):
     if getattr(obj, "__name__", "").startswith("_"):
         return "private name"
     try:
-        inspect.signature(obj)
+        _api_signature(obj)
     except (TypeError, ValueError) as exc:
         return "signature unavailable: " + str(exc)
     return None
@@ -317,7 +341,7 @@ def discover(include_full=True):
             if node_id in found:
                 continue
             try:
-                signature = inspect.signature(obj)
+                signature = _api_signature(obj)
             except (TypeError, ValueError):
                 continue
 
@@ -339,6 +363,7 @@ def discover(include_full=True):
                 annotation = hints.get(parameter.name, parameter.annotation)
                 socket = {
                     "name": parameter.name,
+                    "kind": parameter.kind.name.lower(),
                     "type": _type_name(annotation),
                     "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
                     "required": required,
@@ -638,21 +663,39 @@ def _call_with_coercion(callable_obj, params):
         hints = typing.get_type_hints(target)
     except Exception:
         hints = {}
+    try:
+        signature = _api_signature(callable_obj)
+    except (TypeError, ValueError):
+        signature = inspect.signature(callable_obj)
     converted = dict(params)
     for name, value in list(converted.items()):
         annotation = hints.get(name)
         if annotation is None:
-            try:
-                annotation = inspect.signature(callable_obj).parameters[name].annotation
-            except Exception:
-                annotation = None
+            parameter = signature.parameters.get(name)
+            annotation = parameter.annotation if parameter else None
         if isinstance(value, str) and inspect.isclass(annotation):
             try:
                 if issubclass(annotation, enum.Enum):
                     converted[name] = annotation[value]
             except (TypeError, KeyError):
                 pass
-    return callable_obj(**converted)
+
+    positional = []
+    keywords = {}
+    for name, parameter in signature.parameters.items():
+        if name not in converted:
+            continue
+        value = converted[name]
+        if parameter.kind == parameter.POSITIONAL_ONLY:
+            positional.append(value)
+        elif parameter.kind == parameter.VAR_POSITIONAL:
+            positional.extend(value if isinstance(value, (list, tuple)) else [value])
+        elif parameter.kind == parameter.VAR_KEYWORD:
+            if isinstance(value, dict):
+                keywords.update(value)
+        else:
+            keywords[name] = value
+    return callable_obj(*positional, **keywords)
 
 def _resolve_callable(path):
     if path in _CATALOG_CALLABLES:

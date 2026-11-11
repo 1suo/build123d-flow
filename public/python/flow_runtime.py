@@ -31,7 +31,11 @@ def _type_name(annotation):
         if names == {"Rotation", "List"}:
             return "Rotation"
         return names.pop() if len(names) == 1 else "Any"
-    if origin in (list, tuple, set, frozenset, collections.abc.Sequence, collections.abc.Iterable):
+    if origin is tuple:
+        return "Tuple"
+    if origin in (set, frozenset):
+        return "Set"
+    if origin in (list, collections.abc.Sequence, collections.abc.Iterable):
         return "List"
     if origin in (dict, typing.Dict, collections.abc.Mapping):
         return "Dict"
@@ -123,7 +127,7 @@ def _populate_editor_default(socket):
     defaults = {
         "Number": 1.0, "Boolean": False, "String": "",
         "Code": "", "Vector2": [0.0, 0.0], "Vector3": [0.0, 0.0, 0.0],
-        "List": [], "Dict": {},
+        "List": [], "Tuple": [], "Set": [], "Dict": {},
     }
     if socket_type == "Enum" and socket.get("options"):
         socket["default"] = socket["options"][0]
@@ -220,6 +224,7 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
         inputs = function
         function = category
         category = node_id.split(".")[1].title() if len(node_id.split(".")) > 2 else "Core"
+    defaults = {"step": 1, "count": 10, "stop": 10, "index": 0, "start": 0}
     found[node_id] = {
         "id": node_id,
         "kind": "value" if not inputs else "operation",
@@ -230,7 +235,7 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
             {
                 "name": key, "type": socket_type, "annotation": socket_type,
                 "required": socket_type not in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"},
-                **({"default": {"Number": 0.0, "Boolean": False, "String": "", "List": [], "Tuple": [], "Set": [], "Dict": {}}[socket_type]}
+                **({"default": defaults.get(key, {"Number": 0.0, "Boolean": False, "String": "", "List": [], "Tuple": [], "Set": [], "Dict": {}}[socket_type])}
                    if socket_type in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"} else {}),
             }
             for key, socket_type in inputs

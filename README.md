@@ -11,13 +11,13 @@ The project combines Vue Flow with the browser-side Python/OCCT runtime demonstr
 - **build123d + OCP.wasm** — exact B-rep/NURBS geometry, running in WebAssembly.
 - **Python introspection** — discovers installed build123d callables and signatures at runtime.
 - **Graph evaluator** — validates dependencies, evaluates nodes in topological order and reports node-scoped errors.
-- **Three.js viewer** — geometry preview, using the same `ocp_vscode` / `three-cad-viewer` transport approach as build123d-sandbox.
+- **Three.js viewport** — renders tessellated previews produced inside Pyodide; exact OCCT shapes remain in the Python runtime for downstream operations and STEP export.
 
 There is no required Python server. Python, build123d and the geometry kernel run in the browser.
 
 ## Current status
 
-Early scaffold. The initial implementation focuses on the architecture and API boundaries; package loading and geometry preview need validation against the pinned OCP.wasm wheels in a real browser.
+Early scaffold. The initial implementation includes dynamic API discovery, a Vue Flow graph, Python graph evaluation and a Three.js mesh preview. Browser package loading and CAD behavior still need validation against the pinned OCP.wasm wheels.
 
 ## Development
 

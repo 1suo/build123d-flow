@@ -478,12 +478,26 @@ def _add_core_nodes(found, callables):
     _add_node(found, callables, "core.convert.to_dict", "To Dictionary", "Collections",
               lambda value: dict(value), [("value", "Any")], "Dict")
 
+    _add_node(found, callables, "core.string.split", "Split", "Strings",
+              lambda value, separator: value.split(separator),
+              [("value", "String"), ("separator", "String")], "List")
+    _add_node(found, callables, "core.string.strip", "Strip", "Strings",
+              lambda value: value.strip(), [("value", "String")], "String")
+    _add_node(found, callables, "core.string.join_list", "Join List", "Strings",
+              lambda items, separator: separator.join(str(item) for item in items),
+              [("items", "List"), ("separator", "String")], "String")
     # Dictionary operations.
     _add_node(found, callables, "core.dict.construct", "Dictionary", "Collections",
               lambda keys, values: dict(zip(keys, values)),
               [("keys", "List"), ("values", "List")], "Dict")
     _add_node(found, callables, "core.dict.get", "Get Value", "Collections",
-              lambda mapping, key: mapping[key], [("mapping", "Dict"), ("key", "Any")], "Any")
+              lambda mapping, key, default: mapping.get(key, default),
+              [("mapping", "Dict"), ("key", "Any"), ("default", "Any")], "Any")
+    _add_node(found, callables, "core.dict.length", "Dictionary Length", "Collections",
+              len, [("mapping", "Dict")], "Number")
+    _add_node(found, callables, "core.dict.remove", "Remove Key", "Collections",
+              lambda mapping, key: {k: v for k, v in mapping.items() if k != key},
+              [("mapping", "Dict"), ("key", "Any")], "Dict")
     _add_node(found, callables, "core.dict.set", "Set Value", "Collections",
               lambda mapping, key, value: {**mapping, key: value},
               [("mapping", "Dict"), ("key", "Any"), ("value", "Any")], "Dict")

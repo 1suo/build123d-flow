@@ -72,7 +72,7 @@
 
 
 /* Blender-like compact node title with socket handles flanking the centered name. */
-.api-node.is-collapsed .p-card-title{padding:0;border:0}
+.api-node.is-collapsed .p-card-title{display:block!important;padding:0;border:0}
 .api-node.is-collapsed .p-card-body{padding:0}
 .api-node.is-collapsed .p-card-content{display:none}
 .collapsed-node-header{display:grid;grid-template-columns:24px minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:5px;min-height:38px;padding:3px 7px}
@@ -87,6 +87,7 @@
 .collapsed-socket .vue-flow__handle{top:50%;width:8px;height:8px;border:1px solid #17191c}
 .api-node.is-collapsed .node-header{cursor:grab}
 .api-node.is-collapsed .p-card-content{display:none}
+.api-node.is-collapsed .p-card-title{display:block!important}
 
 /* Selection inspector lives over the canvas, independent of the 3D viewport. */
 .canvas-node-inspector{position:absolute;z-index:20;top:54px;right:12px;bottom:54px;display:flex;width:min(340px,42%);min-width:250px;flex-direction:column;overflow:hidden;border:1px solid #51483b;border-radius:7px;background:#1d2024eF;box-shadow:0 12px 36px #0009;backdrop-filter:blur(12px)}

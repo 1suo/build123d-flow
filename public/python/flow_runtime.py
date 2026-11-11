@@ -227,7 +227,12 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
         "category": category,
         "description": description,
         "inputs": [
-            {"name": key, "type": socket_type, "annotation": socket_type, "required": True}
+            {
+                "name": key, "type": socket_type, "annotation": socket_type,
+                "required": socket_type not in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"},
+                **({"default": {"Number": 0.0, "Boolean": False, "String": "", "List": [], "Tuple": [], "Set": [], "Dict": {}}[socket_type]}
+                   if socket_type in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"} else {}),
+            }
             for key, socket_type in inputs
         ],
         "outputs": [{"name": "result", "type": output_type, "annotation": output_type}],
@@ -464,12 +469,6 @@ def _add_core_nodes(found, callables):
               len, [("items", "Set")], "Number")
     _add_node(found, callables, "core.set.to_list", "Set to List", "Collections",
               lambda items: sorted(items, key=repr), [("items", "Set")], "List")
-    _add_node(found, callables, "core.set.union", "Set Union", "Collections",
-              lambda a, b: list(set(a) | set(b)), [("a", "List"), ("b", "List")], "List")
-    _add_node(found, callables, "core.set.intersection", "Set Intersection", "Collections",
-              lambda a, b: list(set(a) & set(b)), [("a", "List"), ("b", "List")], "List")
-    _add_node(found, callables, "core.set.difference", "Set Difference", "Collections",
-              lambda a, b: list(set(a) - set(b)), [("a", "List"), ("b", "List")], "List")
 
 
 def _python_function(code, a=None, b=None, c=None):

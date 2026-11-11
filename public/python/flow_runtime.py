@@ -435,7 +435,11 @@ def discover(include_full=True):
                 "category": category,
                 "description": doc.split("\n")[0][:180],
                 "inputs": inputs,
-                "outputs": [{"name": "result", "type": output_type, "annotation": ""}],
+                "outputs": [{
+                    "name": "result", "type": output_type, "annotation": "",
+                    **({"variants": sorted({_type_name(arg) for arg in typing.get_args(hints.get("return", signature.return_annotation)) if arg is not type(None)})}
+                       if typing.get_origin(hints.get("return", signature.return_annotation)) in (typing.Union, types.UnionType) else {}),
+                }],
             }
             callables[node_id] = obj
             report["accepted"].append({"id": node_id, "kind": node_kind})

@@ -438,7 +438,6 @@ def discover(include_full=True):
             report["accepted"].append({"id": node_id, "kind": node_kind})
 
     # Discover useful instance methods on actual B-rep classes as operation nodes.
-    # Variadic methods are intentionally omitted: they need explicit wrapper nodes.
     for cls in shape_classes:
         for method_name, method in vars(cls).items():
             if method_name.startswith("_") or not inspect.isfunction(method):
@@ -452,29 +451,29 @@ def discover(include_full=True):
             parameters = list(signature.parameters.values())
             if not parameters or parameters[0].name != "self":
                 continue
-            if any(p.kind == p.POSITIONAL_ONLY for p in parameters):
-                continue
-            has_variadic = any(p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD) for p in parameters)
-            parameters = [p for p in parameters if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)]
-            if has_variadic and len(parameters) == 1:
-                continue
             try:
                 hints = typing.get_type_hints(method)
             except Exception:
                 hints = {}
             inputs = [{
-                "name": "self",
-                "label": "shape",
-                "type": _type_name(cls),
-                "annotation": str(cls),
-                "required": True,
+                "name": "self", "label": "shape", "type": _type_name(cls),
+                "annotation": str(cls), "required": True,
             }]
             for parameter in parameters[1:]:
-                default, default_repr, required, has_default = _safe_default(parameter.default)
                 annotation = hints.get(parameter.name, parameter.annotation)
+                if parameter.kind == parameter.VAR_POSITIONAL:
+                    default, default_repr, required, has_default = [], "()", False, True
+                    socket_type = "List"
+                elif parameter.kind == parameter.VAR_KEYWORD:
+                    default, default_repr, required, has_default = {}, "{}", False, True
+                    socket_type = "Dict"
+                else:
+                    default, default_repr, required, has_default = _safe_default(parameter.default)
+                    socket_type = _type_name(annotation)
                 socket = {
                     "name": parameter.name,
-                    "type": _type_name(annotation),
+                    "kind": parameter.kind.name.lower(),
+                    "type": socket_type,
                     "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
                     "required": required,
                     "default_repr": default_repr,
@@ -487,6 +486,14 @@ def discover(include_full=True):
                             socket["options"] = [member.name for member in annotation]
                     except TypeError:
                         pass
+                if typing.get_origin(annotation) is typing.Literal:
+                    socket["options"] = list(typing.get_args(annotation))
+                if typing.get_origin(annotation) in (list, tuple, set, frozenset):
+                    item_args = typing.get_args(annotation)
+                    if item_args:
+                        socket["item_type"] = _type_name(item_args[0])
+                if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+                    socket["variants"] = sorted({_type_name(arg) for arg in typing.get_args(annotation) if arg is not type(None)})
                 inputs.append(socket)
             node_id = cls.__module__ + "." + cls.__name__ + "." + method_name
             if node_id in found:
@@ -498,9 +505,7 @@ def discover(include_full=True):
             }:
                 output_type = _type_name(cls)
             found[node_id] = {
-                "id": node_id,
-                "kind": "operation",
-                "name": method_name,
+                "id": node_id, "kind": "operation", "name": method_name,
                 "category": cls.__name__ + " Methods",
                 "description": (inspect.getdoc(method) or "").split("\n")[0][:180],
                 "inputs": inputs,

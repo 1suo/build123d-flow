@@ -27,11 +27,11 @@ const outputs = computed(() => props.data.definition.outputs);
 const errorPopover = ref<any>();
 const canPreview = computed(() => outputs.value.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type)));
 function socketColor(type: string): string {
-  if (["Shape","Solid","Compound","Face","Edge","Wire","Shell","Part","Sketch"].includes(type)) return "#7CFC00";
-  if (["Number","Boolean","Vector2","Vector3","Rotation","Plane","Location","Axis","Color"].includes(type)) return "#DAA520";
-  if (["List","Tuple","Set","Dict"].includes(type)) return "#BDB76B";
-  if (["String","Code","Enum"].includes(type)) return "#458b74";
-  return "#F5DEB3";
+  if (["Shape","Solid","Compound","Face","Edge","Wire","Shell","Part","Sketch"].includes(type)) return "var(--socket-geometry)";
+  if (["Number","Boolean","Vector2","Vector3","Rotation","Plane","Location","Axis","Color"].includes(type)) return "var(--socket-numeric)";
+  if (["List","Tuple","Set","Dict"].includes(type)) return "var(--socket-collection)";
+  if (["String","Code","Enum"].includes(type)) return "var(--socket-text)";
+  return "var(--socket-generic)";
 }
 function socketTitle(socket: { name: string; type: string; annotation?: string }, direction: string): string {
   return direction + ": " + socket.name + " · " + socket.type + (socket.annotation ? " | " + socket.annotation : "");

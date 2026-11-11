@@ -225,3 +225,38 @@
 .node-title-icon{display:block;width:20px;height:20px;flex:0 0 20px;object-fit:contain}
 .node-header>.node-title-icon{width:22px;height:22px;flex:0 0 22px}
 .vue-flow__edge.selected .vue-flow__edge-path{stroke:#FFD700!important;stroke-width:4!important}
+
+
+/* Socket colors resolve through the active theme, not hard-coded component colors. */
+.api-node{
+  --socket-geometry:var(--tikal-primary);
+  --socket-numeric:var(--tikal-secondary);
+  --socket-collection:var(--tikal-muted);
+  --socket-text:var(--tikal-selection);
+  --socket-generic:var(--tikal-foreground);
+}
+
+/* Preserve Vue Flow's outward-facing handle alignment on right/bottom edges.
+   The generic hit-target rule must not overwrite directional transforms. */
+.socket-row .vue-flow__handle-right,
+.collapsed-socket .vue-flow__handle-right{
+  transform:translate(50%,-50%);
+}
+.socket-row .vue-flow__handle-bottom,
+.collapsed-socket .vue-flow__handle-bottom{
+  transform:translate(-50%,50%);
+}
+.socket-row .vue-flow__handle-left,
+.collapsed-socket .vue-flow__handle-left{
+  transform:translate(-50%,-50%);
+}
+.socket-row .vue-flow__handle-top,
+.collapsed-socket .vue-flow__handle-top{
+  transform:translate(-50%,-50%);
+}
+
+/* The visible marker is shared by input and output sockets. */
+.socket-row .vue-flow__handle::after,
+.collapsed-socket .vue-flow__handle::after{
+  border-color:var(--tikal-surface);
+}

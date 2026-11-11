@@ -202,6 +202,7 @@ function ensureFullCatalog() {
   void runtime.discoverCatalog().then((fullCatalog) => {
     catalog.value = fullCatalog;
     fullCatalogLoaded = true;
+    console.info("[build123d-flow] API discovery report", runtime.getDiscoveryReport());
   }).catch((error) => {
     console.warn("Full build123d catalog discovery failed", error);
   }).finally(() => {

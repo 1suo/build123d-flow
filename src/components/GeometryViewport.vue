@@ -2,9 +2,11 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import Message from "primevue/message";
+import ProgressSpinner from "primevue/progressspinner";
 import type { MeshPreview } from "../types";
 
-const props = defineProps<{ previews: Record<string, MeshPreview> }>();
+const props = defineProps<{ previews: Record<string, MeshPreview>; running?: boolean }>();
 const host = ref<HTMLDivElement | null>(null);
 let renderer: THREE.WebGLRenderer | undefined;
 let scene: THREE.Scene;
@@ -13,6 +15,7 @@ let controls: OrbitControls;
 let resizeObserver: ResizeObserver | undefined;
 let modelGroup: THREE.Group;
 let animationFrame = 0;
+let hasInitialFit = false;
 
 function rebuild() {
   if (!scene || !modelGroup) return;
@@ -40,7 +43,8 @@ function rebuild() {
     modelGroup.add(mesh);
   }
   const bounds = new THREE.Box3().setFromObject(modelGroup);
-  if (!bounds.isEmpty()) {
+  // Fit once when the first model arrives. Subsequent evaluations never move the camera.
+  if (!hasInitialFit && !bounds.isEmpty()) {
     const sphere = bounds.getBoundingSphere(new THREE.Sphere());
     controls.target.copy(sphere.center);
     const distance = Math.max(sphere.radius * 2.8, 45);
@@ -50,9 +54,10 @@ function rebuild() {
       sphere.center.z + distance * 0.75,
     );
     camera.near = Math.max(distance / 1000, 0.01);
-    camera.far = distance * 100;
+    camera.far = Math.max(distance * 100, 10000);
     camera.updateProjectionMatrix();
     controls.update();
+    hasInitialFit = true;
   }
 }
 
@@ -120,12 +125,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="host" class="geometry-viewport">
-    <div v-if="!Object.keys(previews).length" class="viewport-empty">No geometry</div>
+    <Message v-if="!Object.keys(previews).length && !running" severity="secondary" :closable="false" class="viewport-empty">
+      No visible geometry
+    </Message>
+    <ProgressSpinner v-if="running" class="viewport-progress" style="width:22px;height:22px" stroke-width="4" />
   </div>
 </template>
 
 <style scoped>
 .geometry-viewport { position: relative; width: 100%; height: auto; flex: 1 1 auto; min-height: 240px; overflow: hidden; }
 .geometry-viewport :deep(canvas) { display: block; width: 100%; height: 100%; }
-.viewport-empty { position: absolute; inset: 0; display: grid; place-items: center; color: #81796d; font-size: 11px; pointer-events: none; }
+.viewport-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }\n.viewport-progress { position: absolute; top: 14px; right: 14px; }
 </style>

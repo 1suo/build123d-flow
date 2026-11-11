@@ -2,11 +2,17 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import Message from "primevue/message";
-import ProgressSpinner from "primevue/progressspinner";
+import ViewportStatus from "./ViewportStatus.vue";
 import type { MeshPreview } from "../types";
 
-const props = defineProps<{ previews: Record<string, MeshPreview>; running?: boolean }>();
+const props = defineProps<{
+  previews: Record<string, MeshPreview>;
+  running?: boolean;
+  runtimeStatus?: string;
+  downloadStatus?: string;
+  errors?: string[];
+  logs?: Array<{ time: string; level: "info" | "success" | "warning" | "error"; message: string }>;
+}>();
 const host = ref<HTMLDivElement | null>(null);
 let renderer: THREE.WebGLRenderer | undefined;
 let scene: THREE.Scene;
@@ -73,7 +79,7 @@ function resize() {
 onMounted(() => {
   if (!host.value) return;
   scene = new THREE.Scene();
-  scene.background = new THREE.Color("#17191c");
+  scene.background = new THREE.Color("#013220");
   camera = new THREE.PerspectiveCamera(42, 1, 0.1, 10000);
   camera.up.set(0, 0, 1);
   camera.position.set(100, -100, 90);
@@ -87,7 +93,7 @@ onMounted(() => {
   key.position.set(80, -60, 120);
   scene.add(key);
 
-  const grid = new THREE.GridHelper(240, 24, 0x4a525b, 0x2c3239);
+  const grid = new THREE.GridHelper(240, 24, 0x458b74, 0x2f4f4f);
   grid.rotation.x = Math.PI / 2;
   scene.add(grid);
   scene.add(new THREE.AxesHelper(35));
@@ -125,10 +131,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="host" class="geometry-viewport">
-    <Message v-if="!Object.keys(previews).length && !running" severity="secondary" :closable="false" class="viewport-empty">
-      No visible geometry
-    </Message>
-    <ProgressSpinner v-if="running" class="viewport-progress" style="width:22px;height:22px" stroke-width="4" />
+    <ViewportStatus
+      :geometry-count="Object.keys(previews).length"
+      :running="Boolean(running)"
+      :runtime-status="runtimeStatus || 'Ready'"
+      :download-status="downloadStatus || ''"
+      :errors="errors || []"
+      :logs="logs || []"
+    />
   </div>
 </template>
 

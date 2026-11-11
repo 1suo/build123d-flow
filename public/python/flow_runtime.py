@@ -33,11 +33,11 @@ def _type_name(annotation):
         return names.pop() if len(names) == 1 else "Any"
     if origin is tuple:
         return "Tuple"
-    if origin in (set, frozenset):
+    if origin in (set, frozenset, collections.abc.Set, collections.abc.MutableSet):
         return "Set"
-    if origin in (list, collections.abc.Sequence, collections.abc.Iterable):
+    if origin in (list, collections.abc.Sequence, collections.abc.MutableSequence, collections.abc.Iterable, collections.abc.Collection):
         return "List"
-    if origin in (dict, typing.Dict, collections.abc.Mapping):
+    if origin in (dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping):
         return "Dict"
     if origin is typing.Literal:
         return "Enum"
@@ -68,6 +68,38 @@ def _type_name(annotation):
         "sketch": "Sketch", "code": "Code", "callable": "Code",
     }
     return mapping.get(name, "Any")
+
+
+def _annotation_metadata(annotation):
+    """Return structured socket metadata for Python generic annotations."""
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    metadata = {}
+    collection_origins = {
+        list, tuple, set, frozenset,
+        collections.abc.Sequence, collections.abc.MutableSequence,
+        collections.abc.Iterable, collections.abc.Collection,
+        collections.abc.Set, collections.abc.MutableSet,
+    }
+    mapping_origins = {
+        dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping,
+    }
+    if origin in collection_origins and args:
+        metadata["item_type"] = _type_name(args[0])
+    elif origin is tuple and args:
+        # tuple[T, ...] and fixed tuples both expose useful element information.
+        element_args = [arg for arg in args if arg is not Ellipsis]
+        if element_args:
+            types_found = sorted({_type_name(arg) for arg in element_args})
+            metadata["item_type"] = types_found[0] if len(types_found) == 1 else "Any"
+    if origin in mapping_origins:
+        metadata["key_type"] = _type_name(args[0]) if args else "String"
+        metadata["value_type"] = _type_name(args[1]) if len(args) > 1 else "Any"
+    if origin in (typing.Union, types.UnionType):
+        variants = sorted({_type_name(arg) for arg in args if arg is not type(None)})
+        if len(variants) > 1:
+            metadata["variants"] = variants
+    return metadata
 
 
 def _json_default(value):
@@ -794,7 +826,10 @@ def discover(include_full=True):
                 "category": cls.__name__ + " Methods",
                 "description": (inspect.getdoc(method) or "").split("\n")[0][:180],
                 "inputs": inputs,
-                "outputs": [{"name": "result", "type": output_type, "annotation": ""}],
+                "outputs": [{
+                    "name": "result", "type": output_type, "annotation": str(hints.get("return", signature.return_annotation)),
+                    **_annotation_metadata(hints.get("return", signature.return_annotation)),
+                }],
             }
             callables[node_id] = method
 
@@ -1017,6 +1052,82 @@ def evaluate_graph_json(payload):
 
 
 
+def _coerce_annotation(value, annotation):
+    """Convert JSON-shaped values into the Python collection and geometry types a method declares."""
+    if annotation is None or annotation is inspect.Signature.empty or annotation is typing.Any:
+        return value
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin in (typing.Union, types.UnionType):
+        if value is None and type(None) in args:
+            return None
+        candidates = [candidate for candidate in args if candidate is not type(None)]
+        # Build123d RotationLike is Rotation | tuple[float, float, float].
+        if isinstance(value, (list, tuple)) and any(
+            inspect.isclass(candidate) and candidate.__name__ == "Rotation" for candidate in candidates
+        ) and any(typing.get_origin(candidate) is tuple for candidate in candidates):
+            return b3d.Rotation(tuple(value))
+        for candidate in candidates:
+            try:
+                converted = _coerce_annotation(value, candidate)
+                if converted is not value or isinstance(value, candidate):
+                    return converted
+            except Exception:
+                continue
+        return value
+    if origin in (list, collections.abc.Sequence, collections.abc.MutableSequence,
+                  collections.abc.Iterable, collections.abc.Collection):
+        item_type = args[0] if args else typing.Any
+        return [_coerce_annotation(item, item_type) for item in value]
+    if origin is tuple:
+        if len(args) == 2 and args[1] is Ellipsis:
+            return tuple(_coerce_annotation(item, args[0]) for item in value)
+        return tuple(_coerce_annotation(item, args[index] if index < len(args) else typing.Any)
+                     for index, item in enumerate(value))
+    if origin in (set, frozenset, collections.abc.Set, collections.abc.MutableSet):
+        item_type = args[0] if args else typing.Any
+        items = (_coerce_annotation(item, item_type) for item in value)
+        return frozenset(items) if origin is frozenset else set(items)
+    if origin in (dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping):
+        key_type, value_type = args if len(args) > 1 else (typing.Any, typing.Any)
+        return {_coerce_annotation(key, key_type): _coerce_annotation(item, value_type)
+                for key, item in value.items()}
+    if origin is typing.Literal:
+        if value in args:
+            return value
+        raise ValueError("Expected one of: " + ", ".join(map(str, args)))
+    if inspect.isclass(annotation):
+        try:
+            if issubclass(annotation, enum.Enum):
+                return value if isinstance(value, annotation) else annotation[value] if isinstance(value, str) else annotation(value)
+        except (TypeError, KeyError, ValueError):
+            pass
+        name = annotation.__name__.lower()
+        if name == "vector" and isinstance(value, (list, tuple)):
+            return b3d.Vector(*value)
+        if name == "rotation" and isinstance(value, (list, tuple)):
+            return b3d.Rotation(tuple(value))
+        if name == "plane" and isinstance(value, dict):
+            return b3d.Plane(**value)
+        if name == "location" and isinstance(value, dict):
+            return b3d.Location(**value)
+        if name == "location" and isinstance(value, (list, tuple)):
+            return b3d.Location(*value)
+        if name == "axis" and isinstance(value, (list, tuple)):
+            return b3d.Axis(*value)
+        if name == "color" and isinstance(value, (list, tuple)):
+            return b3d.Color(*value)
+        if annotation is bool:
+            return bool(value)
+        if annotation is int:
+            return int(value)
+        if annotation is float:
+            return float(value)
+        if annotation is str:
+            return str(value)
+    return value
+
+
 def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
     target = hint_target or (callable_obj.__init__ if inspect.isclass(callable_obj) else callable_obj)
     try:
@@ -1034,61 +1145,13 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
         if annotation is None:
             parameter = signature.parameters.get(name)
             annotation = parameter.annotation if parameter else None
-        annotation_candidates = typing.get_args(annotation) if typing.get_origin(annotation) in (typing.Union, types.UnionType) else (annotation,)
-        resolved_candidates = []
-        for candidate in annotation_candidates:
-            if isinstance(candidate, str):
-                try:
-                    candidate = eval(candidate, getattr(target, "__globals__", {}))
-                except Exception:
-                    pass
-            resolved_candidates.append(candidate)
-
-        # Browser structured editors serialize rotations as arrays. Convert
-        # those arrays to Build123d Rotation objects before they reach OCCT
-        # placement code, which expects a wrapped rotation rather than a list.
-        is_rotation_like = (
-            isinstance(value, (list, tuple))
-            and any(inspect.isclass(candidate) and candidate.__name__ == "Rotation" for candidate in resolved_candidates)
-            and any(typing.get_origin(candidate) is tuple for candidate in resolved_candidates)
-        )
-        if is_rotation_like:
-            converted[name] = b3d.Rotation(tuple(value))
-            continue
-
-        annotation = next((candidate for candidate in resolved_candidates if inspect.isclass(candidate)), annotation)
-        if isinstance(value, str) and inspect.isclass(annotation):
+        if isinstance(annotation, str):
             try:
-                if issubclass(annotation, enum.Enum):
-                    converted[name] = annotation[value]
-                    continue
-            except (TypeError, KeyError):
+                annotation = eval(annotation, getattr(target, "__globals__", {}))
+            except Exception:
                 pass
-        origin = typing.get_origin(annotation)
-        if origin is tuple and isinstance(value, list):
-            converted[name] = tuple(value)
-            value = converted[name]
-        elif origin is set and isinstance(value, list):
-            converted[name] = set(value)
-            value = converted[name]
-        elif origin is list and not isinstance(value, list):
-            converted[name] = list(value)
-            value = converted[name]
-        elif origin in (dict, collections.abc.Mapping) and isinstance(value, dict):
-            converted[name] = dict(value)
-            value = converted[name]
-        if inspect.isclass(annotation):
-            type_name = annotation.__name__.lower()
-            if type_name == "vector" and isinstance(value, (list, tuple)):
-                converted[name] = b3d.Vector(*value)
-            elif type_name == "rotation" and isinstance(value, (list, tuple)):
-                converted[name] = b3d.Rotation(tuple(value))
-            elif type_name == "plane" and isinstance(value, dict):
-                converted[name] = b3d.Plane(**value)
-            elif type_name == "location" and isinstance(value, dict):
-                converted[name] = b3d.Location(**value)
-            elif type_name == "location" and isinstance(value, (list, tuple)):
-                converted[name] = b3d.Location(*value)
+        if annotation is not None and annotation is not inspect.Signature.empty:
+            converted[name] = _coerce_annotation(value, annotation)
 
     positional = []
     keywords = {}

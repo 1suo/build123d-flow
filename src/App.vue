@@ -5,6 +5,7 @@ import { Background } from "@vue-flow/background";
 import ApiNode from "./components/ApiNode.vue";
 import GeometryViewport from "./components/GeometryViewport.vue";
 import DataValue from "./components/DataValue.vue";
+import ViewportStatus from "./components/ViewportStatus.vue";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Dock from "primevue/dock";
@@ -25,6 +26,21 @@ const catalog = ref<NodeDefinition[]>([]);
 const paletteSearch = ref("");
 const contextSearch = ref("");
 const errors = ref<string[]>([]);
+const downloadStatus = ref("");
+const activityLogs = ref<Array<{ time: string; level: "info" | "success" | "warning" | "error"; message: string }>>([]);
+let downloadStatusTimer: ReturnType<typeof setTimeout> | undefined;
+
+function logActivity(message: string, level: "info" | "success" | "warning" | "error" = "info") {
+  const previous = activityLogs.value[activityLogs.value.length - 1];
+  if (previous?.message === message && previous.level === level) return;
+  activityLogs.value.push({ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }), level, message });
+  if (activityLogs.value.length > 40) activityLogs.value.splice(0, activityLogs.value.length - 40);
+}
+
+function updateRuntimeStatus(message: string) {
+  status.value = message;
+  logActivity(message, /failed|error/i.test(message) ? "error" : "info");
+}
 const previews = shallowRef<Record<string, MeshPreview>>({});
 const socketValues = shallowRef<Record<string, Record<string, unknown>>>({});
 const inspectorOpen = ref(true);
@@ -193,7 +209,7 @@ function nodeIcon(item: NodeDefinition): string {
 
 onMounted(() => {
   window.addEventListener("keydown", onGlobalKeydown, true);
-  void runtime.initialize((message) => (status.value = message)).then(() => {
+  void runtime.initialize(updateRuntimeStatus).then(() => {
     const discovered = runtime.getCatalog();
     const byName = new Map(discovered.map((item) => [item.name, item]));
     catalog.value = discovered;
@@ -203,10 +219,12 @@ onMounted(() => {
       if (resolved) node.data.definition = resolved;
     }
     status.value = "Ready";
+    logActivity("Python runtime ready", "success");
     scheduleEvaluation();
     if (wantsFullCatalog) void ensureFullCatalog();
   }).catch((error) => {
     status.value = "Initialization failed";
+    logActivity("Python runtime initialization failed", "error");
     runtimeError.value = error instanceof Error ? error.message : String(error);
   });
 });
@@ -418,15 +436,21 @@ async function evaluate() {
   }
   running.value = true;
   errors.value = [];
+  logActivity("Evaluating graph");
   try {
     const result: EvaluationResult = await runtime.evaluate(graph.value);
     if (revision !== evaluationRevision) return;
     previews.value = result.previews;
     socketValues.value = result.socket_values ?? {};
     errors.value = Object.entries(result.errors).map(([id, error]) => `${id}: ${error}`);
+    if (errors.value.length) errors.value.forEach((error) => logActivity(error, "error"));
+    else logActivity(`Evaluation complete · ${Object.keys(result.previews).length} visible geometry`, "success");
     for (const node of nodes.value as any[]) node.data.error = result.errors[node.id] ?? "";
   } catch (error) {
-    if (revision === evaluationRevision) errors.value = [String(error)];
+    if (revision === evaluationRevision) {
+      errors.value = [String(error)];
+      logActivity(String(error), "error");
+    }
   } finally {
     if (revision === evaluationRevision) running.value = false;
   }
@@ -436,15 +460,33 @@ watch(() => selectedNode.value?.id, (id) => { if (id) inspectorOpen.value = true
 watch([nodes, edges], scheduleEvaluation, { deep: true });
 onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown, true));
 
-function downloadStep() {
-  const bytes = runtime.exportStep();
-  if (!bytes) return;
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/step" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = "model.step";
-  anchor.click();
-  URL.revokeObjectURL(url);
+async function downloadStep() {
+  if (downloadStatusTimer) clearTimeout(downloadStatusTimer);
+  downloadStatus.value = "Preparing STEP export…";
+  logActivity("Preparing STEP export");
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  try {
+    const bytes = runtime.exportStep();
+    if (!bytes) {
+      downloadStatus.value = "Nothing to export";
+      logActivity("STEP export skipped · no evaluated solid", "warning");
+    } else {
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/step" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "model.step";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+      downloadStatus.value = "STEP download started · model.step";
+      logActivity(`STEP download started · ${(bytes.byteLength / 1024).toFixed(1)} KB`, "success");
+    }
+  } catch (error) {
+    downloadStatus.value = "STEP export failed";
+    logActivity(String(error), "error");
+  }
+  downloadStatusTimer = window.setTimeout(() => { downloadStatus.value = ""; }, 4500);
 }
 </script>
 
@@ -520,7 +562,14 @@ function downloadStep() {
       </SplitterPanel>
 
       <SplitterPanel :size="32" :min-size="20" class="preview-panel">
-        <GeometryViewport :previews="previews" :running="running" />
+        <GeometryViewport
+          :previews="previews"
+          :running="running"
+          :runtime-status="status"
+          :download-status="downloadStatus"
+          :errors="errors"
+          :logs="activityLogs"
+        />
       </SplitterPanel>
     </Splitter>
 

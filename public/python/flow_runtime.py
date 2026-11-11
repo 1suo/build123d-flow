@@ -26,8 +26,14 @@ def _type_name(annotation):
     if origin in (typing.Union, types.UnionType):
         names = {_type_name(arg) for arg in args if arg is not type(None)}
         return names.pop() if len(names) == 1 else "Any"
-    if origin in (list, tuple, set):
+    if origin in (list, tuple, set, typing.Sequence, typing.Iterable):
         return "List"
+    if origin in (dict, typing.Dict, typing.Mapping):
+        return "Any"
+    if origin is typing.Literal:
+        literal_values = list(args)
+        if literal_values and all(isinstance(value, str) for value in literal_values):
+            return "Enum"
     if inspect.isclass(annotation):
         try:
             if issubclass(annotation, enum.Enum):
@@ -40,7 +46,10 @@ def _type_name(annotation):
                 return "Shape"
         except TypeError:
             pass
-    name = getattr(annotation, "__name__", str(annotation)).lower()
+    if isinstance(annotation, str):
+        name = annotation.strip().strip("'\\\"").split(".")[-1].lower()
+    else:
+        name = getattr(annotation, "__name__", str(annotation)).lower()
     mapping = {
         "int": "Number", "float": "Number", "bool": "Boolean",
         "str": "String", "vector": "Vector3", "plane": "Plane",
@@ -346,7 +355,6 @@ def discover(include_full=True):
                 continue
 
             inputs = []
-            unsupported = False
             try:
                 hint_target = obj.__init__ if inspect.isclass(obj) else obj
                 hints = typing.get_type_hints(hint_target)
@@ -354,17 +362,20 @@ def discover(include_full=True):
                 hints = {}
 
             for parameter in signature.parameters.values():
-                if parameter.kind in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
-                    continue
-                if parameter.kind == parameter.POSITIONAL_ONLY:
-                    unsupported = True
-                    break
-                default, default_repr, required, has_default = _safe_default(parameter.default)
                 annotation = hints.get(parameter.name, parameter.annotation)
+                if parameter.kind == parameter.VAR_POSITIONAL:
+                    default, default_repr, required, has_default = [], "()", False, True
+                    socket_type = "List"
+                elif parameter.kind == parameter.VAR_KEYWORD:
+                    default, default_repr, required, has_default = {}, "{}", False, True
+                    socket_type = "Any"
+                else:
+                    default, default_repr, required, has_default = _safe_default(parameter.default)
+                    socket_type = _type_name(annotation)
                 socket = {
                     "name": parameter.name,
                     "kind": parameter.kind.name.lower(),
-                    "type": _type_name(annotation),
+                    "type": socket_type,
                     "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
                     "required": required,
                     "default_repr": default_repr,
@@ -378,9 +389,6 @@ def discover(include_full=True):
                     except TypeError:
                         pass
                 inputs.append(socket)
-            if unsupported:
-                continue
-
             if inspect.isclass(obj):
                 try:
                     if issubclass(obj, getattr(b3d, "Shape", object)):
@@ -693,13 +701,29 @@ def _call_with_coercion(callable_obj, params):
 
     positional = []
     keywords = {}
+    positional_only = [
+        (name, parameter) for name, parameter in signature.parameters.items()
+        if parameter.kind == parameter.POSITIONAL_ONLY
+    ]
+    supplied = [i for i, (name, _) in enumerate(positional_only) if name in converted]
+    last_supplied = max(supplied, default=-1)
+    for index, (name, parameter) in enumerate(positional_only):
+        if index > last_supplied:
+            break
+        if name in converted:
+            positional.append(converted[name])
+        elif parameter.default is not inspect.Signature.empty:
+            positional.append(parameter.default)
+        else:
+            raise TypeError("Missing required positional argument: " + name)
+
     for name, parameter in signature.parameters.items():
+        if parameter.kind == parameter.POSITIONAL_ONLY:
+            continue
         if name not in converted:
             continue
         value = converted[name]
-        if parameter.kind == parameter.POSITIONAL_ONLY:
-            positional.append(value)
-        elif parameter.kind == parameter.VAR_POSITIONAL:
+        if parameter.kind == parameter.VAR_POSITIONAL:
             positional.extend(value if isinstance(value, (list, tuple)) else [value])
         elif parameter.kind == parameter.VAR_KEYWORD:
             if isinstance(value, dict):

@@ -19,26 +19,26 @@ _DISCOVERY_REPORT = {}
 
 
 def _type_name(annotation):
-    if annotation is inspect.Signature.empty:
+    if annotation is inspect.Signature.empty or annotation is typing.Any:
         return "Any"
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
         names = {_type_name(arg) for arg in args if arg is not type(None)}
         return names.pop() if len(names) == 1 else "Any"
-    if origin in (list, tuple, set, typing.Sequence, typing.Iterable):
+    if origin in (list, tuple, set, frozenset, typing.Sequence, typing.Iterable):
         return "List"
     if origin in (dict, typing.Dict, typing.Mapping):
-        return "Any"
+        return "Dict"
     if origin is typing.Literal:
-        literal_values = list(args)
-        if literal_values and all(isinstance(value, str) for value in literal_values):
-            return "Enum"
+        return "Enum"
+    if origin is typing.Annotated:
+        return _type_name(args[0]) if args else "Any"
     if inspect.isclass(annotation):
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
-            for shape_name in ("Solid", "Compound", "Face", "Edge", "Wire"):
+            for shape_name in ("Solid", "Compound", "Face", "Wire", "Edge", "Shell", "Sketch", "Part"):
                 shape_class = getattr(b3d, shape_name, None)
                 if inspect.isclass(shape_class) and issubclass(annotation, shape_class):
                     return shape_name
@@ -51,11 +51,12 @@ def _type_name(annotation):
     else:
         name = getattr(annotation, "__name__", str(annotation)).lower()
     mapping = {
-        "int": "Number", "float": "Number", "bool": "Boolean",
-        "str": "String", "vector": "Vector3", "plane": "Plane",
-        "location": "Location", "shape": "Shape", "solid": "Solid",
-        "compound": "Compound", "face": "Face", "edge": "Edge",
-        "wire": "Wire",
+        "int": "Number", "float": "Number", "bool": "Boolean", "str": "String",
+        "vector": "Vector3", "vector2": "Vector2", "vector3": "Vector3",
+        "plane": "Plane", "location": "Location", "axis": "Axis", "color": "Color",
+        "shape": "Shape", "solid": "Solid", "compound": "Compound", "face": "Face",
+        "edge": "Edge", "wire": "Wire", "shell": "Shell", "part": "Part",
+        "sketch": "Sketch", "code": "Code", "callable": "Code",
     }
     return mapping.get(name, "Any")
 
@@ -71,10 +72,15 @@ def _json_default(value):
 def _safe_default(value):
     if value is inspect.Signature.empty:
         return None, None, True, False
-    # Only expose defaults that can safely round-trip through JSON and back
-    # into Python without guessing at CAD object / enum reconstruction.
     if value is None or isinstance(value, (bool, int, float, str)):
         return value, repr(value), False, True
+    if isinstance(value, enum.Enum):
+        return value.name, repr(value), False, True
+    if isinstance(value, (tuple, list, dict)):
+        try:
+            return json.loads(json.dumps(value)), repr(value), False, True
+        except (TypeError, ValueError):
+            pass
     return None, repr(value), False, False
 
 
@@ -388,6 +394,18 @@ def discover(include_full=True):
                             socket["options"] = [member.name for member in annotation]
                     except TypeError:
                         pass
+                if typing.get_origin(annotation) is typing.Literal:
+                    socket["options"] = list(typing.get_args(annotation))
+                if typing.get_origin(annotation) in (list, tuple, set, frozenset):
+                    item_args = typing.get_args(annotation)
+                    if item_args:
+                        socket["item_type"] = _type_name(item_args[0])
+                if typing.get_origin(annotation) in (dict, typing.Dict, typing.Mapping):
+                    mapping_args = typing.get_args(annotation)
+                    socket["key_type"] = _type_name(mapping_args[0]) if mapping_args else "String"
+                    socket["value_type"] = _type_name(mapping_args[1]) if len(mapping_args) > 1 else "Any"
+                if typing.get_origin(annotation) in (typing.Union, types.UnionType):
+                    socket["variants"] = sorted({_type_name(arg) for arg in typing.get_args(annotation) if arg is not type(None)})
                 inputs.append(socket)
             if inspect.isclass(obj):
                 try:
@@ -534,9 +552,16 @@ def discover(include_full=True):
     report["node_count"] = len(found)
     report["kind_counts"] = {}
     report["category_counts"] = {}
+    report["input_type_counts"] = {}
+    report["untyped_inputs"] = []
     for definition in found.values():
         report["kind_counts"][definition["kind"]] = report["kind_counts"].get(definition["kind"], 0) + 1
         report["category_counts"][definition["category"]] = report["category_counts"].get(definition["category"], 0) + 1
+        for socket in definition["inputs"]:
+            socket_type = socket["type"]
+            report["input_type_counts"][socket_type] = report["input_type_counts"].get(socket_type, 0) + 1
+            if socket_type == "Any" and not socket.get("annotation"):
+                report["untyped_inputs"].append(definition["id"] + ":" + socket["name"])
     report["required_api_presence"] = {
         name: any(item["name"] == name for item in found.values())
         for name in ("Box", "Cylinder", "Rectangle", "Circle", "extrude", "revolve")

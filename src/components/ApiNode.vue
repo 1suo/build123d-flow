@@ -5,11 +5,7 @@ import type { NodeDefinition } from "../types";
 
 const props = defineProps<{
   id: string;
-  data: { definition: NodeDefinition; params: Record<string, unknown>; error?: string };
-}>();
-
-const emit = defineEmits<{
-  parameter: [nodeId: string, name: string, value: unknown];
+  data: { definition: NodeDefinition; params: Record<string, unknown>; error?: string; onParameter?: (nodeId: string, name: string, value: unknown) => void };
 }>();
 
 const inputs = computed(() => props.data.definition.inputs);
@@ -21,7 +17,7 @@ function update(name: string, event: Event) {
   let value: unknown = target.value;
   if (old?.type === "Number") value = Number(target.value);
   if (old?.type === "Boolean") value = target.checked;
-  emit("parameter", props.id, name, value);
+  props.data.onParameter?.(props.id, name, value);
 }
 </script>
 
@@ -51,13 +47,7 @@ function update(name: string, event: Event) {
           type="checkbox"
           @change="update(input.name, $event)"
         />
-        <input
-          v-else
-          :value="String(data.params[input.name] ?? '')"
-          :placeholder="input.default_repr || input.type"
-          type="text"
-          @change="update(input.name, $event)"
-        />
+        <span v-else class="socket-type-hint">{{ input.type }}</span>
       </div>
       <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
         <span>{{ output.name }} <small>{{ output.type }}</small></span>

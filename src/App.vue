@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, markRaw, onMounted, ref, shallowRef, watch } from "vue";
-import { VueFlow, useVueFlow, type Connection, type Edge, type Node, type NodeTypes } from "@vue-flow/core";
+import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import { MiniMap } from "@vue-flow/minimap";
 import ApiNode from "./components/ApiNode.vue";
@@ -27,7 +27,7 @@ const previews = shallowRef<Record<string, MeshPreview>>({});
 const running = ref(false);
 const nodes = ref<Node[]>([]);
 const edges = ref<Edge[]>([]);
-const nodeTypes = { api: markRaw(ApiNode) } as unknown as NodeTypes;
+const nodeTypes = { api: markRaw(ApiNode) } as any;
 const { addNodes, addEdges, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
 const canvasActions = [
   { label: "Fit graph", icon: "pi pi-expand", command: () => fitView({ padding: 0.2 }) },

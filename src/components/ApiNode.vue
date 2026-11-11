@@ -133,7 +133,7 @@ function updateStructured(name: string, value: string) {
           @update:model-value="update(input.name, $event)"
         />
         <Textarea
-          v-else-if="['Vector3', 'Vector2', 'Plane', 'Location', 'Axis', 'Color', 'List', 'Dict', 'Any'].includes(input.type)"
+          v-else-if="['Vector3', 'Vector2', 'Rotation', 'Plane', 'Location', 'Axis', 'Color', 'List', 'Dict', 'Any'].includes(input.type)"
           :model-value="structuredValue(input.name)"
           :auto-resize="true"
           rows="2"

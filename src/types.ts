@@ -34,7 +34,9 @@ export interface GraphNode {
     definition: NodeDefinition;
     params: Record<string, unknown>;
     visible?: boolean;
+    collapsed?: boolean;
     onVisibility?: (nodeId: string, visible: boolean) => void;
+    onCollapse?: (nodeId: string, collapsed: boolean) => void;
     onParameter?: (nodeId: string, name: string, value: unknown) => void;
   };
 }

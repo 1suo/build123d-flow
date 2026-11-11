@@ -103,6 +103,20 @@ def _discover_modules():
     return modules
 
 
+
+
+def _boolean_union(a, b):
+    return a + b
+
+
+def _boolean_difference(a, b):
+    return a - b
+
+
+def _boolean_intersection(a, b):
+    return a & b
+
+
 def discover():
     global _CATALOG, _CATALOG_CALLABLES
     found = {}
@@ -111,14 +125,14 @@ def discover():
     for module in _discover_modules():
         module_name = getattr(module, "__name__", "build123d")
         for exported_name, obj in vars(module).items():
-            if not _is_candidate(obj, module_name):
-                continue
             if inspect.isclass(obj):
                 try:
                     if issubclass(obj, getattr(b3d, "Shape", object)):
                         shape_classes.add(obj)
                 except TypeError:
                     pass
+            if not _is_candidate(obj, module_name):
+                continue
             # Avoid exposing imported aliases repeatedly; retain canonical API path.
             canonical_module = getattr(obj, "__module__", module_name)
             name = getattr(obj, "__name__", exported_name)
@@ -258,6 +272,26 @@ def discover():
                 "outputs": [{"name": "result", "type": output_type, "annotation": ""}],
             }
             callables[node_id] = method
+
+    # Binary wrappers expose common overloaded CSG operators as graph operations.
+    for node_id, name, function in [
+        ("build123d_flow.union", "Union", _boolean_union),
+        ("build123d_flow.difference", "Difference", _boolean_difference),
+        ("build123d_flow.intersection", "Intersection", _boolean_intersection),
+    ]:
+        found[node_id] = {
+            "id": node_id,
+            "kind": "operation",
+            "name": name,
+            "category": "Boolean",
+            "description": "Binary solid boolean operation",
+            "inputs": [
+                {"name": "a", "type": "Shape", "annotation": "Shape", "required": True},
+                {"name": "b", "type": "Shape", "annotation": "Shape", "required": True},
+            ],
+            "outputs": [{"name": "result", "type": "Shape", "annotation": "Shape"}],
+        }
+        callables[node_id] = function
 
     _CATALOG = found
     _CATALOG_CALLABLES = callables

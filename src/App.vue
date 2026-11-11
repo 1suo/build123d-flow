@@ -45,15 +45,42 @@ let wantsFullCatalog = false;
 function paletteGroup(item: NodeDefinition): string {
   const category = item.category.toLowerCase();
   const name = item.name.toLowerCase();
-  const dataCategory = /^(values|constants|convert|math|logic|compare|strings?|python|vectors?)$/.test(category);
-  if (dataCategory || item.id.startsWith("core.")) return "Data";
-  if (item.kind === "geometry" || /^(primitives|2d profiles|sketch|profiles)$/.test(category)) return "Geometry";
-  if (/area|volume|length|center|bounding|measure/.test(name)) return "Data";
-  return "Operations";
+  const id = item.id.toLowerCase();
+
+  if (item.id.startsWith("core.")) {
+    if (/^core\.value|^core\.constant/.test(id)) return "Values";
+    if (/^core\.math|^core\.compare|^core\.logic/.test(id)) return "Math & Logic";
+    if (/^core\.vector/.test(id)) return "Vectors";
+    if (/^core\.string|^core\.convert|^core\.python/.test(id)) return "Data & Code";
+  }
+
+  if (/^(box|cylinder|sphere|cone|torus|wedge|extrusion|revolution)$/.test(name)
+      || /objects_part|primitives/.test(category)) return "3D Primitives";
+  if (/rectangle|circle|ellipse|polygon|slot|regularpolygon|trapezoid|polyline/.test(name)
+      || /objects_sketch|profiles/.test(category)) return "2D Profiles";
+  if (/extrude|revolve|loft|sweep|sweep|thicken/.test(name)
+      || /operations_generic|operations_part/.test(category)) return "Modeling";
+  if (/union|difference|intersection|fuse|cut|common|split|intersect/.test(name)) return "Boolean";
+  if (/fillet|chamfer|shell|offset|draft|hollow/.test(name)) return "Finishing";
+  if (/translate|rotate|mirror|scale|move|transform|location/.test(name)
+      || /location|plane/.test(category)) return "Transforms";
+  if (/area|volume|length|center|bounding|measure|distance|mass|inertia/.test(name)
+      || /measure|properties/.test(category)) return "Measurements";
+  if (/^(shape|solid|compound|part|face|wire|edge|vertex|shell)$/.test(name)
+      || /topology/.test(category)) return "Topology";
+  if (/^build123d\./.test(id) && item.kind === "geometry") return "3D Primitives";
+  if (item.kind === "geometry") return "Geometry";
+  return "Other API";
 }
 
-const categories = ["Geometry", "Operations", "Data"];
-const categoryItems = computed(() => categories.map((category) => ({
+const categories = computed(() => {
+  const groups = new Set(catalog.value.map(paletteGroup));
+  const order = ["3D Primitives", "2D Profiles", "Modeling", "Boolean", "Finishing", "Transforms", "Measurements", "Topology", "Vectors", "Math & Logic", "Values", "Data & Code", "Geometry", "Other API"];
+  return order.filter((group) => groups.has(group)).concat(
+    [...groups].filter((group) => !order.includes(group)).sort()
+  );
+});
+const categoryItems = computed(() => categories.value.map((category) => ({
   label: category,
   category,
   icon: categoryIcon(category),
@@ -96,11 +123,15 @@ function runCanvasAction(label: string) {
 
 function categoryIcon(category: string): string {
   const value = category.toLowerCase();
-  if (value.includes("geometry")) return asset("icons/cad/shape.svg");
-  if (value.includes("operation")) return asset("icons/cad/union.svg");
-  if (value.includes("data")) return asset("icons/cad/value.svg");
+  if (value.includes("geometry") || value.includes("primitive") || value.includes("topology")) return asset("icons/cad/shape.svg");
+  if (value.includes("boolean") || value.includes("operation") || value.includes("modeling")) return asset("icons/cad/union.svg");
+  if (value.includes("data") || value.includes("value")) return asset("icons/cad/value.svg");
   if (value.includes("primitive") || value.includes("solid")) return asset("icons/cad/shape.svg");
   if (value.includes("profile") || value.includes("sketch")) return asset("icons/cad/rectangle.svg");
+  if (value.includes("finish")) return asset("icons/cad/fillet.svg");
+  if (value.includes("measure")) return asset("icons/cad/math.svg");
+  if (value.includes("vector") || value.includes("transform")) return asset("icons/cad/move.svg");
+  if (value.includes("math")) return asset("icons/cad/math.svg");
   if (value.includes("vector") || value.includes("transform") || value.includes("location")) return asset("icons/cad/move.svg");
   if (value.includes("boolean") || value.includes("topology") || value.includes("shape") || value.includes("operation")) return asset("icons/cad/union.svg");
   if (value.includes("math") || value.includes("constant") || value.includes("numeric")) return asset("icons/cad/math.svg");

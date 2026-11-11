@@ -275,42 +275,6 @@ def _python_function(code, a=None, b=None, c=None):
     return scope["result"]
 
 
-def _register_curated_geometry(found, callables):
-    """Guarantee everyday constructors even when reflection skips them."""
-    constructors = [
-        ("Box", "Primitives", [("length", "Number", 1.0), ("width", "Number", 1.0), ("height", "Number", 1.0)]),
-        ("Cylinder", "Primitives", [("radius", "Number", 1.0), ("height", "Number", 1.0)]),
-        ("Sphere", "Primitives", [("radius", "Number", 1.0)]),
-        ("Cone", "Primitives", [("bottom_radius", "Number", 1.0), ("top_radius", "Number", 0.0), ("height", "Number", 1.0)]),
-        ("Torus", "Primitives", [("major_radius", "Number", 2.0), ("minor_radius", "Number", 0.5)]),
-        ("Rectangle", "2D Profiles", [("width", "Number", 1.0), ("height", "Number", 1.0)]),
-        ("Circle", "2D Profiles", [("radius", "Number", 1.0)]),
-        ("Ellipse", "2D Profiles", [("x_radius", "Number", 1.0), ("y_radius", "Number", 0.5)]),
-        ("RegularPolygon", "2D Profiles", [("radius", "Number", 1.0), ("side_count", "Number", 6)]),
-    ]
-    for name, category, parameters in constructors:
-        target = getattr(b3d, name, None)
-        if not callable(target):
-            continue
-        node_id = getattr(target, "__module__", "build123d") + "." + getattr(target, "__name__", name)
-
-        def construct(_target=target, **kwargs):
-            return _target(**kwargs)
-
-        found[node_id] = {
-            "id": node_id,
-            "kind": "geometry",
-            "name": name,
-            "category": category,
-            "description": (inspect.getdoc(target) or "Create a build123d geometry primitive.").split("\n")[0][:180],
-            "inputs": [
-                {"name": key, "type": socket_type, "annotation": socket_type,
-                 "required": False, "default": default}
-                for key, socket_type, default in parameters
-            ],
-            "outputs": [{"name": "result", "type": "Shape", "annotation": "Shape"}],
-        }
-        callables[node_id] = construct
 
 def discover(include_full=True):
     global _CATALOG, _CATALOG_CALLABLES

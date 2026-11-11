@@ -81,6 +81,7 @@ function toggleCollapse() {
           <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
           <strong>{{ data.definition.name }}</strong>
         </div>
+        <img v-if="data.icon" class="node-title-icon" :src="data.icon" alt="" />
         <Button v-if="data.definition.description" icon="pi pi-info-circle" text rounded size="small"
           severity="secondary" class="node-description-trigger nodrag nopan"
           v-tooltip.top="data.definition.description" :aria-label="`Description: ${data.definition.name}`" />

@@ -85,51 +85,94 @@ function updateStructured(value: string) {
 <template>
   <Card class="api-node" :class="{ 'has-error': data.error, 'is-collapsed': data.collapsed }">
     <template #title>
-      <div class="node-header">
+      <div v-if="data.collapsed" class="node-header collapsed-node-header">
+        <Button icon="pi pi-chevron-right" text rounded size="small" severity="secondary"
+          class="node-collapse" aria-label="Expand node" title="Expand node" @click.stop="toggleCollapse" />
+        <div class="collapsed-socket-group collapsed-inputs">
+          <span v-for="input in inputs" :key="input.name" class="collapsed-socket" :title="input.name + ' · ' + input.type">
+            <Handle :id="input.name" type="target" :position="Position.Left" />
+          </span>
+        </div>
+        <div class="collapsed-node-title">
+          <strong>{{ data.definition.name }}</strong>
+          <Button v-if="data.definition.description" icon="pi pi-info-circle" text rounded size="small"
+            severity="secondary" class="node-description-trigger" :title="data.definition.description"
+            :aria-label="`Description: ${data.definition.name}`" />
+        </div>
+        <div class="collapsed-socket-group collapsed-outputs">
+          <span v-for="output in outputs" :key="output.name" class="collapsed-socket" :title="output.name + ' · ' + output.type">
+            <Handle :id="output.name" type="source" :position="Position.Right" />
+          </span>
+        </div>
+      </div>
+      <div v-else class="node-header">
+        <Button icon="pi pi-chevron-down" text rounded size="small" severity="secondary"
+          class="node-collapse" aria-label="Collapse node" title="Collapse node" @click.stop="toggleCollapse" />
         <div class="node-heading">
           <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
           <strong>{{ data.definition.name }}</strong>
         </div>
-        <Button
-          v-if="data.definition.description"
-          icon="pi pi-info-circle"
-          text rounded size="small" severity="secondary"
-          class="node-description-trigger"
-          :aria-label="`Description: ${data.definition.name}`"
-          :title="data.definition.description"
-        />
-        <Button
-          :icon="data.collapsed ? 'pi pi-chevron-down' : 'pi pi-chevron-up'"
-          text rounded size="small" severity="secondary"
-          class="node-collapse"
-          :aria-label="data.collapsed ? 'Expand node' : 'Collapse node'"
-          :title="data.collapsed ? 'Expand node' : 'Collapse node'"
-          @click.stop="toggleCollapse"
-        />
-        <Button
-          v-if="data.error"
-          icon="pi pi-exclamation-circle"
-          text rounded size="small" severity="danger"
-          class="node-error-trigger"
-          aria-label="Show node error"
-          title="Show node error"
-          @click.stop="errorPopover?.toggle($event)"
-        />
+        <Button v-if="data.definition.description" icon="pi pi-info-circle" text rounded size="small"
+          severity="secondary" class="node-description-trigger" :aria-label="`Description: ${data.definition.name}`"
+          :title="data.definition.description" />
+        <Button v-if="data.error" icon="pi pi-exclamation-circle" text rounded size="small" severity="danger"
+          class="node-error-trigger" aria-label="Show node error" title="Show node error"
+          @click.stop="errorPopover?.toggle($event)" />
         <Popover ref="errorPopover" append-to="body" class="node-error-popover">
           <div class="node-error-content">{{ data.error }}</div>
         </Popover>
-        <Button
-          v-if="canPreview"
-          :icon="data.visible ? 'pi pi-eye' : 'pi pi-eye-slash'"
-          text rounded size="small" severity="secondary"
-          class="node-visibility"
-          :class="{ 'is-visible': data.visible }"
-          :aria-label="data.visible ? 'Hide in viewer' : 'Show in viewer'"
-          :title="data.visible ? 'Hide in viewer' : 'Show in viewer'"
-          @click.stop="toggleVisibility"
-        />
+        <Button v-if="canPreview" :icon="data.visible ? 'pi pi-eye' : 'pi pi-eye-slash'"
+          text rounded size="small" severity="secondary" class="node-visibility"
+          :class="{ 'is-visible': data.visible }" :aria-label="data.visible ? 'Hide in viewer' : 'Show in viewer'"
+          :title="data.visible ? 'Hide in viewer' : 'Show in viewer'" @click.stop="toggleVisibility" />
       </div>
     </template>
+    <template #content>
+      <div v-if="!data.collapsed" class="node-body">
+        <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
+          <Handle :id="input.name" type="target" :position="Position.Left" />
+          <label :title="input.annotation" @click.stop="inspect(input.name, 'input')">{{ input.label || input.name }}</label>
+          <InputNumber v-if="input.type === 'Number'"
+            :model-value="(data.params[input.name] ?? input.default ?? null) as number | null"
+            :use-grouping="false" :max-fraction-digits="8" input-class="node-number"
+            @update:model-value="update(input.name, $event)" />
+          <Checkbox v-else-if="input.type === 'Boolean'"
+            :model-value="Boolean(data.params[input.name] ?? input.default)" binary
+            @update:model-value="update(input.name, $event)" />
+          <Textarea v-else-if="input.type === 'Code'"
+            :model-value="String(data.params[input.name] ?? input.default ?? '')"
+            :auto-resize="false" rows="5" spellcheck="false" class="node-code"
+            @update:model-value="update(input.name, $event)" />
+          <InputText v-else-if="input.type === 'String'"
+            :model-value="String(data.params[input.name] ?? input.default ?? '')" class="node-text"
+            @update:model-value="update(input.name, $event)" />
+          <Select v-else-if="input.type === 'Enum'"
+            :model-value="String(data.params[input.name] ?? input.default ?? '')"
+            :options="input.options || []" placeholder="Default" class="node-select"
+            @update:model-value="update(input.name, $event)" />
+          <Button v-else-if="['Vector3', 'Vector2', 'Rotation', 'Plane', 'Location', 'Axis', 'Color', 'List', 'Dict', 'Any'].includes(input.type)"
+            class="node-structured-trigger" severity="secondary" outlined
+            :label="structuredSummary(input.name)" :title="structuredValue(input.name)"
+            @click.stop="openStructuredEditor(input.name, $event)" />
+          <span v-else class="socket-type-hint">{{ input.type }}</span>
+        </div>
+        <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
+          <span class="output-socket-inspect" :title="`Inspect ${output.name}`"
+            @click.stop="inspect(output.name, 'output')">{{ output.name }} <small>{{ output.type }}</small></span>
+          <Handle :id="output.name" type="source" :position="Position.Right" />
+        </div>
+      </div>
+      <Popover v-if="!data.collapsed" ref="valuePopover" append-to="body" class="node-value-popover">
+        <div class="node-value-editor">
+          <strong>{{ activeStructuredName }}</strong>
+          <Textarea :model-value="structuredDrafts[activeStructuredName] || ''"
+            :auto-resize="false" rows="7" spellcheck="false" class="node-value-textarea"
+            @update:model-value="updateStructured" />
+        </div>
+      </Popover>
+    </template>
+  </Card>
+</template>
     <template #content>
       <div v-if="data.collapsed" class="node-collapsed-title" @click.stop="toggleCollapse">
         <strong>{{ data.definition.name }}</strong>

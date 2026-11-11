@@ -677,8 +677,19 @@ def _call_with_coercion(callable_obj, params):
             try:
                 if issubclass(annotation, enum.Enum):
                     converted[name] = annotation[value]
+                    continue
             except (TypeError, KeyError):
                 pass
+        if inspect.isclass(annotation):
+            type_name = annotation.__name__.lower()
+            if type_name == "vector" and isinstance(value, (list, tuple)):
+                converted[name] = b3d.Vector(*value)
+            elif type_name == "plane" and isinstance(value, dict):
+                converted[name] = b3d.Plane(**value)
+            elif type_name == "location" and isinstance(value, dict):
+                converted[name] = b3d.Location(**value)
+            elif type_name == "location" and isinstance(value, (list, tuple)):
+                converted[name] = b3d.Location(*value)
 
     positional = []
     keywords = {}

@@ -117,6 +117,120 @@ def _boolean_intersection(a, b):
     return a & b
 
 
+
+def _add_node(found, callables, node_id, name, category, function, inputs, output_type, description=""):
+    found[node_id] = {
+        "id": node_id,
+        "kind": "value" if not inputs else "operation",
+        "name": name,
+        "category": category,
+        "description": description,
+        "inputs": [
+            {"name": key, "type": socket_type, "annotation": socket_type, "required": True}
+            for key, socket_type in inputs
+        ],
+        "outputs": [{"name": "result", "type": output_type, "annotation": output_type}],
+    }
+    callables[node_id] = function
+
+
+def _add_core_nodes(found, callables):
+    import math
+    import operator
+
+    # Scalar arithmetic and comparisons.
+    numeric_binary = [
+        ("add", "Add", operator.add), ("subtract", "Subtract", operator.sub),
+        ("multiply", "Multiply", operator.mul), ("divide", "Divide", operator.truediv),
+        ("floor_divide", "Floor Divide", operator.floordiv), ("modulo", "Modulo", operator.mod),
+        ("power", "Power", operator.pow),
+    ]
+    for key, label, fn in numeric_binary:
+        _add_node(found, callables, "core.math." + key, label, "Math", fn,
+                  [("a", "Number"), ("b", "Number")], "Number")
+    for key, label, fn in [
+        ("negate", "Negate", operator.neg), ("absolute", "Absolute", abs),
+        ("sqrt", "Square Root", math.sqrt), ("sin", "Sin", math.sin),
+        ("cos", "Cos", math.cos), ("tan", "Tan", math.tan),
+        ("asin", "Asin", math.asin), ("acos", "Acos", math.acos),
+        ("atan", "Atan", math.atan), ("radians", "Radians", math.radians),
+        ("degrees", "Degrees", math.degrees), ("exp", "Exp", math.exp),
+        ("log", "Log", math.log10), ("ln", "Natural Log", math.log),
+        ("floor", "Floor", math.floor), ("ceil", "Ceil", math.ceil),
+        ("round", "Round", round),
+    ]:
+        _add_node(found, callables, "core.math." + key, label, "Math",
+                  lambda value, _fn=fn: _fn(value), [("value", "Number")], "Number")
+    for key, label, value in [("pi", "Pi", math.pi), ("e", "E", math.e), ("tau", "Tau", math.tau)]:
+        _add_node(found, callables, "core.constant." + key, label, "Constants",
+                  lambda _value=value: _value, [], "Number", "Mathematical constant")
+
+    for key, label, fn in [
+        ("minimum", "Minimum", min), ("maximum", "Maximum", max),
+        ("clamp", "Clamp", lambda value, low, high: max(low, min(high, value))),
+    ]:
+        args = [("a", "Number"), ("b", "Number")] if key != "clamp" else [
+            ("value", "Number"), ("low", "Number"), ("high", "Number")]
+        _add_node(found, callables, "core.math." + key, label, "Math", fn, args, "Number")
+
+    for key, label, fn in [
+        ("equal", "Equal", operator.eq), ("not_equal", "Not Equal", operator.ne),
+        ("less", "Less Than", operator.lt), ("less_equal", "Less or Equal", operator.le),
+        ("greater", "Greater Than", operator.gt), ("greater_equal", "Greater or Equal", operator.ge),
+    ]:
+        _add_node(found, callables, "core.compare." + key, label, "Logic",
+                  fn, [("a", "Number"), ("b", "Number")], "Boolean")
+    _add_node(found, callables, "core.logic.and", "And", operator.and_,
+              [("a", "Boolean"), ("b", "Boolean")], "Boolean")
+    _add_node(found, callables, "core.logic.or", "Or", operator.or_,
+              [("a", "Boolean"), ("b", "Boolean")], "Boolean")
+    _add_node(found, callables, "core.logic.not", "Not", operator.not_,
+              [("value", "Boolean")], "Boolean")
+    _add_node(found, callables, "core.logic.select", "Select", lambda condition, if_true, if_false: if_true if condition else if_false,
+              [("condition", "Boolean"), ("if_true", "Any"), ("if_false", "Any")], "Any")
+
+    # String construction and common operations.
+    _add_node(found, callables, "core.string.join", "Join", lambda a, b, separator: str(a) + separator + str(b),
+              [("a", "String"), ("b", "String"), ("separator", "String")], "String")
+    _add_node(found, callables, "core.string.format", "Format", lambda template, value: template.format(value),
+              [("template", "String"), ("value", "Any")], "String")
+    _add_node(found, callables, "core.string.replace", "Replace", lambda value, old, new: value.replace(old, new),
+              [("value", "String"), ("old", "String"), ("new", "String")], "String")
+    _add_node(found, callables, "core.string.length", "String Length", len,
+              [("value", "String")], "Number")
+    _add_node(found, callables, "core.string.upper", "Uppercase", str.upper,
+              [("value", "String")], "String")
+    _add_node(found, callables, "core.string.lower", "Lowercase", str.lower,
+              [("value", "String")], "String")
+    _add_node(found, callables, "core.convert.to_number", "To Number", float,
+              [("value", "Any")], "Number")
+    _add_node(found, callables, "core.convert.to_string", "To String", str,
+              [("value", "Any")], "String")
+
+    # Vector operations use build123d's native Vector type.
+    vector = b3d.Vector
+    _add_node(found, callables, "core.vector.construct", "Vector", "Vectors",
+              lambda x, y, z: vector(x, y, z),
+              [("x", "Number"), ("y", "Number"), ("z", "Number")], "Vector3")
+    _add_node(found, callables, "core.vector.add", "Vector Add", operator.add,
+              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
+    _add_node(found, callables, "core.vector.subtract", "Vector Subtract", operator.sub,
+              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
+    _add_node(found, callables, "core.vector.scale", "Vector Scale",
+              lambda vector_value, factor: vector_value * factor,
+              [("vector_value", "Vector3"), ("factor", "Number")], "Vector3")
+    _add_node(found, callables, "core.vector.dot", "Dot Product", operator.matmul,
+              [("a", "Vector3"), ("b", "Vector3")], "Number")
+    _add_node(found, callables, "core.vector.cross", "Cross Product",
+              lambda a, b: a.cross(b),
+              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
+    _add_node(found, callables, "core.vector.length", "Vector Length",
+              lambda value: value.length,
+              [("value", "Vector3")], "Number")
+    _add_node(found, callables, "core.vector.normalize", "Normalize",
+              lambda value: value.normalized(),
+              [("value", "Vector3")], "Vector3")
+
 def discover():
     global _CATALOG, _CATALOG_CALLABLES
     found = {}
@@ -273,7 +387,7 @@ def discover():
             }
             callables[node_id] = method
 
-    # Binary wrappers expose common overloaded CSG operators as graph operations.
+    # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.\n    _add_core_nodes(found, callables)\n\n    # Binary wrappers expose common overloaded CSG operators as graph operations.
     for node_id, name, function in [
         ("build123d_flow.union", "Union", _boolean_union),
         ("build123d_flow.difference", "Difference", _boolean_difference),

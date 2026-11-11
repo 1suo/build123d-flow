@@ -7,6 +7,8 @@ import Checkbox from "primevue/checkbox";
 import Textarea from "primevue/textarea";
 import Select from "primevue/select";
 import Button from "primevue/button";
+import Card from "primevue/card";
+import Message from "primevue/message";
 import type { NodeDefinition } from "../types";
 
 const props = defineProps<{
@@ -28,8 +30,8 @@ function update(name: string, value: unknown) {
 </script>
 
 <template>
-  <article class="api-node" :class="{ 'has-error': data.error }">
-    <header class="node-header">
+  <Card class="api-node" :class="{ 'has-error': data.error }">
+    <template #title>
       <div class="node-heading">
         <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
         <strong>{{ data.definition.name }}</strong>
@@ -47,9 +49,10 @@ function update(name: string, value: unknown) {
         :title="data.visible ? 'Hide in viewer' : 'Show in viewer'"
         @click.stop="toggleVisibility"
       />
-    </header>
-    <p v-if="data.definition.description" class="node-description">{{ data.definition.description }}</p>
-    <div class="node-body">
+    </template>
+    <template #content>
+      <p v-if="data.definition.description" class="node-description">{{ data.definition.description }}</p>
+      <div class="node-body">
       <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
         <Handle :id="input.name" type="target" :position="Position.Left" />
         <label :title="input.annotation">{{ input.label || input.name }}</label>
@@ -96,7 +99,10 @@ function update(name: string, value: unknown) {
         <span>{{ output.name }} <small>{{ output.type }}</small></span>
         <Handle :id="output.name" type="source" :position="Position.Right" />
       </div>
-    </div>
-    <footer v-if="data.error" class="node-error">{{ data.error }}</footer>
-  </article>
+      </div>
+    </template>
+    <template v-if="data.error" #footer>
+      <Message severity="error" variant="simple" :closable="false" class="node-error">{{ data.error }}</Message>
+    </template>
+  </Card>
 </template>

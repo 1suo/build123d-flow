@@ -15,6 +15,7 @@ export interface SocketDefinition {
 
 export interface NodeDefinition {
   id: string;
+  kind: "geometry" | "operation" | "value" | "enum";
   name: string;
   category: string;
   description: string;

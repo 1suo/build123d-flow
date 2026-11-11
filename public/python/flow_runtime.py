@@ -118,7 +118,13 @@ def _boolean_intersection(a, b):
 
 
 
-def _add_node(found, callables, node_id, name, category, function, inputs, output_type, description=""):
+def _add_node(found, callables, node_id, name, category, function=None, inputs=None, output_type=None, description=""):
+    # Allow concise calls without an explicit category; infer it from the stable node id.
+    if output_type is None and callable(category):
+        output_type = inputs
+        inputs = function
+        function = category
+        category = node_id.split(".")[1].title() if len(node_id.split(".")) > 2 else "Core"
     found[node_id] = {
         "id": node_id,
         "kind": "value" if not inputs else "operation",

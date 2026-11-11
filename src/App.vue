@@ -7,7 +7,7 @@ import { MiniMap } from "@vue-flow/minimap";
 import ApiNode from "./components/ApiNode.vue";
 import GeometryViewport from "./components/GeometryViewport.vue";
 import { PythonRuntime } from "./runtime/pythonRuntime";
-import { createGraphNode, validateGraph } from "./runtime/graph";
+import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
 
 const runtime = new PythonRuntime();
@@ -85,7 +85,12 @@ function onDrop(event: DragEvent) {
   addDefinition(definition, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }));
 }
 
+function isValidConnection(connection: Connection) {
+  return canConnect(graph.value, connection);
+}
+
 function onConnect(connection: Connection) {
+  if (!isValidConnection(connection)) return;
   addEdges([{ ...connection, id: `e${Date.now()}`, animated: false } as Edge]);
   scheduleEvaluation();
 }
@@ -189,6 +194,7 @@ function downloadStep() {
           v-model:nodes="nodes"
           v-model:edges="edges"
           :node-types="nodeTypes"
+          :is-valid-connection="isValidConnection"
           fit-view-on-init
           :default-viewport="{ zoom: 0.85, x: 60, y: 60 }"
           @connect="onConnect"

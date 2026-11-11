@@ -198,9 +198,9 @@ def _add_core_nodes(found, callables):
               [("value", "String"), ("old", "String"), ("new", "String")], "String")
     _add_node(found, callables, "core.string.length", "String Length", len,
               [("value", "String")], "Number")
-    _add_node(found, callables, "core.string.upper", "Uppercase", str.upper,
+    _add_node(found, callables, "core.string.upper", "Uppercase", lambda value: value.upper(),
               [("value", "String")], "String")
-    _add_node(found, callables, "core.string.lower", "Lowercase", str.lower,
+    _add_node(found, callables, "core.string.lower", "Lowercase", lambda value: value.lower(),
               [("value", "String")], "String")
     _add_node(found, callables, "core.convert.to_number", "To Number", float,
               [("value", "Any")], "Number")
@@ -219,7 +219,7 @@ def _add_core_nodes(found, callables):
     _add_node(found, callables, "core.vector.scale", "Vector Scale",
               lambda vector_value, factor: vector_value * factor,
               [("vector_value", "Vector3"), ("factor", "Number")], "Vector3")
-    _add_node(found, callables, "core.vector.dot", "Dot Product", operator.matmul,
+    _add_node(found, callables, "core.vector.dot", "Dot Product", lambda a, b: a.dot(b),
               [("a", "Vector3"), ("b", "Vector3")], "Number")
     _add_node(found, callables, "core.vector.cross", "Cross Product",
               lambda a, b: a.cross(b),

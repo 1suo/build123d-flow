@@ -47,6 +47,13 @@ function update(name: string, event: Event) {
           type="checkbox"
           @change="update(input.name, $event)"
         />
+        <textarea
+          v-else-if="input.type === 'Code'"
+          :value="String(data.params[input.name] ?? '')"
+          rows="5"
+          spellcheck="false"
+          @change="update(input.name, $event)"
+        />
         <input
           v-else-if="input.type === 'String'"
           :value="String(data.params[input.name] ?? '')"

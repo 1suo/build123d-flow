@@ -13,6 +13,8 @@ export interface SocketDefinition {
   default_repr?: string;
   options?: string[];
   item_type?: SocketType;
+  key_type?: SocketType;
+  value_type?: SocketType;
   variants?: SocketType[];
 }
 

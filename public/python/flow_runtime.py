@@ -404,7 +404,10 @@ def discover():
             }
             callables[node_id] = method
 
-    # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.\n    _add_core_nodes(found, callables)\n\n
+    # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.
+    _add_core_nodes(found, callables)
+
+
     found["core.python.function"] = {
         "id": "core.python.function",
         "kind": "operation",

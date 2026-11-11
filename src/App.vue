@@ -2,7 +2,6 @@
 import { computed, markRaw, onMounted, ref, shallowRef, watch } from "vue";
 import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
-import { MiniMap } from "@vue-flow/minimap";
 import ApiNode from "./components/ApiNode.vue";
 import GeometryViewport from "./components/GeometryViewport.vue";
 import Button from "primevue/button";
@@ -307,7 +306,6 @@ function downloadStep() {
             @edges-change="scheduleEvaluation"
           >
             <Background pattern-color="#39352e" :gap="22" />
-            <MiniMap pannable zoomable />
             <Dock :model="canvasActions" position="bottom" class="canvas-dock">
               <template #item="{ item }">
                 <Button :icon="item.icon" text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Canvas action'" :title="typeof item.label === 'string' ? item.label : 'Canvas action'" @click="typeof item.label === 'string' && runCanvasAction(item.label)" />

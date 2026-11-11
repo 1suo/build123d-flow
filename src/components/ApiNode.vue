@@ -131,7 +131,7 @@ function updateStructured(value: string) {
       </div>
     </template>
     <template #content>
-      <div v-if="data.collapsed" class="node-collapsed-title">
+      <div v-if="data.collapsed" class="node-collapsed-title" @click.stop="toggleCollapse">
         <strong>{{ data.definition.name }}</strong>
         <Button v-if="data.definition.description" icon="pi pi-info-circle" text rounded size="small" severity="secondary" class="node-description-trigger" :title="data.definition.description" :aria-label="`Description: ${data.definition.name}`" />
       </div>

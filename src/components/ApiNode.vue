@@ -33,7 +33,7 @@ function update(name: string, event: Event) {
     <div class="node-body">
       <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
         <Handle :id="input.name" type="target" :position="Position.Left" />
-        <label :title="input.annotation">{{ input.name }}</label>
+        <label :title="input.annotation">{{ input.label || input.name }}</label>
         <input
           v-if="input.type === 'Number'"
           :value="data.params[input.name] ?? ''"

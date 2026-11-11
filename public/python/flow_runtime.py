@@ -30,6 +30,10 @@ def _type_name(annotation):
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
+            for shape_name in ("Solid", "Compound", "Face", "Edge", "Wire"):
+                shape_class = getattr(b3d, shape_name, None)
+                if inspect.isclass(shape_class) and issubclass(annotation, shape_class):
+                    return shape_name
             if issubclass(annotation, getattr(b3d, "Shape", object)):
                 return "Shape"
         except TypeError:
@@ -153,7 +157,8 @@ def discover():
             if inspect.isclass(obj):
                 try:
                     if issubclass(obj, getattr(b3d, "Shape", object)):
-                        node_kind, output_type = "geometry", "Shape"
+                        output_type = _type_name(obj)
+                        node_kind = "geometry"
                     elif issubclass(obj, enum.Enum):
                         node_kind, output_type = "enum", "Enum"
                     else:

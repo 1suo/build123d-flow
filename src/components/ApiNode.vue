@@ -97,7 +97,7 @@ function updateStructured(name: string, value: string) {
         <label :title="input.annotation">{{ input.label || input.name }}</label>
         <InputNumber
           v-if="input.type === 'Number'"
-          :model-value="Number(data.params[input.name] ?? input.default ?? 0)"
+          :model-value="(data.params[input.name] ?? input.default ?? null) as number | null"
           :use-grouping="false"
           :max-fraction-digits="8"
           input-class="node-number"

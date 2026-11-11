@@ -312,12 +312,13 @@ def _register_curated_geometry(found, callables):
         }
         callables[node_id] = construct
 
-def discover():
+def discover(include_full=True):
     global _CATALOG, _CATALOG_CALLABLES
     found = {}
     callables = {}
     shape_classes = set()
-    for module in _discover_modules():
+    modules = _discover_modules() if include_full else [b3d]
+    for module in modules:
         module_name = getattr(module, "__name__", "build123d")
         for exported_name, obj in vars(module).items():
             if inspect.isclass(obj):
@@ -524,8 +525,12 @@ def discover():
 
 def catalog_json():
     if not _CATALOG:
-        discover()
+        discover(include_full=False)
     return json.dumps(list(_CATALOG.values()))
+
+
+def discover_full():
+    return json.dumps(discover(include_full=True))
 
 
 def _mesh_preview(value):
@@ -669,4 +674,4 @@ def export_step_bytes():
     return stream.getvalue()
 
 
-discover()
+discover(include_full=False)

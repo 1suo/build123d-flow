@@ -19,11 +19,12 @@ import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
 import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
+import { bootCatalog } from "./catalog/boot";
 
 const runtime = new PythonRuntime();
 const status = ref("Loading Python runtime…");
 const runtimeError = ref("");
-const catalog = ref<NodeDefinition[]>([]);
+const catalog = ref<NodeDefinition[]>(bootCatalog);
 const paletteSearch = ref("");
 const contextSearch = ref("");
 const expandedGroups = ref<string[]>([]);
@@ -124,39 +125,56 @@ function categoryIcon(category: string): string {
 
 function nodeIcon(item: NodeDefinition): string {
   const name = item.name.toLowerCase();
-  if (/^box$/.test(name)) return "pi pi-box";
-  if (/rectangle|square/.test(name)) return "pi pi-stop";
-  if (/cylinder|sphere|circle|torus|ellipse/.test(name)) return "pi pi-circle";
-  if (/cone|triangle|polygon/.test(name)) return "pi pi-star";
-  if (/union|difference|intersection|fuse|cut/.test(name)) return "pi pi-sitemap";
-  if (/extrude|push|pull/.test(name)) return "pi pi-arrow-up";
-  if (/revolve|rotate/.test(name)) return "pi pi-sync";
-  if (/loft|sweep/.test(name)) return "pi pi-share-alt";
-  if (/fillet|chamfer|offset|shell/.test(name)) return "pi pi-sliders-h";
-  if (/mirror/.test(name)) return "pi pi-directions";
-  if (/scale|resize/.test(name)) return "pi pi-expand";
-  if (/move|translate/.test(name)) return "pi pi-arrows-alt";
-  if (/area|volume|length|center|bounding/.test(name)) return "pi pi-chart-line";
-  if (item.kind === "geometry" || item.outputs.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type))) return "pi pi-box";
-  if (item.kind === "value") return "pi pi-circle";
-  return categoryIcon(item.category);
+  const id = item.id.toLowerCase();
+  if (/^box$/.test(name)) return "/icons/cad/box.svg";
+  if (/cylinder/.test(name)) return "/icons/cad/cylinder.svg";
+  if (/sphere/.test(name)) return "/icons/cad/sphere.svg";
+  if (/union|fuse/.test(name) || id.endsWith(".union")) return "/icons/cad/union.svg";
+  if (/difference|subtract|cut/.test(name) || id.endsWith(".difference")) return "/icons/cad/difference.svg";
+  if (/intersection|common/.test(name) || id.endsWith(".intersection")) return "/icons/cad/intersection.svg";
+  if (/extrude/.test(name)) return "/icons/cad/extrude.svg";
+  if (/revolve/.test(name)) return "/icons/cad/revolve.svg";
+  if (/fillet/.test(name)) return "/icons/cad/fillet.svg";
+  if (/chamfer/.test(name)) return "/icons/cad/chamfer.svg";
+  if (/rectangle|square/.test(name)) return "/icons/cad/rectangle.svg";
+  if (/circle/.test(name)) return "/icons/cad/circle.svg";
+  if (/ellipse/.test(name)) return "/icons/cad/ellipse.svg";
+  if (/polygon/.test(name)) return "/icons/cad/polygon.svg";
+  if (/move|translate/.test(name)) return "/icons/cad/move.svg";
+  if (/rotate/.test(name)) return "/icons/cad/rotate.svg";
+  if (/mirror/.test(name)) return "/icons/cad/mirror.svg";
+  if (/scale/.test(name)) return "/icons/cad/scale.svg";
+  if (item.kind === "geometry") return "/icons/cad/shape.svg";
+  if (item.kind === "value") return "/icons/cad/value.svg";
+  if (item.category === "Math") return "/icons/cad/math.svg";
+  if (item.category === "Logic") return "/icons/cad/logic.svg";
+  if (item.category === "Python") return "/icons/cad/code.svg";
+  return "/icons/cad/node.svg";
+}
 }
 
-onMounted(async () => {
-  try {
-    await runtime.initialize((message) => (status.value = message));
-    catalog.value = runtime.getCatalog();
-    addStarterGraph();
+onMounted(() => {
+  // Paint a usable graph and a small palette before downloading Pyodide.
+  addStarterGraph();
+  void runtime.initialize((message) => (status.value = message)).then(() => {
+    const discovered = runtime.getCatalog();
+    const byName = new Map(discovered.map((item) => [item.name, item]));
+    catalog.value = discovered;
+    for (const node of nodes.value as any[]) {
+      const resolved = byName.get(node.data.definition.name);
+      if (resolved) node.data.definition = resolved;
+    }
     status.value = "Ready";
-  } catch (error) {
+    scheduleEvaluation();
+  }).catch((error) => {
     status.value = "Initialization failed";
     runtimeError.value = error instanceof Error ? error.message : String(error);
-  }
+  });
 });
 
 function addStarterGraph() {
   const box = catalog.value.find((item) => item.name === "Box");
-  const union = catalog.value.find((item) => item.id === "build123d_flow.union");
+  const union = catalog.value.find((item) => item.name === "Union");
   if (!box || !union) return;
   const left = createGraphNode(box, `n${nextId++}`, { x: 100, y: 100 });
   const right = createGraphNode(box, `n${nextId++}`, { x: 100, y: 360 });
@@ -351,12 +369,15 @@ function downloadStep() {
                   text
                   severity="secondary"
                   class="palette-node"
-                  :icon="nodeIcon(item)"
                   :label="item.name"
                   draggable="true"
                   @dragstart="dragNode($event, item)"
                   @click="addDefinition(item)"
-                />
+                >
+                  <template #icon>
+                    <img class="palette-node-icon" :src="nodeIcon(item)" alt="" />
+                  </template>
+                </Button>
               </div>
             </AccordionContent>
           </AccordionPanel>
@@ -378,9 +399,11 @@ function downloadStep() {
             text
             severity="secondary"
             class="context-result"
-            :icon="nodeIcon(item)"
             @click="addFromContext(item)"
           >
+            <template #icon>
+              <img class="palette-node-icon" :src="nodeIcon(item)" alt="" />
+            </template>
             <template #default>
               <span class="context-result-name">{{ item.name }}</span>
               <span class="context-result-category">{{ item.category }}</span>

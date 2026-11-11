@@ -940,7 +940,8 @@ def _inspect_value(value, depth=0):
                     continue
                 if (isinstance(item, (bool, int, float, str, list, tuple, set, frozenset,
                                       collections.abc.Mapping, collections.abc.Sequence,
-                                      collections.abc.Set)) or item is None):
+                                      collections.abc.Set)) or item is None or
+                        type(item).__name__ in {"Vector", "Plane", "Location", "Rotation", "Axis", "Color"}):
                     attributes[name] = _inspect_value(item, depth + 1)
             except Exception:
                 continue

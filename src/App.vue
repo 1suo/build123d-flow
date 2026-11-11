@@ -5,7 +5,6 @@ import { Background } from "@vue-flow/background";
 import ApiNode from "./components/ApiNode.vue";
 import GeometryViewport from "./components/GeometryViewport.vue";
 import DataValue from "./components/DataValue.vue";
-import ViewportStatus from "./components/ViewportStatus.vue";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Dock from "primevue/dock";

@@ -501,10 +501,6 @@ def _add_core_nodes(found, callables):
               [("value", "Any")], "String")
 
     # Vector operations use build123d's native Vector type.
-    vector = b3d.Vector
-    _add_node(found, callables, "core.vector.construct", "Vector", "Vectors",
-              lambda x, y, z: vector(x, y, z),
-              [("x", "Number"), ("y", "Number"), ("z", "Number")], "Vector3")
     _add_node(found, callables, "core.vector.add", "Vector Add", lambda a, b: a + b,
               [("a", "Vector3"), ("b", "Vector3")], "Vector3")
     _add_node(found, callables, "core.vector.subtract", "Vector Subtract", lambda a, b: a - b,
@@ -525,9 +521,6 @@ def _add_core_nodes(found, callables):
               [("value", "Vector3")], "Vector3")
 
     # First-class collection construction and transformation nodes.
-    _add_node(found, callables, "core.list.construct", "List", "Collections",
-              lambda items: list(items), [("items", "List")], "List",
-              "Create a list from an input sequence.")
     _add_node(found, callables, "core.list.length", "List Length", "Collections",
               len, [("items", "List")], "Number")
     _add_node(found, callables, "core.list.get", "Get Item", "Collections",
@@ -667,8 +660,6 @@ def _add_core_nodes(found, callables):
               lambda mapping, key: key in mapping, [("mapping", "Dict"), ("key", "Any")], "Boolean")
 
     # Tuple and set conversions/operations.
-    _add_node(found, callables, "core.tuple.construct", "Tuple", "Collections",
-              tuple, [("items", "List")], "Tuple")
     _add_node(found, callables, "core.tuple.get", "Tuple Item", "Collections",
               lambda items, index: items[index], [("items", "Tuple"), ("index", "Number")], "Any")
     _add_node(found, callables, "core.tuple.length", "Tuple Length", "Collections",
@@ -680,8 +671,6 @@ def _add_core_nodes(found, callables):
               lambda a, b: tuple(a) + tuple(b), [("a", "Tuple"), ("b", "Tuple")], "Tuple")
     _add_node(found, callables, "core.tuple.to_list", "Tuple to List", "Collections",
               list, [("items", "Tuple")], "List")
-    _add_node(found, callables, "core.set.construct", "Set", "Collections",
-              set, [("items", "List")], "Set")
     _add_node(found, callables, "core.set.union", "Set Union", "Collections",
               lambda a, b: set(a) | set(b), [("a", "Set"), ("b", "Set")], "Set")
     _add_node(found, callables, "core.set.intersection", "Set Intersection", "Collections",
@@ -933,10 +922,20 @@ def discover(include_full=True):
                 hint_targets[overload_id] = hint_target
                 report["accepted"].append({"id": overload_id, "kind": node_kind})
 
-    # Discover useful instance methods on actual B-rep classes as operation nodes.
+    # Expose a deliberately small set of useful B-rep methods. The full class
+    # surface contains aliases, low-level helpers and methods that duplicate
+    # the dedicated graph operations below.
+    useful_shape_methods = {
+        "fillet", "chamfer", "shell", "offset", "draft", "clean",
+        "moved", "move", "rotate", "translate", "scale", "mirror",
+        "bounding_box", "center", "center_of_mass", "is_valid",
+        "faces", "edges", "vertices", "wires", "solids", "shells",
+        "area", "volume",
+    }
+    # fuse/cut/intersect are already exposed as typed Boolean nodes.
     for cls in shape_classes:
         for method_name, method in vars(cls).items():
-            if method_name.startswith("_") or not inspect.isfunction(method):
+            if method_name.startswith("_") or method_name not in useful_shape_methods or not inspect.isfunction(method):
                 continue
             if getattr(method, "__module__", "").split(".")[0] != "build123d":
                 continue

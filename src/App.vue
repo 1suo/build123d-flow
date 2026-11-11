@@ -74,52 +74,80 @@ let evaluationRevision = 0;
 let evaluationTimer: ReturnType<typeof setTimeout> | undefined;
 
 function paletteGroup(item: NodeDefinition): string {
-  const category = item.category.toLowerCase();
-  const name = item.name.toLowerCase();
   const id = item.id.toLowerCase();
+  const name = item.name.toLowerCase();
+  const category = item.category.toLowerCase();
 
-  if (id.startsWith("core.spatial.")) return "Spatial & Distributions";
-  if (id.startsWith("core.utility.")) return "Utilities";
+  if (id.startsWith("core.spatial.")) return "Spatial";
+  if (id.startsWith("core.utility.")) return "Math";
   if (id.startsWith("core.list.") || id.startsWith("core.dict.") ||
       id.startsWith("core.tuple.") || id.startsWith("core.set.") ||
-      id.startsWith("core.series.")) return "Collections & Series";
-  if (id.startsWith("core.value.") || id.startsWith("core.constant.")) return "Values";
+      id.startsWith("core.series.") || id.startsWith("core.value.") ||
+      id.startsWith("core.constant.") || id.startsWith("core.string.") ||
+      id.startsWith("core.convert.")) return "Data";
   if (id.startsWith("core.math.") || id.startsWith("core.compare.") ||
-      id.startsWith("core.logic.")) return "Math & Logic";
-  if (id.startsWith("core.vector.")) return "Vectors";
-  if (id.startsWith("core.string.") || id.startsWith("core.convert.") ||
-      id.startsWith("core.python.")) return "Data & Code";
+      id.startsWith("core.logic.")) return "Math";
+  if (id.startsWith("core.vector.")) return "Spatial";
+  if (id.startsWith("core.python.")) return "Scripting";
 
-  if (/^(box|cylinder|sphere|cone|torus|wedge|extrusion|revolution)$/.test(name)
-      || /objects_part|primitives/.test(category)) return "3D Primitives";
-  if (/objects_curve|objects_surface|curves|surfaces/.test(category)) return "Curves & Surfaces";
-  if (/rectangle|circle|ellipse|polygon|slot|regularpolygon|trapezoid|polyline/.test(name)
-      || /objects_sketch|profiles/.test(category)) return "2D Profiles";
-  if (/extrude|revolve|loft|sweep|sweep|thicken/.test(name)
-      || /operations_generic|operations_part/.test(category)) return "Modeling";
-  if (/union|difference|intersection|fuse|cut|common|split|intersect/.test(name)) return "Boolean";
-  if (/fillet|chamfer|shell|offset|draft|hollow/.test(name)) return "Finishing";
-  if (/plane|axis|datum|frame|location|rotation/.test(name) || /plane|datum|reference/.test(category)) return "Reference Geometry";
-  if (/translate|rotate|mirror|scale|move|transform|location/.test(name)
-      || /location|plane/.test(category)) return "Transforms";
-  if (/area|volume|length|center|bounding|measure|distance|mass|inertia/.test(name)
-      || /measure|properties/.test(category)) return "Measurements";
-  if (/^(shape|solid|compound|part|face|wire|edge|vertex|shell)$/.test(name)
-      || /topology/.test(category)) return "Topology";
-  if (/^build123d\./.test(id) && item.kind === "geometry") return "3D Primitives";
-  if (item.kind === "geometry") return "Geometry";
-  return "Other API";
+  if (/^(union|difference|intersection|fuse|cut|common|intersect)$/.test(name) ||
+      /boolean/.test(category) || id.startsWith("build123d_flow.")) return "Model";
+  if (/fillet|chamfer|shell|offset|draft|hollow|thicken/.test(name)) return "Model";
+  if (/extrude|revolve|loft|sweep|pipe|split/.test(name) || /operations_/.test(id)) return "Model";
+  if (/translate|rotate|mirror|scale|move|transform|location/.test(name) ||
+      /transform|location/.test(category)) return "Transform";
+  if (/plane|axis|datum|frame|coordinate|rotation/.test(name) ||
+      /plane|datum|reference|geometry/.test(category)) return "Reference";
+  if (/area|volume|length|center|bounding|measure|distance|mass|inertia/.test(name) ||
+      /measure|properties|topology/.test(category) || /topology/.test(id)) return "Inspect";
+  if (/objects_curve|surface|curve/.test(id) || /curves|surfaces/.test(category)) return "Create";
+  if (/rectangle|circle|ellipse|polygon|slot|regularpolygon|trapezoid|polyline|sketch/.test(name) ||
+      /objects_sketch|profile/.test(id) || /sketch|profile/.test(category)) return "Create";
+  if (/^(box|cylinder|sphere|cone|torus|wedge|prism|extrusion|revolution)$/.test(name) ||
+      /objects_part|primitives/.test(id) || item.kind === "geometry") return "Create";
+  return "API";
+}
+
+function paletteSection(item: NodeDefinition): string {
+  const id = item.id.toLowerCase();
+  const name = item.name.toLowerCase();
+  const category = item.category.toLowerCase();
+  if (id.startsWith("core.value.")) return "Literal values";
+  if (id.startsWith("core.constant.")) return "Constants";
+  if (id.startsWith("core.series.")) return "Series";
+  if (id.startsWith("core.list.")) return "Lists";
+  if (id.startsWith("core.dict.")) return "Dictionaries";
+  if (id.startsWith("core.tuple.")) return "Tuples";
+  if (id.startsWith("core.set.")) return "Sets";
+  if (id.startsWith("core.string.")) return "Strings";
+  if (id.startsWith("core.convert.")) return "Conversions";
+  if (id.startsWith("core.math.")) return "Arithmetic & trigonometry";
+  if (id.startsWith("core.compare.") || id.startsWith("core.logic.")) return "Logic";
+  if (id.startsWith("core.vector.")) return "Vectors";
+  if (id.startsWith("core.utility.")) return "Numeric utilities";
+  if (id.startsWith("core.spatial.")) return /voronoi|distance/.test(id) ? "Spatial operations" : "Point distributions";
+  if (id.startsWith("core.python.")) return "Python";
+  if (id.startsWith("build123d_flow.")) return "Boolean operations";
+  if (/^(union|difference|intersection|fuse|cut|common|intersect)$/.test(name) || /boolean/.test(category)) return "Boolean operations";
+  if (/fillet|chamfer|shell|offset|draft|hollow|thicken/.test(name)) return "Finishing";
+  if (/extrude|revolve|loft|sweep|pipe/.test(name) || /operations_/.test(id)) return "Feature generation";
+  if (/translate|rotate|mirror|scale|move|transform|location/.test(name) || /transform|location/.test(category)) return "Position & transforms";
+  if (/plane|axis|datum|frame|coordinate|rotation/.test(name) || /plane|datum|reference/.test(category)) return "Planes & references";
+  if (/area|volume|length|center|bounding|measure|distance|mass|inertia/.test(name) || /measure|properties/.test(category) || /topology/.test(id)) return "Measurements & topology";
+  if (/objects_curve|surface|curve/.test(id) || /curves|surfaces/.test(category)) return "Curves & surfaces";
+  if (/rectangle|circle|ellipse|polygon|slot|regularpolygon|trapezoid|polyline|sketch/.test(name) || /objects_sketch|profile/.test(id) || /sketch|profile/.test(category)) return "2D profiles";
+  if (item.kind === "geometry" || /objects_part|primitives/.test(id)) return "3D solids";
+  if (category.endsWith(" methods")) return "Shape methods";
+  const parts = id.split(".");
+  return parts.length > 2 ? parts.slice(1, -1).join(" · ").replace(/_/g, " ") : "Other API";
 }
 
 const categories = computed(() => {
   const groups = new Set(catalog.value.map(paletteGroup));
-  const order = ["3D Primitives", "2D Profiles", "Curves & Surfaces", "Spatial & Distributions", "Modeling", "Boolean", "Finishing", "Transforms", "Reference Geometry", "Measurements", "Topology", "Vectors", "Math & Logic", "Collections & Series", "Values", "Utilities", "Data & Code", "Geometry", "Other API"];
-  return order.filter((group) => groups.has(group)).concat(
-    [...groups].filter((group) => !order.includes(group)).sort()
-  );
+  const order = ["Create", "Model", "Transform", "Reference", "Inspect", "Spatial", "Data", "Math", "Scripting", "API"];
+  return order.filter((group) => groups.has(group)).concat([...groups].filter((group) => !order.includes(group)).sort());
 });
 const categoryItems = computed(() => categories.value);
-const activeCategory = ref("3D Primitives");
 const exampleOptions = computed(() => {
   const names = new Set(catalog.value.map((item) => item.name.toLowerCase()));
   const ids = new Set(catalog.value.map((item) => item.id));
@@ -139,8 +167,17 @@ const exampleOptions = computed(() => {
 const selectedExample = ref<string | null>(null);
 const activePaletteItems = computed(() => catalog.value.filter((item) =>
   paletteGroup(item) === activeCategory.value &&
-  (item.name + " " + item.id + " " + item.description).toLowerCase().includes(paletteSearch.value.toLowerCase())
-).sort((a, b) => a.name.localeCompare(b.name)));
+  (item.name + " " + item.id + " " + item.description + " " + paletteSection(item)).toLowerCase().includes(paletteSearch.value.toLowerCase())
+).sort((a, b) => paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name)));
+const activePaletteSections = computed(() => {
+  const groups = new Map<string, NodeDefinition[]>();
+  for (const item of activePaletteItems.value) {
+    const section = paletteSection(item);
+    if (!groups.has(section)) groups.set(section, []);
+    groups.get(section)!.push(item);
+  }
+  return [...groups].map(([label, items]) => ({ label, items }));
+});
 const contextResults = computed(() => catalog.value.filter((item) =>
   (item.name + " " + item.category + " " + item.id).toLowerCase().includes(contextSearch.value.toLowerCase())
 ).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name)).slice(0, 60));
@@ -166,7 +203,37 @@ function deleteSelectedFromDock() {
 }
 
 function nodeIcon(item: NodeDefinition): string {
-  return item.kind;
+  const name = item.name.toLowerCase();
+  const iconoir: Array<[RegExp, string]> = [
+    [/^box$|^cube$/, "box"], [/^cylinder$/, "cylinder"], [/^sphere$/, "sphere"],
+    [/extrude/, "extrude"], [/fillet/, "fillet"], [/loft/, "loft-3d"],
+    [/sweep/, "sweep-3d"], [/pipe/, "pipe-3d"], [/mirror/, "mirror"],
+    [/ellipse/, "ellipse"], [/arc/, "arc"], [/edge/, "select-edge-3d"],
+    [/face/, "select-face-3d"], [/project.*curve/, "project-curve-3d"],
+  ];
+  for (const [pattern, icon] of iconoir) if (pattern.test(name)) {
+    const local = ["/icons/cad/box.svg","/icons/cad/cylinder.svg","/icons/cad/sphere.svg","/icons/cad/extrude.svg","/icons/cad/fillet.svg","/icons/cad/mirror.svg","/icons/cad/ellipse.svg","/icons/cad/arc.svg"];
+    if (icon === "box") return local[0];
+    if (icon === "cylinder") return local[1];
+    if (icon === "sphere") return local[2];
+    if (icon === "extrude") return local[3];
+    if (icon === "fillet") return local[4];
+    if (icon === "mirror") return local[5];
+    if (icon === "ellipse") return local[6];
+    if (icon === "arc") return local[7];
+    return "/icons/iconoir/" + icon + ".svg";
+  }
+  if (/union|fuse/.test(name)) return "/icons/cad/union.svg";
+  if (/difference|cut/.test(name)) return "/icons/cad/difference.svg";
+  if (/intersection|common/.test(name)) return "/icons/cad/intersection.svg";
+  if (/rectangle/.test(name)) return "/icons/cad/rectangle.svg";
+  if (/circle/.test(name)) return "/icons/cad/circle.svg";
+  if (/polygon/.test(name)) return "/icons/cad/polygon.svg";
+  if (/revolve|revolution/.test(name)) return "/icons/cad/revolve.svg";
+  if (item.kind === "geometry") return "/icons/cad/shape.svg";
+  if (item.kind === "value" || item.kind === "enum") return "/icons/cad/value.svg";
+  if (item.kind === "operation") return "/icons/cad/node.svg";
+  return "/icons/cad/shape.svg";
 }
 
 onMounted(() => {
@@ -615,21 +682,15 @@ async function downloadStep() {
         </div>
         <InputText v-model="paletteSearch" placeholder="Search nodes…" class="palette-search" />
         <div class="palette-node-list">
-          <Button
-            v-for="item in activePaletteItems"
-            :key="item.id"
-            text
-            severity="secondary"
-            class="palette-node"
-            draggable="true"
-            @dragstart="dragNode($event, item)"
-            @click="addDefinition(item)"
-          >
-            <template #default>
-              <span class="palette-node-kind">{{ item.kind }}</span>
-              <span class="palette-node-label">{{ item.name }}</span>
-            </template>
-          </Button>
+          <section v-for="section in activePaletteSections" :key="section.label" class="palette-section">
+            <div class="palette-section-heading"><span>{{ section.label }}</span><span class="palette-section-rule"></span></div>
+            <Button v-for="item in section.items" :key="item.id" text severity="secondary"
+              class="palette-node" draggable="true"
+              @dragstart="dragNode($event, item)" @click="addDefinition(item)">
+              <template #default><span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
+              <span class="palette-node-label">{{ item.name }}</span></template>
+            </Button>
+          </section>
         </div>
         <div v-if="!activePaletteItems.length" class="palette-empty">
           <ProgressSpinner v-if="!catalog.length && !errors.length" style="width:20px;height:20px" stroke-width="4" />
@@ -652,7 +713,7 @@ async function downloadStep() {
             @click="addFromContext(item)"
           >
             <template #default>
-              <span class="palette-node-kind">{{ item.kind }}</span>
+              <span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
               <span class="context-result-name">{{ item.name }}</span>
               <span class="context-result-category">{{ item.category }}</span>
             </template>

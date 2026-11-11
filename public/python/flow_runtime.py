@@ -679,6 +679,10 @@ def _add_core_nodes(found, callables):
               [("count", "Number"), ("radius", "Number"), ("center_x", "Number"),
                ("center_y", "Number"), ("start_angle", "Number"), ("end_angle", "Number")], "List",
               "Distribute points around a circle; angles are in degrees.")
+    found["core.spatial.xy_grid"]["inputs"][2]["default"] = 10.0
+    found["core.spatial.xy_grid"]["inputs"][3]["default"] = 10.0
+    found["core.spatial.polar_points"]["inputs"][1]["default"] = 50.0
+    found["core.spatial.polar_points"]["inputs"][5]["default"] = 360.0
     _add_node(found, callables, "core.spatial.voronoi_2d", "Voronoi 2D", "Spatial", _voronoi_2d,
               [("points", "List"), ("width", "Number"), ("height", "Number")], "Compound",
               "Create planar Voronoi cells clipped to a width × height rectangle.")
@@ -700,6 +704,8 @@ def _add_core_nodes(found, callables):
               lambda a, b, t: float(a) + (float(b) - float(a)) * float(t),
               [("a", "Number"), ("b", "Number"), ("t", "Number")], "Number",
               "Linear interpolation between two values.")
+    found["core.utility.remap"]["inputs"][2]["default"] = 1.0
+    found["core.utility.remap"]["inputs"][4]["default"] = 1.0
     _add_node(found, callables, "core.list.partition", "Partition List", "Collections",
               lambda items, size: [list(items[i:i + max(1, int(size))])
                                    for i in range(0, len(items), max(1, int(size)))],

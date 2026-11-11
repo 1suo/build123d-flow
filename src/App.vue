@@ -166,6 +166,11 @@ onMounted(() => {
     }
     status.value = "Ready";
     scheduleEvaluation();
+    void runtime.discoverCatalog().then((fullCatalog) => {
+      catalog.value = fullCatalog;
+    }).catch((error) => {
+      console.warn("Full build123d catalog discovery failed", error);
+    });
   }).catch((error) => {
     status.value = "Initialization failed";
     runtimeError.value = error instanceof Error ? error.message : String(error);

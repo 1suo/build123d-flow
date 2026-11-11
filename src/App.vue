@@ -4,6 +4,7 @@ import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue
 import { Background } from "@vue-flow/background";
 import ApiNode from "./components/ApiNode.vue";
 import GeometryViewport from "./components/GeometryViewport.vue";
+import DataValue from "./components/DataValue.vue";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Dock from "primevue/dock";
@@ -502,14 +503,14 @@ function downloadStep() {
                 <h4>Inputs</h4>
                 <div v-for="socket in selectedNodeInputs" :key="socket.name" class="inspector-socket">
                   <div><strong>{{ socket.name }}</strong><small>{{ socket.type }}{{ socket.connected ? ' · linked' : '' }}</small></div>
-                  <pre>{{ JSON.stringify(socket.value, null, 2) ?? '—' }}</pre>
+                  <DataValue :label="socket.name" :value="socket.value" />
                 </div>
               </section>
               <section>
                 <h4>Outputs</h4>
                 <div v-for="socket in selectedNodeOutputs" :key="socket.name" class="inspector-socket">
                   <div><strong>{{ socket.name }}</strong><small>{{ socket.type }}</small></div>
-                  <pre>{{ socket.value === null ? 'Not evaluated' : JSON.stringify(socket.value, null, 2) }}</pre>
+                  <DataValue :label="socket.name" :value="socket.value ?? 'Not evaluated'" />
                 </div>
               </section>
             </div>

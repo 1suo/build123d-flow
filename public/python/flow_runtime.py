@@ -231,6 +231,23 @@ def _add_core_nodes(found, callables):
               lambda value: value.normalized(),
               [("value", "Vector3")], "Vector3")
 
+
+def _python_function(code, a=None, b=None, c=None):
+    import math
+    import operator
+    safe_builtins = {
+        "abs": abs, "min": min, "max": max, "round": round,
+        "int": int, "float": float, "str": str, "bool": bool,
+        "len": len, "sum": sum, "range": range, "enumerate": enumerate,
+        "zip": zip, "sorted": sorted,
+    }
+    scope = {"__builtins__": safe_builtins, "math": math, "operator": operator,
+             "a": a, "b": b, "c": c}
+    exec(compile(code, "<node>", "exec"), scope, scope)
+    if "result" not in scope:
+        raise ValueError("Python Function must assign its output to 'result'")
+    return scope["result"]
+
 def discover():
     global _CATALOG, _CATALOG_CALLABLES
     found = {}
@@ -387,7 +404,25 @@ def discover():
             }
             callables[node_id] = method
 
-    # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.\n    _add_core_nodes(found, callables)\n\n    # Binary wrappers expose common overloaded CSG operators as graph operations.
+    # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.\n    _add_core_nodes(found, callables)\n\n
+    found["core.python.function"] = {
+        "id": "core.python.function",
+        "kind": "operation",
+        "name": "Python Function",
+        "category": "Python",
+        "description": "Run a small Python function body. Inputs are a, b and c; assign the output to result. math and operator are available.",
+        "inputs": [
+            {"name": "code", "type": "Code", "annotation": "Python source", "required": False,
+             "default": "result = a + b"},
+            {"name": "a", "type": "Any", "annotation": "Any", "required": False, "default": None},
+            {"name": "b", "type": "Any", "annotation": "Any", "required": False, "default": None},
+            {"name": "c", "type": "Any", "annotation": "Any", "required": False, "default": None},
+        ],
+        "outputs": [{"name": "result", "type": "Any", "annotation": "Any"}],
+    }
+    callables["core.python.function"] = _python_function
+
+    # Binary wrappers expose common overloaded CSG operators as graph operations.
     for node_id, name, function in [
         ("build123d_flow.union", "Union", _boolean_union),
         ("build123d_flow.difference", "Difference", _boolean_difference),

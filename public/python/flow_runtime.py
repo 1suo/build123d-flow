@@ -297,7 +297,7 @@ def _register_curated_geometry(found, callables):
             "kind": "geometry",
             "name": name,
             "category": category,
-            "description": (inspect.getdoc(target) or "Create a build123d geometry primitive.").split("\\n")[0][:180],
+            "description": (inspect.getdoc(target) or "Create a build123d geometry primitive.").split("\n")[0][:180],
             "inputs": [
                 {"name": key, "type": socket_type, "annotation": socket_type,
                  "required": False, "default": default}

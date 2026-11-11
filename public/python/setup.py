@@ -42,8 +42,27 @@ micropip.add_mock_package("cadquery-ocp", ocp_version, modules={})
 
 # build123d 0.13.0 marks lib3mf as required on every platform except Linux/aarch64.
 # Pyodide reports a wasm platform, but this app does not use 3MF import/export.
-# Register a metadata-only mock so micropip skips the unavailable native package.
-micropip.add_mock_package("lib3mf", "2.4.1", modules={})
+# build123d imports Mesher at package import time, and Mesher evaluates these
+# Lib3MF enum/type references while the class is defined. 3MF itself is not used
+# by this app (preview uses Shape.tessellate; export uses STEP), so provide an
+# import-only stub rather than pretending the native library is installed.
+micropip.add_mock_package("lib3mf", "2.4.1", modules={
+    "lib3mf": (
+        "from enum import Enum\\n"
+        "class _ModelUnit(Enum):\\n"
+        "    MicroMeter = 0\\n    MilliMeter = 1\\n    CentiMeter = 2\\n"
+        "    Inch = 3\\n    Foot = 4\\n    Meter = 5\\n"
+        "class _ObjectType(Enum):\\n"
+        "    Other = 0\\n    Model = 1\\n    Support = 2\\n    SolidSupport = 3\\n"
+        "class _Unavailable: pass\\n"
+        "class Lib3MF:\\n"
+        "    __file__ = '/lib3mf/__init__.py'\\n"
+        "    ModelUnit = _ModelUnit\\n    ObjectType = _ObjectType\\n"
+        "    Wrapper = _Unavailable\\n    MeshObject = _Unavailable\\n"
+        "    MeshObjectIterator = _Unavailable\\n    ComponentsObject = _Unavailable\\n"
+        "    Position = _Unavailable\\n    Triangle = _Unavailable\\n    Color = _Unavailable\\n"
+    ),
+})
 
 print("Installing build123d dependencies…")
 await micropip.install(["webcolors==24.8.0"])

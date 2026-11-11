@@ -120,11 +120,22 @@ const categories = computed(() => {
 });
 const categoryItems = computed(() => categories.value);
 const activeCategory = ref("3D Primitives");
-const exampleOptions = [
-  { label: "Voronoi panel field", value: "voronoi" },
-  { label: "Boolean machining", value: "machining" },
-  { label: "Boolean assembly", value: "boolean" },
-];
+const exampleOptions = computed(() => {
+  const names = new Set(catalog.value.map((item) => item.name.toLowerCase()));
+  const ids = new Set(catalog.value.map((item) => item.id));
+  const options: Array<{ label: string; value: string }> = [];
+  if (ids.has("core.spatial.xy_grid") && ids.has("core.spatial.voronoi_2d")) {
+    options.push({ label: "Voronoi panel field", value: "voronoi" });
+  }
+  if (names.has("rectangle") && names.has("extrude")) {
+    options.push({ label: "Profile extrusion", value: "extrude" });
+  }
+  if (names.has("box") && names.has("cylinder") &&
+      ids.has("build123d_flow.union") && ids.has("build123d_flow.difference")) {
+    options.push({ label: "Boolean assembly", value: "boolean" });
+  }
+  return options;
+});
 const selectedExample = ref<string | null>(null);
 const activePaletteItems = computed(() => catalog.value.filter((item) =>
   paletteGroup(item) === activeCategory.value &&
@@ -188,15 +199,25 @@ function clearCanvas() {
   selectedExample.value = null;
 }
 
-function loadExample() {
+async function loadExample() {
   const example = selectedExample.value;
   if (!example) return;
-  const byId = (id: string) => catalog.value.find((item) => item.id === id);
-  const byName = (name: string) => catalog.value.find((item) => item.name === name);
-  const make = (definition: NodeDefinition | undefined, id: string, position: { x: number; y: number }, params: Record<string, unknown> = {}) => {
-    if (!definition) throw new Error("Example node unavailable: " + id);
+
+  const byId = (id: string): NodeDefinition => {
+    const definition = catalog.value.find((item) => item.id === id);
+    if (!definition) throw new Error("This example requires unavailable node: " + id);
+    return definition;
+  };
+  const byName = (name: string): NodeDefinition => {
+    const matches = catalog.value.filter((item) => item.name.toLowerCase() === name.toLowerCase());
+    const definition = matches.find((item) => item.kind === "geometry") ?? matches[0];
+    if (!definition) throw new Error("This example requires unavailable node: " + name);
+    return definition;
+  };
+  const make = (definition: NodeDefinition, id: string, position: { x: number; y: number }, params: Record<string, unknown> = {}) => {
     const node = createGraphNode(definition, id, position);
     node.data.params = { ...node.data.params, ...params };
+    node.data.visible = false;
     node.data.icon = nodeIcon(definition);
     node.data.onParameter = onParameter;
     node.data.onVisibility = onVisibility;
@@ -204,92 +225,95 @@ function loadExample() {
     node.data.onInspect = onInspect;
     return node;
   };
-  const numberDefinition = byId("core.value.number");
-  const numberSource = (id: string, label: string, value: number, position: { x: number; y: number }) => {
-    if (!numberDefinition) throw new Error("Number node unavailable");
-    return make({ ...numberDefinition, name: label }, id, position, { value });
+
+  const candidate: GraphDocument = { nodes: [], edges: [] };
+  const add = (definition: NodeDefinition, id: string, position: { x: number; y: number }, params: Record<string, unknown> = {}) => {
+    const node = make(definition, id, position, params);
+    candidate.nodes.push(node);
+    return node;
   };
-  const wire = (id: string, source: any, target: any, targetHandle: string) => ({
-    id, source: source.id, sourceHandle: "result", target: target.id, targetHandle,
-    animated: false, updatable: true,
-    style: { stroke: "var(--tikal-primary)", strokeWidth: 2.5 },
-  });
-  try {
-    let exampleNodes: any[] = [];
-    let exampleEdges: any[] = [];
-    if (example === "voronoi") {
-      const settings = [
-        ["n1", "Grid columns", 8, { x: 60, y: 70 }, "x_count"],
-        ["n2", "Grid rows", 6, { x: 60, y: 180 }, "y_count"],
-        ["n3", "Horizontal spacing", 18, { x: 60, y: 290 }, "spacing_x"],
-        ["n4", "Vertical spacing", 16, { x: 60, y: 400 }, "spacing_y"],
-        ["n5", "Origin X", 10, { x: 60, y: 510 }, "origin_x"],
-        ["n6", "Origin Y", 8, { x: 60, y: 620 }, "origin_y"],
-        ["n7", "Panel width", 150, { x: 600, y: 500 }, "width"],
-        ["n8", "Panel height", 100, { x: 600, y: 610 }, "height"],
-      ] as const;
-      const sources = settings.map(([id, label, value, position]) => numberSource(id, label, value, position));
-      const grid = make(byId("core.spatial.xy_grid"), "n9", { x: 430, y: 220 });
-      const cells = make(byId("core.spatial.voronoi_2d"), "n10", { x: 1000, y: 250 });
-      cells.data.visible = true;
-      exampleNodes = [...sources, grid, cells];
-      exampleEdges = [
-        ...sources.slice(0, 6).map((source, index) => wire("e" + (index + 1), source, grid, settings[index][4])),
-        wire("e7", grid, cells, "points"),
-        wire("e8", sources[6], cells, "width"),
-        wire("e9", sources[7], cells, "height"),
-      ];
-    } else if (example === "machining") {
-      const stockLength = numberSource("n1", "Stock length", 100, { x: 60, y: 80 });
-      const stockWidth = numberSource("n2", "Stock width", 70, { x: 60, y: 190 });
-      const stockHeight = numberSource("n3", "Stock thickness", 12, { x: 60, y: 300 });
-      const cutterRadius = numberSource("n4", "Cutter radius", 10, { x: 60, y: 460 });
-      const cutterHeight = numberSource("n5", "Cutter height", 28, { x: 60, y: 570 });
-      const stock = make(byName("Box"), "n6", { x: 470, y: 150 });
-      const cutter = make(byName("Cylinder"), "n7", { x: 470, y: 470 });
-      const difference = make(byId("build123d_flow.difference"), "n8", { x: 970, y: 300 });
-      stock.data.visible = false;
-      cutter.data.visible = false;
-      difference.data.visible = true;
-      exampleNodes = [stockLength, stockWidth, stockHeight, cutterRadius, cutterHeight, stock, cutter, difference];
-      exampleEdges = [
-        wire("e1", stockLength, stock, "length"),
-        wire("e2", stockWidth, stock, "width"),
-        wire("e3", stockHeight, stock, "height"),
-        wire("e4", cutterRadius, cutter, "radius"),
-        wire("e5", cutterHeight, cutter, "height"),
-        wire("e6", stock, difference, "a"),
-        wire("e7", cutter, difference, "b"),
-      ];
-    } else if (example === "boolean") {
-      const first = make(byName("Box"), "n1", { x: 90, y: 110 }, { length: 60, width: 42, height: 20 });
-      const second = make(byName("Box"), "n2", { x: 90, y: 390 }, { length: 34, width: 26, height: 34 });
-      const join = make(byId("build123d_flow.union") ?? byName("Union"), "n3", { x: 510, y: 230 });
-      const cutter = make(byName("Cylinder"), "n4", { x: 510, y: 540 }, { radius: 8, height: 50 });
-      const finish = make(byId("build123d_flow.difference"), "n5", { x: 950, y: 330 });
-      first.data.visible = false;
-      second.data.visible = false;
-      join.data.visible = false;
-      cutter.data.visible = false;
-      finish.data.visible = true;
-      exampleNodes = [first, second, join, cutter, finish];
-      exampleEdges = [
-        wire("e1", first, join, "a"),
-        wire("e2", second, join, "b"),
-        wire("e3", join, finish, "a"),
-        wire("e4", cutter, finish, "b"),
-      ];
+  const connect = (source: ReturnType<typeof make>, target: ReturnType<typeof make>, requestedInput?: string) => {
+    const occupied = new Set(candidate.edges.filter((edge) => edge.target === target.id).map((edge) => edge.targetHandle));
+    const pairs = source.data.definition.outputs.flatMap((output) =>
+      target.data.definition.inputs
+        .filter((input) => (!requestedInput || input.name === requestedInput) && !occupied.has(input.name))
+        .map((input) => ({ output, input })),
+    );
+    const pair = pairs.find(({ output, input }) => canConnect(candidate, {
+      source: source.id, sourceHandle: output.name, target: target.id, targetHandle: input.name,
+    }));
+    if (!pair) {
+      throw new Error(
+        "No compatible socket connection: " + source.data.definition.name + " → " +
+        target.data.definition.name + (requestedInput ? "." + requestedInput : ""),
+      );
     }
-    nodes.value = exampleNodes as unknown as Node[];
-    edges.value = exampleEdges as unknown as Edge[];
-    nextId = exampleNodes.length + 1;
+    candidate.edges.push({
+      id: "e" + (candidate.edges.length + 1),
+      source: source.id, sourceHandle: pair.output.name,
+      target: target.id, targetHandle: pair.input.name,
+    });
+  };
+
+  try {
+    if (example === "voronoi") {
+      const grid = add(byId("core.spatial.xy_grid"), "n1", { x: 360, y: 180 }, {
+        x_count: 7, y_count: 5, spacing_x: 18, spacing_y: 18, origin_x: 10, origin_y: 10,
+      });
+      const cells = add(byId("core.spatial.voronoi_2d"), "n2", { x: 850, y: 210 }, {
+        width: 140, height: 100,
+      });
+      connect(grid, cells, "points");
+      cells.data.visible = true;
+    } else if (example === "extrude") {
+      const profile = add(byName("Rectangle"), "n1", { x: 160, y: 220 }, {
+        width: 48, height: 30,
+      });
+      const extrusion = add(byName("extrude"), "n2", { x: 680, y: 220 }, {
+        amount: 18,
+      });
+      connect(profile, extrusion);
+      extrusion.data.visible = true;
+    } else if (example === "boolean") {
+      const base = add(byName("Box"), "n1", { x: 80, y: 130 }, {
+        length: 70, width: 55, height: 24,
+      });
+      const second = add(byName("Box"), "n2", { x: 80, y: 420 }, {
+        length: 42, width: 36, height: 32,
+      });
+      const union = add(byId("build123d_flow.union"), "n3", { x: 490, y: 250 });
+      const cutter = add(byName("Cylinder"), "n4", { x: 490, y: 550 }, {
+        radius: 11, height: 48,
+      });
+      const difference = add(byId("build123d_flow.difference"), "n5", { x: 900, y: 320 });
+      connect(base, union);
+      connect(second, union);
+      connect(union, difference);
+      connect(cutter, difference);
+      difference.data.visible = true;
+    } else {
+      throw new Error("Unknown example: " + example);
+    }
+
+    const validation = validateGraph(candidate);
+    if (validation.length) throw new Error("Invalid example graph: " + validation.join("; "));
+    if (!candidate.nodes.length || !candidate.edges.length) throw new Error("Example graph must contain connected nodes");
+
+    // Evaluate before replacing the current canvas. A bad example never leaves
+    // the user with a graph that only looks connected.
+    const result = await runtime.evaluate(candidate);
+    const evaluationErrors = Object.entries(result.errors).map(([id, message]) => id + ": " + message);
+    if (evaluationErrors.length) throw new Error("Example evaluation failed: " + evaluationErrors.join("; "));
+    nodes.value = candidate.nodes as unknown as Node[];
+    edges.value = candidate.edges as unknown as Edge[];
+    nextId = candidate.nodes.length + 1;
     errors.value = [];
-    previews.value = {};
-    socketValues.value = {};
-    scheduleEvaluation();
+    previews.value = result.previews;
+    socketValues.value = result.socket_values ?? {};
+    logActivity("Loaded and evaluated " + example + " example · " + candidate.nodes.length + " nodes · " + candidate.edges.length + " wires", "success");
     void nextTick(() => fitView({ padding: 0.2 }));
   } catch (error) {
-    logActivity("Could not load example: " + String(error), "error");
+    logActivity("Example not loaded: " + String(error), "error");
   }
 }
 function addDefinition(definition: NodeDefinition, position?: { x: number; y: number }) {

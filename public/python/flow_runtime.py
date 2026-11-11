@@ -48,12 +48,12 @@ def _json_default(value):
 
 def _safe_default(value):
     if value is inspect.Signature.empty:
-        return None, None, True
+        return None, None, True, False
     # Only expose defaults that can safely round-trip through JSON and back
     # into Python without guessing at CAD object / enum reconstruction.
     if value is None or isinstance(value, (bool, int, float, str)):
-        return value, repr(value), False
-    return None, repr(value), False
+        return value, repr(value), False, True
+    return None, repr(value), False, False
 
 
 def _is_candidate(obj, module_name):
@@ -121,16 +121,18 @@ def discover():
                 if parameter.kind == parameter.POSITIONAL_ONLY:
                     unsupported = True
                     break
-                default, default_repr, required = _safe_default(parameter.default)
+                default, default_repr, required, has_default = _safe_default(parameter.default)
                 annotation = hints.get(parameter.name, parameter.annotation)
-                inputs.append({
+                socket = {
                     "name": parameter.name,
                     "type": _type_name(annotation),
                     "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
                     "required": required,
-                    "default": default,
                     "default_repr": default_repr,
-                })
+                }
+                if has_default:
+                    socket["default"] = default
+                inputs.append(socket)
             if unsupported:
                 continue
 

@@ -13,7 +13,11 @@ export function createGraphNode(
     id,
     type: "api" as const,
     position,
-    data: { definition, params },
+    data: {
+      definition,
+      params,
+      visible: definition.outputs.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type)),
+    },
   };
 }
 

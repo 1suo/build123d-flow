@@ -37,6 +37,7 @@ export interface GraphNode {
     params: Record<string, unknown>;
     visible?: boolean;
     collapsed?: boolean;
+    icon?: string;
     onVisibility?: (nodeId: string, visible: boolean) => void;
     onCollapse?: (nodeId: string, collapsed: boolean) => void;
     onInspect?: (nodeId: string, socketName: string, direction: 'input' | 'output') => void;

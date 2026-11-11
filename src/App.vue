@@ -82,6 +82,7 @@ function paletteGroup(item: NodeDefinition): string {
   const id = item.id.toLowerCase();
 
   if (item.id.startsWith("core.")) {
+    if (/^core\\.list|^core\\.dict|^core\\.tuple|^core\\.set|^core\\.series/.test(id)) return "Collections & Series";
     if (/^core\.value|^core\.constant/.test(id)) return "Values";
     if (/^core\.math|^core\.compare|^core\.logic/.test(id)) return "Math & Logic";
     if (/^core\.vector/.test(id)) return "Vectors";

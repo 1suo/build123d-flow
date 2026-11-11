@@ -51,3 +51,21 @@
 .node-description-trigger{flex:0 0 auto;width:25px;height:25px}
 .node-description-trigger .p-button-icon{font-size:13px;color:#c18b4b}
 .node-description-trigger:hover .p-button-icon{color:#e5b875}
+
+
+/* Fully collapsed node: no card header/footer, centered title and persistent sockets. */
+.api-node.is-collapsed .p-card-title{display:none}
+.api-node.is-collapsed .p-card-content{padding:5px 0 7px}
+.api-node.is-collapsed .node-collapsed-title{display:flex;align-items:center;justify-content:center;gap:6px;min-height:32px;padding:2px 8px 6px;cursor:pointer}
+.api-node.is-collapsed .node-collapsed-title strong{max-width:220px;overflow:hidden;color:#f0e2cf;font-size:12px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}
+.api-node.is-collapsed .node-collapsed-title .node-description-trigger{width:20px;height:20px}
+.api-node.is-collapsed .node-body{padding:0}
+.api-node.is-collapsed .input-row>label,.api-node.is-collapsed .output-row>span{cursor:crosshair}
+.output-socket-inspect:hover{color:#e7b977!important}
+.preview-stack{display:flex;flex-direction:column;width:100%;height:100%;min-height:0;overflow:hidden}
+.geometry-panel{flex:1 1 62%;min-height:120px;overflow:hidden}
+.socket-inspector{display:flex;flex:0 1 38%;min-height:150px;flex-direction:column;border-top:1px solid #3b4148;background:#1b1e22;overflow:hidden}
+.inspector-heading{display:flex;align-items:center;gap:10px;min-height:36px;padding:7px 11px;border-bottom:1px solid #343a41;color:#e1e3e6;font-size:11px}
+.inspector-heading strong{color:#c18b4b;font-size:11px}
+.inspector-heading span{overflow:hidden;color:#9da5ad;font-size:10px;text-overflow:ellipsis;white-space:nowrap}
+.inspector-value{flex:1;min-height:0;margin:0;padding:10px 11px;overflow:auto;color:#cbd2d8;font:10px/1.5 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}

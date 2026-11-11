@@ -315,3 +315,48 @@
 .canvas-empty-state{top:54%;gap:5px;color:var(--tikal-muted)}
 .canvas-empty-state strong{color:var(--tikal-foreground)}
 @media(max-width:900px){.canvas-topbar{flex-wrap:wrap;right:6px;left:6px;gap:4px}.category-strip{order:3;width:100%;flex-basis:100%}.examples-select{width:130px;min-width:130px;flex-basis:130px}.canvas-node-inspector{width:min(310px,calc(100% - 16px));min-width:0}}
+
+
+/* PrimeVue 4 form controls: explicitly bind every field and popup to the active palette. */
+.p-inputtext,.p-inputnumber-input,.p-textarea,.p-select{background:var(--tikal-background)!important;color:var(--tikal-foreground)!important;border-color:var(--tikal-border)!important}
+.p-inputtext::placeholder,.p-textarea::placeholder,.p-select-label.p-placeholder{color:var(--tikal-muted)!important;opacity:1}
+.p-inputtext:enabled:focus,.p-inputnumber-input:enabled:focus,.p-textarea:enabled:focus,.p-select:not(.p-disabled).p-focus{border-color:var(--tikal-primary)!important;box-shadow:0 0 0 1px color-mix(in srgb,var(--tikal-primary) 30%,transparent)!important}
+.p-select-label,.p-select-dropdown,.p-select-dropdown-icon{color:var(--tikal-foreground)!important}
+.p-select-overlay,.p-select-list-container,.p-select-list{background:var(--tikal-surface)!important;color:var(--tikal-foreground)!important;border-color:var(--tikal-border)!important}
+.p-select-option{background:var(--tikal-surface)!important;color:var(--tikal-foreground)!important}
+.p-select-option:not(.p-select-option-selected):not(.p-disabled):hover{background:var(--tikal-selection)!important;color:var(--tikal-foreground)!important}
+.p-select-option-selected,.p-select-option-selected.p-focus{background:color-mix(in srgb,var(--tikal-selection) 55%,var(--tikal-surface))!important;color:var(--tikal-foreground)!important}
+.p-checkbox-box{background:var(--tikal-background)!important;border-color:var(--tikal-border)!important}
+.p-checkbox-checked .p-checkbox-box{background:var(--tikal-primary)!important;border-color:var(--tikal-primary)!important;color:#080808!important}
+.p-inputnumber-button{background:var(--tikal-surface)!important;color:var(--tikal-foreground)!important;border-color:var(--tikal-border)!important}
+.p-dialog,.p-dialog-content,.p-dialog-header,.p-popover,.p-popover-content{background:var(--tikal-surface);color:var(--tikal-foreground);border-color:var(--tikal-border)}
+.p-button{color:var(--tikal-foreground)}
+.p-button:not(:disabled):hover{background:color-mix(in srgb,var(--tikal-selection) 25%,transparent)}
+
+/* Give node labels and palette navigation enough room to be read at canvas scale. */
+.vue-flow__node-api{width:370px}
+.api-node .p-card-title{padding:12px 14px 10px}
+.node-category{font-size:10px;letter-spacing:.055em}
+.node-heading strong{font-size:14px;line-height:1.3}
+.socket-row{min-height:29px;padding:5px 16px;font-size:12px;line-height:1.4}
+.input-row>label{min-width:112px;line-height:1.4;overflow-wrap:break-word}
+.output-row{min-height:28px;font-size:12px}
+.output-row small{font-size:10px}
+.canvas-topbar{min-height:40px;gap:8px;padding:4px 7px}
+.examples-select{width:160px;min-width:160px;flex-basis:160px}
+.examples-select .p-select-label{padding:7px 9px;font-size:12px}
+.category-strip{gap:4px}
+.category-chip.p-button{min-height:30px;padding:5px 9px;font-size:11px;line-height:1.25}
+.palette-node.p-button,.context-result.p-button{min-height:34px;padding:6px 8px}
+.palette-node-kind{min-width:62px;flex-basis:62px;font-size:10px}
+.palette-node-label,.context-result-name{font-size:12px;line-height:1.4}
+.context-result-category{font-size:10px}
+.canvas-inspector-body{gap:12px;padding:10px}
+.inspector-socket{padding:8px 9px}
+.inspector-socket strong{font-size:12px}
+.inspector-socket small,.inspector-socket-annotation{font-size:10px}
+.inspector-input-control .p-inputtext,.inspector-input-control .p-inputnumber-input,.inspector-input-control .p-select{min-height:34px;font-size:12px}
+.inspector-input-control .p-select-label{padding:8px 9px;font-size:12px}
+.vue-flow__edge-path{stroke:var(--tikal-primary);stroke-width:2.5}
+.vue-flow__edge.selected .vue-flow__edge-path{stroke:var(--tikal-cursor)!important;stroke-width:3.5!important}
+@media(max-width:760px){.vue-flow__node-api{width:320px}}

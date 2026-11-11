@@ -1108,16 +1108,21 @@ def _inspect_value(value, depth=0):
     value_type = type(value).__name__
     if value is None or isinstance(value, (bool, int, float, str)):
         return {"type": value_type, "value": value}
+    if isinstance(value, b3d.Shape):
+        # OCP-backed shapes expose lazy properties; walking dir()/getattr() can
+        # trigger expensive kernel work and freeze the browser UI.
+        return {"type": value_type, "repr": "<geometry value>"}
     if depth >= 5:
         return {"type": value_type, "repr": repr(value)[:1000], "truncated": True}
     if isinstance(value, collections.abc.Mapping):
         items = {}
-        for key, item in list(value.items())[:200]:
+        entries = list(value.items())
+        for key, item in entries[:80]:
             items[str(key)] = _inspect_value(item, depth + 1)
-        return {"type": value_type, "items": items, "length": len(value)}
+        return {"type": value_type, "items": items, "length": len(value), "truncated": len(entries) > 80}
     if isinstance(value, (list, tuple, set, frozenset, collections.abc.Sequence, collections.abc.Set)):
         sequence = list(value)
-        return {"type": value_type, "items": [_inspect_value(item, depth + 1) for item in sequence[:200]], "length": len(sequence)}
+        return {"type": value_type, "items": [_inspect_value(item, depth + 1) for item in sequence[:80]], "length": len(sequence), "truncated": len(sequence) > 80}
     attributes = {}
     try:
         names = [name for name in dir(value) if not name.startswith("_")]

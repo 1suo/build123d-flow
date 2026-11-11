@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import ApiNode from "./components/ApiNode.vue";
@@ -72,9 +72,6 @@ const { addNodes, addEdges, removeEdges, updateEdge, updateNodeInternals, screen
 let nextId = 1;
 let evaluationRevision = 0;
 let evaluationTimer: ReturnType<typeof setTimeout> | undefined;
-let fullCatalogLoaded = false;
-let fullCatalogLoading = false;
-let wantsFullCatalog = false;
 
 function paletteGroup(item: NodeDefinition): string {
   const category = item.category.toLowerCase();
@@ -175,7 +172,6 @@ onMounted(() => {
     status.value = "Ready";
     logActivity("Python runtime ready", "success");
     if (nodes.value.length) scheduleEvaluation();
-    if (wantsFullCatalog) void ensureFullCatalog();
   }).catch((error) => {
     status.value = "Initialization failed";
     logActivity("Python runtime initialization failed", "error");
@@ -198,7 +194,7 @@ function loadExample() {
   const byId = (id: string) => catalog.value.find((item) => item.id === id);
   const byName = (name: string) => catalog.value.find((item) => item.name === name);
   const make = (definition: NodeDefinition | undefined, id: string, position: { x: number; y: number }, params: Record<string, unknown> = {}) => {
-    if (!definition) throw new Error("Example node unavailable");
+    if (!definition) throw new Error("Example node unavailable: " + id);
     const node = createGraphNode(definition, id, position);
     node.data.params = { ...node.data.params, ...params };
     node.data.icon = nodeIcon(definition);
@@ -208,49 +204,94 @@ function loadExample() {
     node.data.onInspect = onInspect;
     return node;
   };
+  const numberDefinition = byId("core.value.number");
+  const numberSource = (id: string, label: string, value: number, position: { x: number; y: number }) => {
+    if (!numberDefinition) throw new Error("Number node unavailable");
+    return make({ ...numberDefinition, name: label }, id, position, { value });
+  };
+  const wire = (id: string, source: any, target: any, targetHandle: string) => ({
+    id, source: source.id, sourceHandle: "result", target: target.id, targetHandle,
+    animated: false, updatable: true,
+    style: { stroke: "var(--tikal-primary)", strokeWidth: 2.5 },
+  });
   try {
     let exampleNodes: any[] = [];
     let exampleEdges: any[] = [];
     if (example === "voronoi") {
-      const points = make(byId("core.spatial.xy_grid"), "n1", { x: 80, y: 170 }, {
-        x_count: 5, y_count: 4, spacing_x: 24, spacing_y: 22, origin_x: 12, origin_y: 10,
-      });
-      const cells = make(byId("core.spatial.voronoi_2d"), "n2", { x: 470, y: 190 }, {
-        width: 140, height: 100,
-      });
-      exampleNodes = [points, cells];
+      const settings = [
+        ["n1", "Grid columns", 8, { x: 60, y: 70 }, "x_count"],
+        ["n2", "Grid rows", 6, { x: 60, y: 180 }, "y_count"],
+        ["n3", "Horizontal spacing", 18, { x: 60, y: 290 }, "spacing_x"],
+        ["n4", "Vertical spacing", 16, { x: 60, y: 400 }, "spacing_y"],
+        ["n5", "Origin X", 10, { x: 60, y: 510 }, "origin_x"],
+        ["n6", "Origin Y", 8, { x: 60, y: 620 }, "origin_y"],
+        ["n7", "Panel width", 150, { x: 600, y: 500 }, "width"],
+        ["n8", "Panel height", 100, { x: 600, y: 610 }, "height"],
+      ] as const;
+      const sources = settings.map(([id, label, value, position]) => numberSource(id, label, value, position));
+      const grid = make(byId("core.spatial.xy_grid"), "n9", { x: 430, y: 220 });
+      const cells = make(byId("core.spatial.voronoi_2d"), "n10", { x: 1000, y: 250 });
+      cells.data.visible = true;
+      exampleNodes = [...sources, grid, cells];
       exampleEdges = [
-        { id: "e1", source: points.id, sourceHandle: "result", target: cells.id, targetHandle: "points", updatable: true },
+        ...sources.slice(0, 6).map((source, index) => wire("e" + (index + 1), source, grid, settings[index][4])),
+        wire("e7", grid, cells, "points"),
+        wire("e8", sources[6], cells, "width"),
+        wire("e9", sources[7], cells, "height"),
       ];
     } else if (example === "machining") {
-      const stock = make(byName("Box"), "n1", { x: 70, y: 100 }, { length: 70, width: 52, height: 24 });
-      const cutter = make(byName("Cylinder"), "n2", { x: 70, y: 390 }, { radius: 13, height: 34 });
-      const difference = make(byId("build123d_flow.difference"), "n3", { x: 500, y: 220 });
-      exampleNodes = [stock, cutter, difference];
+      const stockLength = numberSource("n1", "Stock length", 100, { x: 60, y: 80 });
+      const stockWidth = numberSource("n2", "Stock width", 70, { x: 60, y: 190 });
+      const stockHeight = numberSource("n3", "Stock thickness", 12, { x: 60, y: 300 });
+      const cutterRadius = numberSource("n4", "Cutter radius", 10, { x: 60, y: 460 });
+      const cutterHeight = numberSource("n5", "Cutter height", 28, { x: 60, y: 570 });
+      const stock = make(byName("Box"), "n6", { x: 470, y: 150 });
+      const cutter = make(byName("Cylinder"), "n7", { x: 470, y: 470 });
+      const difference = make(byId("build123d_flow.difference"), "n8", { x: 970, y: 300 });
+      stock.data.visible = false;
+      cutter.data.visible = false;
+      difference.data.visible = true;
+      exampleNodes = [stockLength, stockWidth, stockHeight, cutterRadius, cutterHeight, stock, cutter, difference];
       exampleEdges = [
-        { id: "e1", source: stock.id, sourceHandle: "result", target: difference.id, targetHandle: "a", updatable: true },
-        { id: "e2", source: cutter.id, sourceHandle: "result", target: difference.id, targetHandle: "b", updatable: true },
+        wire("e1", stockLength, stock, "length"),
+        wire("e2", stockWidth, stock, "width"),
+        wire("e3", stockHeight, stock, "height"),
+        wire("e4", cutterRadius, cutter, "radius"),
+        wire("e5", cutterHeight, cutter, "height"),
+        wire("e6", stock, difference, "a"),
+        wire("e7", cutter, difference, "b"),
       ];
     } else if (example === "boolean") {
-      const a = make(byName("Box"), "n1", { x: 100, y: 100 }, { length: 30, width: 24, height: 12 });
-      const b = make(byName("Box"), "n2", { x: 100, y: 360 }, { length: 22, width: 22, height: 22 });
-      const combine = make(byName("Union") ?? byId("build123d_flow.union"), "n3", { x: 520, y: 230 });
-      exampleNodes = [a, b, combine];
+      const first = make(byName("Box"), "n1", { x: 90, y: 110 }, { length: 60, width: 42, height: 20 });
+      const second = make(byName("Box"), "n2", { x: 90, y: 390 }, { length: 34, width: 26, height: 34 });
+      const join = make(byId("build123d_flow.union") ?? byName("Union"), "n3", { x: 510, y: 230 });
+      const cutter = make(byName("Cylinder"), "n4", { x: 510, y: 540 }, { radius: 8, height: 50 });
+      const finish = make(byId("build123d_flow.difference"), "n5", { x: 950, y: 330 });
+      first.data.visible = false;
+      second.data.visible = false;
+      join.data.visible = false;
+      cutter.data.visible = false;
+      finish.data.visible = true;
+      exampleNodes = [first, second, join, cutter, finish];
       exampleEdges = [
-        { id: "e1", source: a.id, sourceHandle: "result", target: combine.id, targetHandle: "a", updatable: true },
-        { id: "e2", source: b.id, sourceHandle: "result", target: combine.id, targetHandle: "b", updatable: true },
+        wire("e1", first, join, "a"),
+        wire("e2", second, join, "b"),
+        wire("e3", join, finish, "a"),
+        wire("e4", cutter, finish, "b"),
       ];
     }
     nodes.value = exampleNodes as unknown as Node[];
     edges.value = exampleEdges as unknown as Edge[];
     nextId = exampleNodes.length + 1;
+    errors.value = [];
+    previews.value = {};
+    socketValues.value = {};
     scheduleEvaluation();
-    void nextTick(() => fitView({ padding: 0.25 }));
+    void nextTick(() => fitView({ padding: 0.2 }));
   } catch (error) {
     logActivity("Could not load example: " + String(error), "error");
   }
 }
-
 function addDefinition(definition: NodeDefinition, position?: { x: number; y: number }) {
   const id = `n${nextId++}`;
   const rect = canvasSurface.value?.getBoundingClientRect();
@@ -267,36 +308,13 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
   scheduleEvaluation();
 }
 
-function ensureFullCatalog() {
-  wantsFullCatalog = true;
-  if (!runtime.isReady || fullCatalogLoaded || fullCatalogLoading) return;
-  fullCatalogLoading = true;
-  void runtime.discoverCatalog().then((fullCatalog) => {
-    catalog.value = fullCatalog;
-    const byId = new Map(fullCatalog.map((item) => [item.id, item]));
-    for (const node of nodes.value as any[]) {
-      const definition = byId.get(node.data.definition.id);
-      if (definition) node.data.definition = definition;
-      node.data.icon = nodeIcon(node.data.definition);
-    }
-    fullCatalogLoaded = true;
-    console.info("[build123d-flow] API discovery report", runtime.getDiscoveryReport());
-  }).catch((error) => {
-    console.warn("Full build123d catalog discovery failed", error);
-  }).finally(() => {
-    fullCatalogLoading = false;
-  });
-}
-
 function openPalette(category: string, event: MouseEvent) {
-  void ensureFullCatalog();
   paletteSearch.value = "";
   activeCategory.value = category;
   palettePopover.value?.show(event);
 }
 
 function openContextMenu(event: MouseEvent) {
-  void ensureFullCatalog();
   contextPosition.value = screenToFlowCoordinate({ x: event.clientX, y: event.clientY });
   contextSearch.value = "";
   contextPopover.value?.show(event);
@@ -409,7 +427,6 @@ function onVisibility(nodeId: string, visible: boolean) {
 
 function onInspect(nodeId: string, socketName: string, direction: "input" | "output") {
   for (const node of nodes.value as any[]) node.selected = node.id === nodeId;
-  inspectorOpen.value = true;
 }
 
 function onCollapse(nodeId: string, collapsed: boolean) {
@@ -460,8 +477,6 @@ async function evaluate() {
   }
 }
 
-watch(() => selectedNode.value?.id, (id) => { if (id) inspectorOpen.value = true; });
-watch([nodes, edges], scheduleEvaluation, { deep: true });
 onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown, true));
 
 async function downloadStep() {
@@ -530,8 +545,6 @@ async function downloadStep() {
             :default-viewport="{ zoom: 0.85, x: 60, y: 60 }"
             @connect="onConnect"
             @edge-update="onEdgeUpdate"
-            @nodes-change="scheduleEvaluation"
-            @edges-change="scheduleEvaluation"
           >
             <Background pattern-color="#39352e" :gap="22" />
           </VueFlow>

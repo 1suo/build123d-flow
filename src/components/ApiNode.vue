@@ -71,7 +71,7 @@ function updateStructured(name: string, value: string) {
         title="Show node error"
         @click.stop="errorPopover?.toggle($event)"
         />
-        <Popover ref="errorPopover" append-to="self" class="node-error-popover">
+        <Popover ref="errorPopover" append-to="body" class="node-error-popover">
           <div class="node-error-content">{{ data.error }}</div>
         </Popover>
         <Button

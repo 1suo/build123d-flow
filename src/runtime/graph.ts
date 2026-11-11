@@ -1,4 +1,4 @@
-import type { GraphDocument, GraphNode, NodeDefinition } from "../types";
+import type { GraphDocument, GraphNode, NodeDefinition, SocketDefinition } from "../types";
 
 export function createGraphNode(
   definition: NodeDefinition,
@@ -21,10 +21,16 @@ export function createGraphNode(
   };
 }
 
-function compatible(source: string, target: string): boolean {
+function compatibleTypes(source: string, target: string): boolean {
   if (target === "Any" || source === "Any" || source === target) return true;
-  if (target === "Shape" && ["Solid", "Compound", "Face", "Edge", "Wire"].includes(source)) return true;
+  if (target === "Shape" && ["Solid", "Compound", "Face", "Edge", "Wire", "Shell", "Part", "Sketch"].includes(source)) return true;
   return false;
+}
+
+function compatible(source: SocketDefinition, target: SocketDefinition): boolean {
+  const sourceTypes = source.variants?.length ? source.variants : [source.type];
+  const targetTypes = target.variants?.length ? target.variants : [target.type];
+  return sourceTypes.some((sourceType) => targetTypes.some((targetType) => compatibleTypes(sourceType, targetType)));
 }
 
 export function canConnect(
@@ -44,7 +50,7 @@ export function canConnect(
 
   const output = source.data.definition.outputs.find((socket) => socket.name === connection.sourceHandle);
   const input = target.data.definition.inputs.find((socket) => socket.name === connection.targetHandle);
-  return Boolean(output && input && compatible(output.type, input.type));
+  return Boolean(output && input && compatible(output, input));
 }
 
 export function validateGraph(graph: GraphDocument): string[] {

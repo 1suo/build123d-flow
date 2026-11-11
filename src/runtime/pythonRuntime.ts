@@ -79,6 +79,12 @@ export class PythonRuntime {
     return JSON.parse(json);
   }
 
+  async discoverCatalog(): Promise<NodeDefinition[]> {
+    if (!this.ready) throw new Error("Python runtime is not ready");
+    const json = await this.pyodide.runPythonAsync("flow_runtime.discover_full()");
+    return JSON.parse(json);
+  }
+
   async evaluate(graph: GraphDocument): Promise<EvaluationResult> {
     if (!this.ready) throw new Error("Python runtime is not ready");
     const payload = JSON.stringify(graph);

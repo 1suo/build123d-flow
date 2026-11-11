@@ -43,6 +43,9 @@ const { addNodes, addEdges, screenToFlowCoordinate, fitView, zoomIn, zoomOut } =
 let nextId = 1;
 let evaluationRevision = 0;
 let evaluationTimer: ReturnType<typeof setTimeout> | undefined;
+let fullCatalogLoaded = false;
+let fullCatalogLoading = false;
+let wantsFullCatalog = false;
 
 function paletteGroup(item: NodeDefinition): string {
   const category = item.category.toLowerCase();
@@ -164,11 +167,7 @@ onMounted(() => {
     }
     status.value = "Ready";
     scheduleEvaluation();
-    void runtime.discoverCatalog().then((fullCatalog) => {
-      catalog.value = fullCatalog;
-    }).catch((error) => {
-      console.warn("Full build123d catalog discovery failed", error);
-    });
+    if (wantsFullCatalog) void ensureFullCatalog();
   }).catch((error) => {
     status.value = "Initialization failed";
     runtimeError.value = error instanceof Error ? error.message : String(error);
@@ -212,7 +211,22 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
   scheduleEvaluation();
 }
 
+function ensureFullCatalog() {
+  wantsFullCatalog = true;
+  if (!runtime.isReady || fullCatalogLoaded || fullCatalogLoading) return;
+  fullCatalogLoading = true;
+  void runtime.discoverCatalog().then((fullCatalog) => {
+    catalog.value = fullCatalog;
+    fullCatalogLoaded = true;
+  }).catch((error) => {
+    console.warn("Full build123d catalog discovery failed", error);
+  }).finally(() => {
+    fullCatalogLoading = false;
+  });
+}
+
 function openPalette(category: string, event: MouseEvent) {
+  void ensureFullCatalog();
   paletteSearch.value = "";
   expandedGroups.value = [category];
   palettePopover.value?.show(event);
@@ -223,6 +237,7 @@ watch(paletteSearch, (value) => {
 });
 
 function openContextMenu(event: MouseEvent) {
+  void ensureFullCatalog();
   contextPosition.value = screenToFlowCoordinate({ x: event.clientX, y: event.clientY });
   contextSearch.value = "";
   contextPopover.value?.show(event);

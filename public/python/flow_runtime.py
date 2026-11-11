@@ -277,6 +277,11 @@ def _call_with_coercion(callable_obj, params):
     converted = dict(params)
     for name, value in list(converted.items()):
         annotation = hints.get(name)
+        if annotation is None:
+            try:
+                annotation = inspect.signature(callable_obj).parameters[name].annotation
+            except Exception:
+                annotation = None
         if isinstance(value, str) and inspect.isclass(annotation):
             try:
                 if issubclass(annotation, enum.Enum):

@@ -28,6 +28,7 @@ export interface GraphNode {
   data: {
     definition: NodeDefinition;
     params: Record<string, unknown>;
+    onParameter?: (nodeId: string, name: string, value: unknown) => void;
   };
 }
 

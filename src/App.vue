@@ -206,8 +206,8 @@ function addStarterGraph() {
   combine.data.onVisibility = onVisibility;
   addNodes([left, right, combine] as unknown as Node[]);
   addEdges([
-    { id: `e${nextId++}`, source: left.id, sourceHandle: "result", target: combine.id, targetHandle: "a", updatable: "target" },
-    { id: `e${nextId++}`, source: right.id, sourceHandle: "result", target: combine.id, targetHandle: "b", updatable: "target" },
+    { id: `e${nextId++}`, source: left.id, sourceHandle: "result", target: combine.id, targetHandle: "a", updatable: true },
+    { id: `e${nextId++}`, source: right.id, sourceHandle: "result", target: combine.id, targetHandle: "b", updatable: true },
   ] as Edge[]);
   fitView({ padding: 0.25 });
   scheduleEvaluation();
@@ -287,7 +287,7 @@ function onConnect(connection: Connection) {
     .filter((edge: any) => edge.target === connection.target && edge.targetHandle === connection.targetHandle)
     .map((edge) => edge.id);
   if (replaced.length) removeEdges(replaced);
-  addEdges([{ ...connection, id: `e${Date.now()}`, animated: false, updatable: "target" } as Edge]);
+  addEdges([{ ...connection, id: `e${Date.now()}`, animated: false, updatable: true } as Edge]);
   scheduleEvaluation();
 }
 

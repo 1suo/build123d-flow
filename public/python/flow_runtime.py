@@ -235,12 +235,18 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
             {
                 "name": key, "type": socket_type, "annotation": socket_type,
                 "required": socket_type not in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"},
+                **({"item_type": "Any"} if socket_type in {"List", "Tuple", "Set"} else {}),
+                **({"key_type": "Any", "value_type": "Any"} if socket_type == "Dict" else {}),
                 **({"default": defaults.get(key, {"Number": 0.0, "Boolean": False, "String": "", "List": [], "Tuple": [], "Set": [], "Dict": {}}[socket_type])}
                    if socket_type in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"} else {}),
             }
             for key, socket_type in inputs
         ],
-        "outputs": [{"name": "result", "type": output_type, "annotation": output_type}],
+        "outputs": [{
+            "name": "result", "type": output_type, "annotation": output_type,
+            **({"item_type": "Any"} if output_type in {"List", "Tuple", "Set"} else {}),
+            **({"key_type": "Any", "value_type": "Any"} if output_type == "Dict" else {}),
+        }],
     }
     callables[node_id] = function
 

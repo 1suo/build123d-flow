@@ -492,7 +492,7 @@ def discover(include_full=True):
                         parameter.name + ": " + _type_name(hints.get(parameter.name, parameter.annotation))
                         for parameter in signature.parameters.values()
                     )
-                    display_name = name + "(" + typed_args + ")"
+                    display_name = name + "(" + ", ".join(parameter.name for parameter in signature.parameters.values()) + ")"
 
                 module_parts = canonical_module.split(".")
                 category = module_parts[-1].replace("_", " ").title() if len(module_parts) > 1 else "Build123d"
@@ -806,20 +806,16 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
                     pass
             resolved_candidates.append(candidate)
 
-        # RotationLike is Rotation | tuple[float, float, float]. Keep browser
-        # arrays as tuples: Build123d explicitly accepts that representation
-        # throughout its placement APIs, while eagerly wrapping it as Rotation
-        # can route through a different constructor overload.
+        # Browser structured editors serialize rotations as arrays. Convert
+        # those arrays to Build123d Rotation objects before they reach OCCT
+        # placement code, which expects a wrapped rotation rather than a list.
         is_rotation_like = (
-            isinstance(value, list)
-            and any(
-                inspect.isclass(candidate) and candidate.__name__ == "Rotation"
-                for candidate in resolved_candidates
-            )
+            isinstance(value, (list, tuple))
+            and any(inspect.isclass(candidate) and candidate.__name__ == "Rotation" for candidate in resolved_candidates)
             and any(typing.get_origin(candidate) is tuple for candidate in resolved_candidates)
         )
         if is_rotation_like:
-            converted[name] = tuple(value)
+            converted[name] = b3d.Rotation(tuple(value))
             continue
 
         annotation = next((candidate for candidate in resolved_candidates if inspect.isclass(candidate)), annotation)

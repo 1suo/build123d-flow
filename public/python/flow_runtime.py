@@ -132,12 +132,21 @@ def discover():
                 }
                 if has_default:
                     socket["default"] = default
+                if inspect.isclass(annotation):
+                    try:
+                        if issubclass(annotation, enum.Enum):
+                            socket["options"] = [member.name for member in annotation]
+                    except TypeError:
+                        pass
                 inputs.append(socket)
             if unsupported:
                 continue
 
             if inspect.isclass(obj):
-                output_type = "Shape" if issubclass(obj, getattr(b3d, "Shape", object)) else "Any"
+                try:
+                    output_type = "Shape" if issubclass(obj, getattr(b3d, "Shape", object)) else _type_name(obj)
+                except TypeError:
+                    output_type = "Any"
             else:
                 output_type = _type_name(hints.get("return", signature.return_annotation))
 
@@ -237,7 +246,7 @@ def evaluate_graph_json(payload):
 
         try:
             callable_obj = _resolve_callable(definition_id)
-            result = callable_obj(**params)
+            result = _call_with_coercion(callable_obj, params)
             values[node_id] = {"result": result}
             preview = _mesh_preview(result)
             if preview is not None:
@@ -249,6 +258,24 @@ def evaluate_graph_json(payload):
     _LAST_VALUES = values
     return json.dumps({"previews": previews, "errors": errors, "order": order})
 
+
+
+def _call_with_coercion(callable_obj, params):
+    target = callable_obj.__init__ if inspect.isclass(callable_obj) else callable_obj
+    try:
+        hints = typing.get_type_hints(target)
+    except Exception:
+        hints = {}
+    converted = dict(params)
+    for name, value in list(converted.items()):
+        annotation = hints.get(name)
+        if isinstance(value, str) and inspect.isclass(annotation):
+            try:
+                if issubclass(annotation, enum.Enum):
+                    converted[name] = annotation[value]
+            except (TypeError, KeyError):
+                pass
+    return callable_obj(**converted)
 
 def _resolve_callable(path):
     module_name, attr_name = path.rsplit(".", 1)

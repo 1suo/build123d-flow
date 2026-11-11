@@ -7,7 +7,7 @@ declare global {
 }
 
 export class PythonRuntime {
-  private pyodide: any;
+  private pyodide: any = null;
   private ready = false;
   private initPromise: Promise<void> | null = null;
 

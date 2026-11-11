@@ -30,13 +30,20 @@ npm run dev
 
 The browser downloads Pyodide and the CAD wheels on first launch. This is a relatively large initial download.
 
+## Current limitations
+
+- Each graph evaluation currently recomputes the full graph in topological order; incremental caching is not implemented yet.
+- Socket inference is annotation-driven. Unsupported or ambiguous Python types appear as `Any` and are not directly editable.
+- The first preview path tessellates output shapes into triangle meshes; the authoritative B-rep stays inside Pyodide.
+- Graph persistence, type-compatible connection validation, and multi-output nodes are not implemented yet.
+
 ## Design principles
 
 1. Discover the installed Python API; do not hand-maintain a parallel list of build123d functions.
 2. Separate API discovery from node eligibility and presentation policy.
 3. Keep graph documents declarative and serializable. Never persist Python object instances.
 4. Treat Python objects as runtime values; keep them inside the Pyodide interpreter.
-5. Recompute only affected downstream nodes, with stale-run suppression.
+5. Re-evaluate on graph changes with stale-run suppression; incremental caching is a follow-up.
 6. Make node/socket types explicit, with controlled compatibility and conversions.
 7. Keep helpers and implementation details out of the user-facing node catalog.
 8. Never silently expose arbitrary Python execution as a graph node.

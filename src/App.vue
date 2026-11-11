@@ -26,21 +26,6 @@ const contextSearch = ref("");
 const errors = ref<string[]>([]);
 const previews = shallowRef<Record<string, MeshPreview>>({});
 const socketValues = shallowRef<Record<string, Record<string, unknown>>>({});
-const inspectedSocket = ref<{ nodeId: string; socketName: string; direction: "input" | "output" } | null>(null);
-const inspectedValue = computed(() => {
-  const selection = inspectedSocket.value;
-  if (!selection) return null;
-  let nodeId = selection.nodeId;
-  let outputName = selection.socketName;
-  if (selection.direction === "input") {
-    const edge = edges.value.find((item: any) => item.target === nodeId && item.targetHandle === outputName) as any;
-    if (!edge) return null;
-    nodeId = edge.source;
-    outputName = edge.sourceHandle || "result";
-  }
-  return socketValues.value[nodeId]?.[outputName] ?? null;
-});
-const inspectedJson = computed(() => inspectedValue.value ? JSON.stringify(inspectedValue.value, null, 2) : "No evaluated value. Connect the input or wait for evaluation.");
 const inspectorOpen = ref(true);
 const selectedNode = computed(() => nodes.value.find((node: any) => node.selected) as any ?? null);
 const selectedNodeInputs = computed(() => {
@@ -400,7 +385,6 @@ function onVisibility(nodeId: string, visible: boolean) {
 }
 
 function onInspect(nodeId: string, socketName: string, direction: "input" | "output") {
-  inspectedSocket.value = { nodeId, socketName, direction };
   for (const node of nodes.value as any[]) node.selected = node.id === nodeId;
   inspectorOpen.value = true;
 }

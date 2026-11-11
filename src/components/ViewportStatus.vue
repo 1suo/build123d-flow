@@ -19,7 +19,7 @@ const headline = computed(() => props.downloadStatus || (props.running
     ? "Evaluation errors"
     : props.geometryCount
       ? props.runtimeStatus || "Ready"
-      : "No visible geometry"));
+      : props.runtimeStatus || "Ready"));
 const state = computed(() => props.downloadStatus
   ? "working"
   : props.errors.length

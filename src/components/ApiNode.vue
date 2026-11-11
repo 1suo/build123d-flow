@@ -115,7 +115,7 @@ function updateStructured(value: string) {
         </div>
         <Button v-if="data.definition.description" icon="pi pi-info-circle" text rounded size="small"
           severity="secondary" class="node-description-trigger nodrag nopan"
-          v-tooltip.top="data.definition.description" :aria-label="`Description: ${data.definition.name}` />
+          v-tooltip.top="data.definition.description" :aria-label="`Description: ${data.definition.name}`" />
         <Button v-if="data.error" icon="pi pi-exclamation-circle" text rounded size="small" severity="danger"
           class="node-error-trigger" aria-label="Show node error" title="Show node error"
           @click.stop="errorPopover?.toggle($event)" />

@@ -145,6 +145,4 @@ onBeforeUnmount(() => {
 <style scoped>
 .geometry-viewport { position: relative; width: 100%; height: auto; flex: 1 1 auto; min-height: 240px; overflow: hidden; }
 .geometry-viewport :deep(canvas) { display: block; width: 100%; height: 100%; }
-.viewport-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
-.viewport-progress { position: absolute; top: 14px; right: 14px; }
 </style>

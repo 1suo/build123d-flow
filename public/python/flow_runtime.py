@@ -76,7 +76,7 @@ def _annotation_metadata(annotation):
     args = typing.get_args(annotation)
     metadata = {}
     collection_origins = {
-        list, tuple, set, frozenset,
+        list, set, frozenset,
         collections.abc.Sequence, collections.abc.MutableSequence,
         collections.abc.Iterable, collections.abc.Collection,
         collections.abc.Set, collections.abc.MutableSet,
@@ -936,12 +936,12 @@ def _inspect_value(value, depth=0):
         return {"type": value_type, "value": value}
     if depth >= 5:
         return {"type": value_type, "repr": repr(value)[:1000], "truncated": True}
-    if isinstance(value, dict):
+    if isinstance(value, collections.abc.Mapping):
         items = {}
         for key, item in list(value.items())[:200]:
             items[str(key)] = _inspect_value(item, depth + 1)
         return {"type": value_type, "items": items, "length": len(value)}
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, (list, tuple, set, frozenset, collections.abc.Sequence, collections.abc.Set)):
         sequence = list(value)
         return {"type": value_type, "items": [_inspect_value(item, depth + 1) for item in sequence[:200]], "length": len(sequence)}
     attributes = {}

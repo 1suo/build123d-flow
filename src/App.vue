@@ -123,6 +123,19 @@ function categoryIcon(category: string): string {
 }
 
 function nodeIcon(item: NodeDefinition): string {
+  const name = item.name.toLowerCase();
+  if (/box|rectangle|square/.test(name)) return "pi pi-stop";
+  if (/cylinder|sphere|circle|torus|ellipse/.test(name)) return "pi pi-circle";
+  if (/cone|triangle|polygon/.test(name)) return "pi pi-star";
+  if (/union|difference|intersection|fuse|cut/.test(name)) return "pi pi-sitemap";
+  if (/extrude|push|pull/.test(name)) return "pi pi-arrow-up";
+  if (/revolve|rotate/.test(name)) return "pi pi-sync";
+  if (/loft|sweep/.test(name)) return "pi pi-share-alt";
+  if (/fillet|chamfer|offset|shell/.test(name)) return "pi pi-sliders-h";
+  if (/mirror/.test(name)) return "pi pi-directions";
+  if (/scale|resize/.test(name)) return "pi pi-expand";
+  if (/move|translate/.test(name)) return "pi pi-arrows-alt";
+  if (/area|volume|length|center|bounding/.test(name)) return "pi pi-chart-line";
   if (item.kind === "geometry" || item.outputs.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type))) return "pi pi-box";
   if (item.kind === "value") return "pi pi-circle";
   return categoryIcon(item.category);

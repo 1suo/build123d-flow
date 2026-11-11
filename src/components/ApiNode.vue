@@ -8,7 +8,6 @@ import Textarea from "primevue/textarea";
 import Select from "primevue/select";
 import Button from "primevue/button";
 import Card from "primevue/card";
-import Message from "primevue/message";
 import Popover from "primevue/popover";
 import type { NodeDefinition } from "../types";
 

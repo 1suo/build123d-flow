@@ -939,12 +939,6 @@ def discover(include_full=True):
                 node_prefix = owner.__module__ + "." + owner.__name__
                 receiver_type = _type_name(owner)
 
-                # Public class annotations describe data fields without reading
-                # instances or invoking descriptors.
-                annotations = vars(owner).get("__annotations__", {})
-                if member_name in annotations and member_name not in seen_members:
-                    pass
-
                 if isinstance(raw_member, property):
                     getter_fn = raw_member.fget
                     if getter_fn is None:
@@ -973,7 +967,7 @@ def discover(include_full=True):
                     found[property_id] = {
                         "id": property_id, "kind": "operation", "name": member_name,
                         "category": owner.__name__ + " Properties",
-                        "description": (inspect.getdoc(getter_fn) or "").split("\\n")[0][:180],
+                        "description": (inspect.getdoc(getter_fn) or "").split("\n")[0][:180],
                         "inputs": [{
                             "name": "self", "label": "object", "type": receiver_type,
                             "annotation": str(owner), "required": True,
@@ -1054,7 +1048,10 @@ def discover(include_full=True):
             # Dataclass/typed fields are discoverable from annotations without
             # touching instances. Properties above take precedence.
             for field_name, field_annotation in vars(owner).get("__annotations__", {}).items():
-                if field_name.startswith("_") or field_name in seen_members:
+                if field_name.startswith("_"):
+                    continue
+                raw_field = vars(owner).get(field_name)
+                if isinstance(raw_field, property) or callable(raw_field):
                     continue
                 field_id = owner.__module__ + "." + owner.__name__ + ".field." + field_name
                 if field_id in found:

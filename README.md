@@ -7,10 +7,10 @@ The project combines Vue Flow with the browser-side Python/OCCT runtime demonstr
 ## Architecture
 
 - **Vue 3 + TypeScript + Vue Flow** — graph editor and generated node UI.
-- **PrimeVue** — compact application controls and resizable Splitter-based workspace; Vue Flow remains responsible for the graph canvas.
+- **PrimeVue** — application shell, node inputs, toolbar, floating Dock controls and resizable Splitter workspace; Vue Flow supplies graph interaction and geometry only.
 - **Pyodide** — Python runtime in the browser.
 - **build123d + OCP.wasm** — exact B-rep/NURBS geometry, running in WebAssembly.
-- **Python introspection** — discovers installed build123d callables and signatures at runtime; a curated core catalog exposes Python math, operators, strings, conversions and vector operations.
+- **Python introspection** — discovers installed build123d callables and signatures at runtime; curated registrations guarantee common solid/profile constructors and a core catalog exposes Python math, operators, strings, conversions and vector operations.
 - **Graph evaluator** — validates dependencies, evaluates nodes in topological order and reports node-scoped errors.
 - **Three.js viewport** — renders tessellated previews produced inside Pyodide; exact OCCT shapes remain in the Python runtime for downstream operations and STEP export.
 
@@ -18,7 +18,7 @@ There is no required Python server. Python, build123d and the geometry kernel ru
 
 ## Current status
 
-Early scaffold. The initial implementation includes dynamic API discovery, a Vue Flow graph, Python graph evaluation and a Three.js mesh preview. Browser package loading and CAD behavior still need validation against the pinned OCP.wasm wheels.
+Early scaffold. The initial implementation includes dynamic API discovery, curated geometry constructors (Box, Cylinder, Sphere, Cone, Torus, Rectangle, Circle, Ellipse and RegularPolygon), a Vue Flow graph, Python graph evaluation and a Three.js mesh preview. Browser package loading and CAD behavior still need validation against the pinned OCP.wasm wheels.
 
 ## Development
 
@@ -34,7 +34,7 @@ The browser downloads Pyodide and the CAD wheels on first launch. This is a rela
 ## Current limitations
 
 - Each graph evaluation currently recomputes the full graph in topological order; incremental caching is not implemented yet.
-- Socket inference is annotation-driven. Unsupported or ambiguous Python types appear as `Any` and are not directly editable. The core dataflow catalog currently includes editable Number/String/Boolean literals, scalar arithmetic, math functions/constants, comparisons, boolean logic, string operations, conversions, build123d Vector operations, and a Python Function node. The Python Function node receives optional `a`, `b`, and `c` inputs, has access to `math`, `operator`, `b3d`, and `Vector`, and must assign its output to `result`.
+- Socket inference is annotation-driven. Unsupported or ambiguous Python types appear as `Any` and are not directly editable. The core dataflow catalog currently includes editable Number/String/Boolean literals, scalar arithmetic, math functions/constants, comparisons, boolean logic, string operations, conversions, build123d Vector operations, and a Python Function node. Common solid and 2D profile constructors are explicitly registered so they remain available even when generic reflection cannot infer a usable signature. The rest of the installed build123d API is discovered from Python modules and signatures; unsupported variadic/positional-only signatures and ambiguous annotations can still be omitted or exposed as Any. The Python Function node receives optional `a`, `b`, and `c` inputs, has access to `math`, `operator`, `b3d`, and `Vector`, and must assign its output to `result`.
 - The first preview path tessellates output shapes into triangle meshes; the authoritative B-rep stays inside Pyodide. The browser bootstrap installs only the OCP.wasm wheels and build123d; it deliberately omits `ocp_vscode` and `ocp-tessellate`, because the app has its own Three.js mesh viewer. Python bootstrap output is surfaced in the runtime status. The initial canvas now opens with two parameterized `Box` nodes connected to a `Union` node, so the first run exercises a real multi-node graph.
 - Graph persistence, incremental evaluation caching, and multi-output nodes are not implemented yet.
 

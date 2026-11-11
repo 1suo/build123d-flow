@@ -6,6 +6,7 @@ import ApiNode from "./components/ApiNode.vue";
 import GeometryViewport from "./components/GeometryViewport.vue";
 import NodeInspector from "./components/NodeInspector.vue";
 import Button from "primevue/button";
+import ProgressSpinner from "primevue/progressspinner";
 import InputText from "primevue/inputtext";
 import Dock from "primevue/dock";
 import Popover from "primevue/popover";

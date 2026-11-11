@@ -34,14 +34,14 @@ export class PythonRuntime {
           if (message) onStatus(`Python: ${message}`);
         },
       });
-      const setup = await fetch("/python/setup.py").then((r) => {
+      const setup = await fetch(`${import.meta.env.BASE_URL}python/setup.py`).then((r) => {
         if (!r.ok) throw new Error(`Could not load Python setup: ${r.status}`);
         return r.text();
       });
       await this.pyodide.runPythonAsync(setup);
 
       onStatus("Loading graph runtime…");
-      const runtime = await fetch("/python/flow_runtime.py").then((r) => {
+      const runtime = await fetch(`${import.meta.env.BASE_URL}python/flow_runtime.py`).then((r) => {
         if (!r.ok) throw new Error(`Could not load graph runtime: ${r.status}`);
         return r.text();
       });

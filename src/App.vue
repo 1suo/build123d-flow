@@ -6,6 +6,11 @@ import { Controls } from "@vue-flow/controls";
 import { MiniMap } from "@vue-flow/minimap";
 import ApiNode from "./components/ApiNode.vue";
 import GeometryViewport from "./components/GeometryViewport.vue";
+import Button from "primevue/button";
+import InputText from "primevue/inputtext";
+import Select from "primevue/select";
+import Splitter from "primevue/splitter";
+import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
 import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
@@ -172,22 +177,33 @@ function downloadStep() {
 <template>
   <main class="app-shell">
     <header class="topbar">
-      <div class="brand"><span class="brand-mark">b3d</span><strong>build123d-flow</strong></div>
-      <div class="runtime-status"><span class="status-dot" :class="{ ready: runtime.isReady }"></span>{{ status }}</div>
+      <div class="brand">
+        <span class="brand-mark">b3d</span>
+        <strong>build123d-flow</strong>
+        <span class="brand-divider"></span>
+        <span class="document-name">Untitled</span>
+      </div>
+      <div class="runtime-status">
+        <span class="status-dot" :class="{ ready: runtime.isReady }"></span>
+        <span>{{ status }}</span>
+      </div>
       <div class="top-actions">
         <span v-if="running" class="running-label">Evaluating…</span>
-        <button class="secondary-button" :disabled="!runtime.isReady" @click="evaluate">Evaluate</button>
-        <button class="primary-button" :disabled="!runtime.isReady" @click="downloadStep">Export STEP</button>
+        <Button label="Evaluate" icon="pi pi-play" size="small" severity="secondary" :disabled="!runtime.isReady" @click="evaluate" />
+        <Button label="Export STEP" icon="pi pi-download" size="small" :disabled="!runtime.isReady" @click="downloadStep" />
       </div>
     </header>
 
-    <section class="workspace">
-      <aside class="catalog-panel">
-        <div class="panel-heading"><strong>Node Library</strong><span>{{ catalog.length }}</span></div>
-        <input v-model="search" class="search-input" placeholder="Search nodes, functions and classes…" />
-        <select v-model="selectedCategory" class="category-select">
-          <option v-for="category in categories" :key="category">{{ category }}</option>
-        </select>
+    <Splitter class="workspace" :gutterSize="5">
+      <SplitterPanel :size="19" :minSize="14" class="library-panel">
+        <div class="panel-heading">
+          <div><span class="eyebrow">BUILD</span><strong>Node library</strong></div>
+          <span class="panel-count">{{ catalog.length }}</span>
+        </div>
+        <div class="library-tools">
+          <InputText v-model="search" placeholder="Find a node…" size="small" class="search-input" />
+          <Select v-model="selectedCategory" :options="categories" size="small" class="category-select" />
+        </div>
         <div class="catalog-list">
           <button
             v-for="item in filteredCatalog"
@@ -197,46 +213,69 @@ function downloadStep() {
             @dragstart="dragNode($event, item)"
             @dblclick="addDefinition(item)"
           >
-            <span class="catalog-name">{{ item.name }}</span>
-            <span class="catalog-category">{{ item.category }}</span>
+            <span class="catalog-item-name">{{ item.name }}</span>
+            <span class="catalog-item-category">{{ item.category }}</span>
           </button>
           <p v-if="!filteredCatalog.length" class="empty-state">No matching nodes.</p>
         </div>
-        <p class="catalog-hint">Drag a node onto the canvas, or double-click to add it.</p>
-      </aside>
+        <div class="panel-footnote">Drag onto canvas · double-click to add</div>
+      </SplitterPanel>
 
-      <section class="graph-panel" @drop="onDrop" @dragover.prevent>
-        <div class="canvas-label">NODE GRAPH</div>
-        <VueFlow
-          v-model:nodes="nodes"
-          v-model:edges="edges"
-          :node-types="nodeTypes"
-          :is-valid-connection="isValidConnection"
-          fit-view-on-init
-          :default-viewport="{ zoom: 0.85, x: 60, y: 60 }"
-          @connect="onConnect"
-          @nodes-change="scheduleEvaluation"
-          @edges-change="scheduleEvaluation"
-        >
-          <Background pattern-color="#30343b" :gap="20" />
-          <MiniMap pannable zoomable />
-          <Controls />
-        </VueFlow>
-      </section>
+      <SplitterPanel :size="81" :minSize="35" class="main-panel">
+        <Splitter class="main-splitter" :gutterSize="5">
+          <SplitterPanel :size="72" :minSize="40" class="graph-panel">
+            <div class="canvas-toolbar">
+              <span class="eyebrow">WORKSPACE</span>
+              <strong>Graph</strong>
+              <span class="canvas-hint">Pan · zoom · connect sockets</span>
+            </div>
+            <div class="canvas-surface" @drop="onDrop" @dragover.prevent>
+              <VueFlow
+                v-model:nodes="nodes"
+                v-model:edges="edges"
+                :node-types="nodeTypes"
+                :is-valid-connection="isValidConnection"
+                fit-view-on-init
+                :default-viewport="{ zoom: 0.85, x: 60, y: 60 }"
+                @connect="onConnect"
+                @nodes-change="scheduleEvaluation"
+                @edges-change="scheduleEvaluation"
+              >
+                <Background pattern-color="#39352e" :gap="22" />
+                <MiniMap pannable zoomable />
+                <Controls />
+              </VueFlow>
+            </div>
+          </SplitterPanel>
 
-      <aside class="preview-panel">
-        <div class="panel-heading"><strong>Geometry preview</strong><span>{{ Object.keys(previews).length }} meshes</span></div>
-        <GeometryViewport :previews="previews" />
-        <div v-for="(mesh, id) in previews" :key="id" class="mesh-summary">
-          <strong>{{ id }}</strong>
-          <span>{{ mesh.vertices.length / 3 }} vertices · {{ mesh.triangles.length / 3 }} triangles</span>
-        </div>
-        <div v-if="errors.length" class="error-list">
-          <strong>Evaluation errors</strong>
-          <pre v-for="(error, index) in errors" :key="index">{{ error }}</pre>
-        </div>
-      </aside>
-    </section>
-    <footer class="statusbar">Python + Pyodide · build123d / OCP.wasm · Vue Flow</footer>
+          <SplitterPanel :size="28" :minSize="18" class="preview-panel">
+            <div class="panel-heading preview-heading">
+              <div><span class="eyebrow">OUTPUT</span><strong>Geometry preview</strong></div>
+              <span class="panel-count">{{ Object.keys(previews).length }}</span>
+            </div>
+            <GeometryViewport :previews="previews" />
+            <div class="preview-details">
+              <div v-for="(mesh, id) in previews" :key="id" class="mesh-summary">
+                <strong>{{ id }}</strong>
+                <span>{{ mesh.vertices.length / 3 }} vertices · {{ mesh.triangles.length / 3 }} triangles</span>
+              </div>
+              <div v-if="!Object.keys(previews).length && !errors.length" class="preview-placeholder">
+                <span class="placeholder-mark">◇</span>
+                <span>Geometry output appears here</span>
+              </div>
+              <div v-if="errors.length" class="error-list">
+                <strong>Evaluation errors</strong>
+                <pre v-for="(error, index) in errors" :key="index">{{ error }}</pre>
+              </div>
+            </div>
+          </SplitterPanel>
+        </Splitter>
+      </SplitterPanel>
+    </Splitter>
+
+    <footer class="statusbar">
+      <span>PYTHON · PYODIDE · BUILD123D · OCCT</span>
+      <span>{{ running ? "Evaluating graph…" : errors.length ? errors.length + " errors" : runtime.isReady ? "Ready" : "Initializing" }}</span>
+    </footer>
   </main>
 </template>

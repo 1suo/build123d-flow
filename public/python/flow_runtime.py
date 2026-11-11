@@ -420,7 +420,10 @@ def discover():
                 continue
             if any(p.kind == p.POSITIONAL_ONLY for p in parameters):
                 continue
+            has_variadic = any(p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD) for p in parameters)
             parameters = [p for p in parameters if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)]
+            if has_variadic and len(parameters) == 1:
+                continue
             try:
                 hints = typing.get_type_hints(method)
             except Exception:

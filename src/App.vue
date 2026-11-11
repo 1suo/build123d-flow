@@ -24,7 +24,6 @@ const runtimeError = ref("");
 const catalog = ref<NodeDefinition[]>(bootCatalog);
 const paletteSearch = ref("");
 const contextSearch = ref("");
-const expandedGroups = ref<string[]>([]);
 const errors = ref<string[]>([]);
 const previews = shallowRef<Record<string, MeshPreview>>({});
 const running = ref(false);
@@ -218,10 +217,6 @@ function openPalette(category: string, event: MouseEvent) {
   activeCategory.value = category;
   palettePopover.value?.show(event);
 }
-
-watch(paletteSearch, (value) => {
-  if (value) expandedGroups.value = groupedCatalog.value.map((group) => group.category);
-});
 
 function openContextMenu(event: MouseEvent) {
   void ensureFullCatalog();

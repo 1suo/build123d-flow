@@ -31,17 +31,14 @@ micropip.add_mock_package("pillow", "12.2.0", modules={
     ),
 })
 
-print("Downloading OCP.wasm and lib3mf wheels…")
+print("Downloading OCP.wasm…")
 await micropip.install([
     "cadquery-ocp-novtk-OCP.wasm==8.0.1.0.post202609202030",
-    "lib3mf-OCP.wasm==2.5.0.post202609201851",
 ])
 
 ocp_version = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm")
-lib3mf_version = importlib.metadata.version("lib3mf-OCP.wasm")
 micropip.add_mock_package("cadquery-ocp-novtk", ocp_version, modules={})
 micropip.add_mock_package("cadquery-ocp", ocp_version, modules={})
-micropip.add_mock_package("lib3mf", lib3mf_version, modules={})
 
 print("Installing build123d dependencies…")
 await micropip.install(["webcolors==24.8.0"])

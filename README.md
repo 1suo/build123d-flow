@@ -7,7 +7,7 @@ The project combines Vue Flow with the browser-side Python/OCCT runtime demonstr
 ## Architecture
 
 - **Vue 3 + TypeScript + Vue Flow** — graph editor and generated node UI.
-- **PrimeVue** — application shell, node inputs, toolbar, floating Dock controls and resizable Splitter workspace; Vue Flow supplies graph interaction and geometry only.
+- **PrimeVue** — node cards and inputs, top category Dock, expandable Accordion palette, searchable canvas context palette, viewer status and resizable Splitter; Vue Flow supplies graph interaction, handles, minimap and canvas geometry.
 - **Pyodide** — Python runtime in the browser.
 - **build123d + OCP.wasm** — exact B-rep/NURBS geometry, running in WebAssembly.
 - **Python introspection** — discovers installed build123d callables and signatures at runtime; curated registrations guarantee common solid/profile constructors and a core catalog exposes Python math, operators, strings, conversions and vector operations.
@@ -29,13 +29,13 @@ npm install
 npm run dev
 ```
 
-The browser downloads Pyodide and the CAD wheels on first launch. This is a relatively large initial download.
+The GitHub Actions workflow typechecks and builds the static client, then deploys it to GitHub Pages on pushes to `main`. The browser still downloads Pyodide and the CAD wheels on first launch; building the frontend does not preinstall the browser-side Python runtime.
 
 ## Current limitations
 
 - Each graph evaluation currently recomputes the full graph in topological order; incremental caching is not implemented yet.
 - Socket inference is annotation-driven. Unsupported or ambiguous Python types appear as `Any` and are not directly editable. The core dataflow catalog currently includes editable Number/String/Boolean literals, scalar arithmetic, math functions/constants, comparisons, boolean logic, string operations, conversions, build123d Vector operations, and a Python Function node. Common solid and 2D profile constructors are explicitly registered so they remain available even when generic reflection cannot infer a usable signature. The rest of the installed build123d API is discovered from Python modules and signatures; callables that expose only variadic parameters or positional-only signatures are still omitted; variadic parameters are ignored when named parameters can be represented, and ambiguous annotations appear as Any. The Python Function node receives optional `a`, `b`, and `c` inputs, has access to `math`, `operator`, `b3d`, and `Vector`, and must assign its output to `result`.
-- The first preview path tessellates output shapes into triangle meshes; the authoritative B-rep stays inside Pyodide. The browser bootstrap installs only the OCP.wasm wheels and build123d; it deliberately omits `ocp_vscode` and `ocp-tessellate`, because the app has its own Three.js mesh viewer. Python bootstrap output is surfaced in the runtime status. The initial canvas now opens with two parameterized `Box` nodes connected to a `Union` node, so the first run exercises a real multi-node graph.
+- The first preview path tessellates explicitly visible geometry-node outputs into triangle meshes; per-node eye controls toggle viewer visibility. The authoritative B-rep stays inside Pyodide. Viewer camera framing is initialized once and is preserved across subsequent evaluations. The browser bootstrap installs only the OCP.wasm wheels and build123d; it deliberately omits `ocp_vscode` and `ocp-tessellate`, because the app has its own Three.js mesh viewer. Python bootstrap output is surfaced in the runtime status. The initial canvas now opens with two parameterized `Box` nodes connected to a `Union` node, so the first run exercises a real multi-node graph.
 - Graph persistence, incremental evaluation caching, and multi-output nodes are not implemented yet.
 
 ## Design principles

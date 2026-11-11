@@ -22,6 +22,7 @@ const props = defineProps<{
     onParameter?: (nodeId: string, name: string, value: unknown) => void;
     onVisibility?: (nodeId: string, visible: boolean) => void;
     onCollapse?: (nodeId: string, collapsed: boolean) => void;
+    onInspect?: (nodeId: string, socketName: string, direction: 'input' | 'output') => void;
   };
 }>();
 
@@ -36,6 +37,8 @@ const canPreview = computed(() => outputs.value.some((output) => ["Shape", "Soli
 function toggleVisibility() {
   props.data.onVisibility?.(props.id, !props.data.visible);
 }
+
+function inspect(name: string, direction: 'input' | 'output') { props.data.onInspect?.(props.id, name, direction); }
 
 function toggleCollapse() {
   props.data.onCollapse?.(props.id, !props.data.collapsed);
@@ -128,10 +131,14 @@ function updateStructured(value: string) {
       </div>
     </template>
     <template #content>
+      <div v-if="data.collapsed" class="node-collapsed-title">
+        <strong>{{ data.definition.name }}</strong>
+        <Button v-if="data.definition.description" icon="pi pi-info-circle" text rounded size="small" severity="secondary" class="node-description-trigger" :title="data.definition.description" :aria-label="`Description: ${data.definition.name}`" />
+      </div>
       <div class="node-body" :class="{ 'is-collapsed': data.collapsed }">
         <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
           <Handle :id="input.name" type="target" :position="Position.Left" />
-          <label :title="input.annotation">{{ input.label || input.name }}</label>
+          <label :title="input.annotation" @click.stop="inspect(input.name, 'input')">{{ input.label || input.name }}</label>
           <template v-if="!data.collapsed">
           <InputNumber
             v-if="input.type === 'Number'"
@@ -176,7 +183,7 @@ function updateStructured(value: string) {
           </template>
         </div>
         <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
-          <span>{{ output.name }} <small>{{ output.type }}</small></span>
+          <span class="output-socket-inspect" :title="`Inspect ${output.name}`" @click.stop="inspect(output.name, 'output')">{{ output.name }} <small>{{ output.type }}</small></span>
           <Handle :id="output.name" type="source" :position="Position.Right" />
         </div>
       </div>

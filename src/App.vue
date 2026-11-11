@@ -33,7 +33,7 @@ const canvasSurface = ref<HTMLElement | null>(null);
 const palettePopover = ref<any>();
 const contextPopover = ref<any>();
 const contextPosition = ref<{ x: number; y: number } | undefined>();
-const { addNodes, addEdges, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
+const { addNodes, addEdges, removeNodes, removeEdges, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
 
 let nextId = 1;
 let evaluationRevision = 0;
@@ -268,6 +268,15 @@ function onDrop(event: DragEvent) {
   addDefinition(definition, screenToFlowCoordinate({ x: event.clientX, y: event.clientY }));
 }
 
+function deleteSelected() {
+  const selectedIds = new Set(nodes.value.filter((node: any) => node.selected).map((node) => node.id));
+  if (!selectedIds.size) return;
+  removeEdges(edges.value.filter((edge: any) => selectedIds.has(edge.source) || selectedIds.has(edge.target)).map((edge) => edge.id));
+  removeNodes([...selectedIds]);
+  previews.value = Object.fromEntries(Object.entries(previews.value).filter(([id]) => !selectedIds.has(id)));
+  scheduleEvaluation();
+}
+
 function isValidConnection(connection: Connection) {
   return canConnect(graph.value, connection);
 }
@@ -356,8 +365,10 @@ function downloadStep() {
             :node-types="nodeTypes"
             :is-valid-connection="isValidConnection"
             fit-view-on-init
+            delete-key-code="Delete"
             :default-viewport="{ zoom: 0.85, x: 60, y: 60 }"
             @connect="onConnect"
+            @keydown.delete.stop.prevent="deleteSelected"
             @nodes-change="scheduleEvaluation"
             @edges-change="scheduleEvaluation"
           >

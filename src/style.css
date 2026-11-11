@@ -186,3 +186,11 @@
 .viewport-empty-state>small{font-size:10px}
 .node-description-trigger{pointer-events:auto!important;cursor:help!important}
 .p-tooltip .p-tooltip-text{max-width:300px;padding:8px 10px;border:1px solid var(--tikal-border);border-radius:4px;background:#080808;color:var(--tikal-foreground);font-size:11px;line-height:1.45;box-shadow:0 6px 18px #0008}
+
+/* Socket hit targets and type colors. */
+.socket-row .vue-flow__handle,.collapsed-socket .vue-flow__handle{width:22px;height:26px;border:0;border-radius:4px;background:transparent;transform:translate(-50%,-50%);cursor:crosshair;z-index:4}
+.socket-row .vue-flow__handle::after,.collapsed-socket .vue-flow__handle::after{content:"";position:absolute;left:50%;top:50%;width:9px;height:9px;transform:translate(-50%,-50%);border:2px solid #013220;border-radius:50%;background:var(--socket-color,#F5DEB3);box-shadow:0 0 0 1px #0008;pointer-events:none}
+.socket-row .vue-flow__handle:hover::after,.collapsed-socket .vue-flow__handle:hover::after{width:12px;height:12px;box-shadow:0 0 0 2px var(--socket-color),0 0 10px var(--socket-color)}
+.socket-row .vue-flow__handle.connecting::after,.socket-row .vue-flow__handle.valid::after{background:#FFD700}
+.input-row.is-connected .p-inputnumber,.input-row.is-connected .p-inputtext,.input-row.is-connected .p-select,.input-row.is-connected .p-checkbox,.input-row.is-connected .p-textarea,.input-row.is-connected .node-structured-trigger{opacity:.38;filter:saturate(.45)}
+.input-row.is-connected>label{color:#BDB76B}

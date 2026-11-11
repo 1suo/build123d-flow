@@ -5,6 +5,7 @@ import { Background } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
 import { MiniMap } from "@vue-flow/minimap";
 import ApiNode from "./components/ApiNode.vue";
+import GeometryViewport from "./components/GeometryViewport.vue";
 import { PythonRuntime } from "./runtime/pythonRuntime";
 import { createGraphNode, validateGraph } from "./runtime/graph";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
@@ -70,7 +71,9 @@ function addStarterGraph() {
 function addDefinition(definition: NodeDefinition, position?: { x: number; y: number }) {
   const id = `n${nextId++}`;
   const point = position ?? { x: 180 + Math.random() * 120, y: 100 + Math.random() * 120 };
-  addNodes([createGraphNode(definition, id, point) as unknown as Node]);
+  const node = createGraphNode(definition, id, point);
+  node.data.onParameter = onParameter;
+  addNodes([node as unknown as Node]);
   scheduleEvaluation();
 }
 
@@ -199,11 +202,7 @@ function downloadStep() {
 
       <aside class="preview-panel">
         <div class="panel-heading"><strong>Geometry preview</strong><span>{{ Object.keys(previews).length }} meshes</span></div>
-        <div v-if="!Object.keys(previews).length" class="preview-empty">
-          <div class="preview-cube">◇</div>
-          <strong>No geometry yet</strong>
-          <span>Add a primitive such as Box or Cylinder.</span>
-        </div>
+        <GeometryViewport :previews="previews" />
         <div v-for="(mesh, id) in previews" :key="id" class="mesh-summary">
           <strong>{{ id }}</strong>
           <span>{{ mesh.vertices.length / 3 }} vertices · {{ mesh.triangles.length / 3 }} triangles</span>

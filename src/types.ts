@@ -10,6 +10,7 @@ export interface SocketDefinition {
   required: boolean;
   default?: unknown;
   default_repr?: string;
+  options?: string[];
 }
 
 export interface NodeDefinition {

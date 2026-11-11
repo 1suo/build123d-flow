@@ -330,13 +330,20 @@ function downloadStep() {
             @edges-change="scheduleEvaluation"
           >
             <Background pattern-color="#39352e" :gap="22" />
-            <Dock :model="categoryItems" position="top" class="category-dock">
-              <template #item="{ item }">
-                <Button text rounded severity="secondary" :aria-label="item.category" :title="item.category" @click="openPalette(item.category, $event)">
-                  <template #icon><img class="dock-category-icon" :src="item.icon" alt="" /></template>
-                </Button>
-              </template>
-            </Dock>
+            <div v-if="runtime.isReady" class="category-tools">
+              <Button
+                v-for="item in categoryItems"
+                :key="item.category"
+                text
+                rounded
+                severity="secondary"
+                :aria-label="item.category"
+                :title="item.category"
+                @click="openPalette(item.category, $event)"
+              >
+                <template #icon><img class="dock-category-icon" :src="item.icon" alt="" /></template>
+              </Button>
+            </div>
             <Dock :model="canvasActions" position="bottom" class="canvas-dock">
               <template #item="{ item }">
                 <Button :icon="item.icon" text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Canvas action'" :title="typeof item.label === 'string' ? item.label : 'Canvas action'" @click="typeof item.label === 'string' && runCanvasAction(item.label)" />

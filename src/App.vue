@@ -67,7 +67,7 @@ const canvasSurface = ref<HTMLElement | null>(null);
 const palettePopover = ref<any>();
 const contextPopover = ref<any>();
 const contextPosition = ref<{ x: number; y: number } | undefined>();
-const { addNodes, addEdges, removeEdges, updateEdge, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
+const { addNodes, addEdges, removeEdges, updateEdge, updateNodeInternals, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
 
 let nextId = 1;
 let evaluationRevision = 0;
@@ -388,11 +388,18 @@ function onVisibility(nodeId: string, visible: boolean) {
   scheduleEvaluation();
 }
 
-function onInspect(nodeId: string, socketName: string, direction: "input" | "output") { inspectedSocket.value = { nodeId, socketName, direction }; }
+function onInspect(nodeId: string, socketName: string, direction: "input" | "output") {
+  inspectedSocket.value = { nodeId, socketName, direction };
+  for (const node of nodes.value as any[]) node.selected = node.id === nodeId;
+  inspectorOpen.value = true;
+}
 
 function onCollapse(nodeId: string, collapsed: boolean) {
   const node = nodes.value.find((item: any) => item.id === nodeId) as any;
-  if (node) node.data.collapsed = collapsed;
+  if (node) {
+    node.data.collapsed = collapsed;
+    requestAnimationFrame(() => updateNodeInternals([nodeId]));
+  }
 }
 
 function dragNode(event: DragEvent, definition: NodeDefinition) {
@@ -429,6 +436,7 @@ async function evaluate() {
   }
 }
 
+watch(() => selectedNode.value?.id, (id) => { if (id) inspectorOpen.value = true; });
 watch([nodes, edges], scheduleEvaluation, { deep: true });
 onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown, true));
 

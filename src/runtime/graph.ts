@@ -1,10 +1,10 @@
-import type { GraphDocument, NodeDefinition } from "../types";
+import type { GraphDocument, GraphNode, NodeDefinition } from "../types";
 
 export function createGraphNode(
   definition: NodeDefinition,
   id: string,
   position: { x: number; y: number },
-) {
+): GraphNode {
   const params: Record<string, unknown> = {};
   for (const input of definition.inputs) {
     if (input.default !== undefined) params[input.name] = input.default;

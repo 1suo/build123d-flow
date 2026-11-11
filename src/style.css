@@ -394,7 +394,7 @@
   flex:0 0 32px;
 }
 .canvas-topbar .category-strip{
-  flex:1 1 0;
+  flex:1 1 auto;
   min-width:0;
   gap:4px;
   padding:2px 0;
@@ -413,3 +413,6 @@
     min-width:0;
   }
 }
+
+/* The category strip owns all free topbar width; no competing spacer. */
+.canvas-topbar .category-strip{flex:1 1 auto;min-width:0}

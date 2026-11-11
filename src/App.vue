@@ -548,7 +548,6 @@ async function downloadStep() {
                 class="category-chip" :label="category" @click="openPalette(category, $event)" />
               <span v-if="!categoryItems.length" class="category-loading">Loading node catalog…</span>
             </nav>
-            <span class="topbar-spacer"></span>
             <Button icon="pi pi-sliders-h" text rounded severity="secondary"
               class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
               :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector follows selected node"

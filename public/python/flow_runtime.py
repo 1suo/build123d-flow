@@ -49,11 +49,11 @@ def _json_default(value):
 def _safe_default(value):
     if value is inspect.Signature.empty:
         return None, None, True
-    try:
-        json.dumps(value, default=_json_default)
-        return _json_default(value), repr(value), False
-    except Exception:
-        return None, repr(value), False
+    # Only expose defaults that can safely round-trip through JSON and back
+    # into Python without guessing at CAD object / enum reconstruction.
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value, repr(value), False
+    return None, repr(value), False
 
 
 def _is_candidate(obj, module_name):

@@ -714,6 +714,16 @@ def _call_with_coercion(callable_obj, params):
         if annotation is None:
             parameter = signature.parameters.get(name)
             annotation = parameter.annotation if parameter else None
+        annotation_candidates = typing.get_args(annotation) if typing.get_origin(annotation) in (typing.Union, types.UnionType) else (annotation,)
+        resolved_candidates = []
+        for candidate in annotation_candidates:
+            if isinstance(candidate, str):
+                try:
+                    candidate = eval(candidate, getattr(target, "__globals__", {}))
+                except Exception:
+                    pass
+            resolved_candidates.append(candidate)
+        annotation = next((candidate for candidate in resolved_candidates if inspect.isclass(candidate)), annotation)
         if isinstance(value, str) and inspect.isclass(annotation):
             try:
                 if issubclass(annotation, enum.Enum):

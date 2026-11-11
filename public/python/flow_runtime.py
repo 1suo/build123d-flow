@@ -1271,8 +1271,6 @@ def evaluate_graph_json(payload):
                                   if item.get("name") == output_name), {})
             target_socket = next((item for item in target_definition.get("inputs", [])
                                   if item.get("name") == input_name), {})
-            if source_socket.get("type") == "Wire" and target_socket.get("type") == "Face":
-                source_value = b3d.Face(source_value)
             params[input_name] = source_value
         if failed_dependency:
             continue

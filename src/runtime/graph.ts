@@ -21,17 +21,10 @@ export function createGraphNode(
   };
 }
 
-export interface ImplicitConversion { from: string; to: string; id: string; label: string }
-export const implicitConversions: ImplicitConversion[] = [
-  { from: "Wire", to: "Face", id: "wire-to-face", label: "Make planar face from closed wire" },
-];
-export function resolveImplicitConversion(source: string, target: string): ImplicitConversion | null {
-  return implicitConversions.find((item) => item.from === source && item.to === target) ?? null;
-}
 function compatibleTypes(source: string, target: string): boolean {
   if (target === "Any" || source === "Any" || source === target) return true;
   if (target === "Shape" && ["Solid", "Compound", "Face", "Edge", "Wire", "Shell", "Part", "Sketch"].includes(source)) return true;
-  return resolveImplicitConversion(source, target) !== null;
+  return false;
 }
 
 function compatible(source: SocketDefinition, target: SocketDefinition): boolean {

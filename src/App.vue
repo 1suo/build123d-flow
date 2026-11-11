@@ -22,6 +22,7 @@ const status = ref("Loading Python runtime…");
 const runtimeError = ref("");
 const catalog = ref<NodeDefinition[]>([]);
 const paletteSearch = ref("");
+const activeCategory = ref("Create");
 const contextSearch = ref("");
 const errors = ref<string[]>([]);
 const downloadStatus = ref("");

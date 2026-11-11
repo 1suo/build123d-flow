@@ -260,3 +260,12 @@
 .collapsed-socket .vue-flow__handle::after{
   border-color:var(--tikal-surface);
 }
+
+
+/* Example loading is a small workspace control, not a second navigation dock. */
+.examples-toolbar{position:absolute;z-index:12;top:12px;left:12px;display:flex;align-items:center;gap:5px}
+.examples-select{width:178px;min-width:178px}
+.examples-select .p-select-label{padding:7px 9px;font-size:11px}
+.canvas-empty-state{position:absolute;z-index:3;top:50%;left:50%;display:flex;max-width:340px;align-items:center;flex-direction:column;gap:8px;transform:translate(-50%,-50%);color:var(--tikal-muted);text-align:center;pointer-events:none}
+.canvas-empty-state strong{color:var(--tikal-foreground);font-size:14px;font-weight:600}
+.canvas-empty-state span{font-size:11px;line-height:1.5}

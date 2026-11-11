@@ -297,6 +297,89 @@ def _collection_eval(expression, item=None, index=0, accumulator=None):
     return eval(compile(expression, "<collection expression>", "eval"), scope, scope)
 
 
+
+def _xy_grid(x_count, y_count, spacing_x, spacing_y, origin_x, origin_y):
+    nx, ny = max(1, min(200, int(x_count))), max(1, min(200, int(y_count)))
+    return [[float(origin_x) + x * float(spacing_x), float(origin_y) + y * float(spacing_y)]
+            for y in range(ny) for x in range(nx)]
+
+
+def _polar_points(count, radius, center_x, center_y, start_angle, end_angle):
+    import math
+    count = max(1, min(2000, int(count)))
+    start, end = math.radians(float(start_angle)), math.radians(float(end_angle))
+    angles = [start] if count == 1 else [start + (end - start) * i / count for i in range(count)]
+    return [[float(center_x) + float(radius) * math.cos(angle),
+             float(center_y) + float(radius) * math.sin(angle)] for angle in angles]
+
+
+def _voronoi_2d(points, width, height):
+    """Build clipped 2D Voronoi cells as a compound of planar faces."""
+    points = [(float(point[0]), float(point[1])) for point in points]
+    if not points:
+        raise ValueError("Voronoi needs at least one point")
+    if len(points) > 500:
+        raise ValueError("Voronoi is limited to 500 seed points")
+    width, height = float(width), float(height)
+    if width <= 0 or height <= 0:
+        raise ValueError("Voronoi bounds must be positive")
+    bounds = [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+    faces = []
+    for px, py in points:
+        polygon = list(bounds)
+        for qx, qy in points:
+            if (px, py) == (qx, qy):
+                continue
+            nx, ny = qx - px, qy - py
+            limit = (qx * qx + qy * qy - px * px - py * py) / 2.0
+            if not polygon:
+                break
+            clipped = []
+            previous = polygon[-1]
+            previous_value = nx * previous[0] + ny * previous[1] - limit
+            for current in polygon:
+                current_value = nx * current[0] + ny * current[1] - limit
+                previous_inside, current_inside = previous_value <= 1e-9, current_value <= 1e-9
+                if previous_inside != current_inside:
+                    denominator = previous_value - current_value
+                    t = previous_value / denominator if abs(denominator) > 1e-15 else 0.0
+                    clipped.append((previous[0] + t * (current[0] - previous[0]),
+                                    previous[1] + t * (current[1] - previous[1])))
+                if current_inside:
+                    clipped.append(current)
+                previous, previous_value = current, current_value
+            polygon = clipped
+        if len(polygon) >= 3:
+            wire = b3d.Wire.make_polygon([b3d.Vector(x, y, 0) for x, y in polygon], close=True)
+            faces.append(b3d.Face(wire))
+    return b3d.Compound(children=faces)
+
+
+def _remap(value, source_min, source_max, target_min, target_max, clamp):
+    low, high = float(source_min), float(source_max)
+    if abs(high - low) < 1e-15:
+        raise ValueError("Source range cannot have zero length")
+    t = (float(value) - low) / (high - low)
+    if clamp:
+        t = max(0.0, min(1.0, t))
+    return float(target_min) + t * (float(target_max) - float(target_min))
+
+
+def _shift_list(items, offset, wrap):
+    values = list(items)
+    if not values:
+        return []
+    amount = int(offset)
+    if wrap:
+        amount %= len(values)
+        return values[-amount:] + values[:-amount] if amount else values
+    if amount >= 0:
+        amount = min(amount, len(values))
+        return [None] * amount + values[:len(values) - amount]
+    amount = min(-amount, len(values))
+    return values[amount:] + [None] * amount
+
+
 def _add_core_nodes(found, callables):
     import math
     import operator
@@ -585,6 +668,59 @@ def _add_core_nodes(found, callables):
               len, [("items", "Set")], "Number")
     _add_node(found, callables, "core.set.to_list", "Set to List", "Collections",
               lambda items: sorted(items, key=repr), [("items", "Set")], "List")
+
+
+    # Spatial construction and Grasshopper-style data utilities.
+    _add_node(found, callables, "core.spatial.xy_grid", "XY Grid", "Spatial", _xy_grid,
+              [("x_count", "Number"), ("y_count", "Number"), ("spacing_x", "Number"),
+               ("spacing_y", "Number"), ("origin_x", "Number"), ("origin_y", "Number")], "List",
+              "Generate row-major XY points over a rectangular grid.")
+    _add_node(found, callables, "core.spatial.polar_points", "Polar Points", "Spatial", _polar_points,
+              [("count", "Number"), ("radius", "Number"), ("center_x", "Number"),
+               ("center_y", "Number"), ("start_angle", "Number"), ("end_angle", "Number")], "List",
+              "Distribute points around a circle; angles are in degrees.")
+    _add_node(found, callables, "core.spatial.voronoi_2d", "Voronoi 2D", "Spatial", _voronoi_2d,
+              [("points", "List"), ("width", "Number"), ("height", "Number")], "Compound",
+              "Create planar Voronoi cells clipped to a width × height rectangle.")
+    found["core.spatial.voronoi_2d"]["kind"] = "geometry"
+    found["core.spatial.voronoi_2d"]["inputs"][0]["default"] = [
+        [18, 18], [55, 14], [91, 24], [34, 51], [76, 61], [15, 72], [105, 76]
+    ]
+    found["core.spatial.voronoi_2d"]["inputs"][1]["default"] = 120.0
+    found["core.spatial.voronoi_2d"]["inputs"][2]["default"] = 90.0
+    _add_node(found, callables, "core.spatial.distance_2d", "Distance 2D", "Spatial",
+              lambda a, b: math.hypot(float(a[0]) - float(b[0]), float(a[1]) - float(b[1])),
+              [("a", "List"), ("b", "List")], "Number",
+              "Euclidean distance between two XY coordinate pairs.")
+    _add_node(found, callables, "core.utility.remap", "Remap", "Utilities", _remap,
+              [("value", "Number"), ("source_min", "Number"), ("source_max", "Number"),
+               ("target_min", "Number"), ("target_max", "Number"), ("clamp", "Boolean")], "Number",
+              "Map a value from one numeric interval to another.")
+    _add_node(found, callables, "core.utility.interpolate", "Interpolate", "Utilities",
+              lambda a, b, t: float(a) + (float(b) - float(a)) * float(t),
+              [("a", "Number"), ("b", "Number"), ("t", "Number")], "Number",
+              "Linear interpolation between two values.")
+    _add_node(found, callables, "core.list.partition", "Partition List", "Collections",
+              lambda items, size: [list(items[i:i + max(1, int(size))])
+                                   for i in range(0, len(items), max(1, int(size)))],
+              [("items", "List"), ("size", "Number")], "List",
+              "Split a sequence into consecutive chunks.")
+    _add_node(found, callables, "core.list.repeat", "Repeat Data", "Collections",
+              lambda value, count: [value for _ in range(max(0, min(10000, int(count))))],
+              [("value", "Any"), ("count", "Number")], "List")
+    _add_node(found, callables, "core.list.cull_pattern", "Cull Pattern", "Collections",
+              lambda items, pattern: [item for index, item in enumerate(items)
+                                      if not pattern or not bool(pattern[index % len(pattern)])],
+              [("items", "List"), ("pattern", "List")], "List",
+              "Remove items wherever the repeating boolean pattern is true.")
+    _add_node(found, callables, "core.list.shift", "Shift List", "Collections", _shift_list,
+              [("items", "List"), ("offset", "Number"), ("wrap", "Boolean")], "List",
+              "Shift sequence items left or right, optionally wrapping around.")
+    _add_node(found, callables, "core.list.weave", "Weave", "Collections",
+              lambda a, b: [item for pair in zip(a, b) for item in pair] + list(a[len(b):]) + list(b[len(a):]),
+              [("a", "List"), ("b", "List")], "List",
+              "Interleave two sequences while preserving remaining items.")
+
 
 
 def _python_function(code, a=None, b=None, c=None):

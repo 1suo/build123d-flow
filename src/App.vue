@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, markRaw, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import ApiNode from "./components/ApiNode.vue";
@@ -11,6 +11,7 @@ import InputText from "primevue/inputtext";
 import Dock from "primevue/dock";
 import Popover from "primevue/popover";
 import Message from "primevue/message";
+import Select from "primevue/select";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
@@ -30,10 +31,10 @@ const activityLogs = ref<Array<{ time: string; level: "info" | "success" | "warn
 let downloadStatusTimer: ReturnType<typeof setTimeout> | undefined;
 
 function logActivity(message: string, level: "info" | "success" | "warning" | "error" = "info") {
-  const previous = activityLogs.value[activityLogs.value.length - 1];
+  const previous = activityLogs.value[0];
   if (previous?.message === message && previous.level === level) return;
-  activityLogs.value.push({ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }), level, message });
-  if (activityLogs.value.length > 40) activityLogs.value.splice(0, activityLogs.value.length - 40);
+  activityLogs.value.unshift({ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }), level, message });
+  if (activityLogs.value.length > 40) activityLogs.value.length = 40;
 }
 
 function updateRuntimeStatus(message: string) {
@@ -82,13 +83,17 @@ function paletteGroup(item: NodeDefinition): string {
   const name = item.name.toLowerCase();
   const id = item.id.toLowerCase();
 
-  if (item.id.startsWith("core.")) {
-    if (/^core\\.list|^core\\.dict|^core\\.tuple|^core\\.set|^core\\.series/.test(id)) return "Collections & Series";
-    if (/^core\.value|^core\.constant/.test(id)) return "Values";
-    if (/^core\.math|^core\.compare|^core\.logic/.test(id)) return "Math & Logic";
-    if (/^core\.vector/.test(id)) return "Vectors";
-    if (/^core\.string|^core\.convert|^core\.python/.test(id)) return "Data & Code";
-  }
+  if (id.startsWith("core.spatial.")) return "Spatial & Distributions";
+  if (id.startsWith("core.utility.")) return "Utilities";
+  if (id.startsWith("core.list.") || id.startsWith("core.dict.") ||
+      id.startsWith("core.tuple.") || id.startsWith("core.set.") ||
+      id.startsWith("core.series.")) return "Collections & Series";
+  if (id.startsWith("core.value.") || id.startsWith("core.constant.")) return "Values";
+  if (id.startsWith("core.math.") || id.startsWith("core.compare.") ||
+      id.startsWith("core.logic.")) return "Math & Logic";
+  if (id.startsWith("core.vector.")) return "Vectors";
+  if (id.startsWith("core.string.") || id.startsWith("core.convert.") ||
+      id.startsWith("core.python.")) return "Data & Code";
 
   if (/^(box|cylinder|sphere|cone|torus|wedge|extrusion|revolution)$/.test(name)
       || /objects_part|primitives/.test(category)) return "3D Primitives";
@@ -111,7 +116,7 @@ function paletteGroup(item: NodeDefinition): string {
 
 const categories = computed(() => {
   const groups = new Set(catalog.value.map(paletteGroup));
-  const order = ["3D Primitives", "2D Profiles", "Modeling", "Boolean", "Finishing", "Transforms", "Measurements", "Topology", "Vectors", "Math & Logic", "Values", "Data & Code", "Geometry", "Other API"];
+  const order = ["3D Primitives", "2D Profiles", "Spatial & Distributions", "Modeling", "Boolean", "Finishing", "Transforms", "Patterns & Arrays", "Measurements", "Topology", "Vectors", "Math & Logic", "Collections & Series", "Values", "Utilities", "Data & Code", "Geometry", "Other API"];
   return order.filter((group) => groups.has(group)).concat(
     [...groups].filter((group) => !order.includes(group)).sort()
   );
@@ -121,7 +126,12 @@ const categoryItems = computed(() => categories.value.map((category) => ({
   category,
   icon: categoryIcon(category),
 })));
-const activeCategory = ref("Geometry");
+const activeCategory = ref("3D Primitives");
+const exampleOptions = [
+  { label: "Voronoi panel", value: "voronoi" },
+  { label: "Boolean solids", value: "boolean" },
+];
+const selectedExample = ref<string | null>(null);
 const activePaletteItems = computed(() => catalog.value.filter((item) =>
   paletteGroup(item) === activeCategory.value &&
   (item.name + " " + item.id + " " + item.description).toLowerCase().includes(paletteSearch.value.toLowerCase())
@@ -159,6 +169,8 @@ function runCanvasAction(label: string) {
 
 function categoryIcon(category: string): string {
   const value = category.toLowerCase();
+  if (value.includes("spatial") || value.includes("distribution")) return asset("icons/cad/polygon.svg");
+  if (value.includes("utility")) return asset("icons/cad/math.svg");
   if (value.includes("geometry") || value.includes("primitive") || value.includes("topology")) return asset("icons/cad/shape.svg");
   if (value.includes("boolean") || value.includes("operation") || value.includes("modeling")) return asset("icons/cad/union.svg");
   if (value.includes("data") || value.includes("value") || value.includes("collection") || value.includes("series")) return asset("icons/cad/value.svg");
@@ -196,7 +208,8 @@ function nodeIcon(item: NodeDefinition): string {
   if (/rectangle|square/.test(key)) return icon("rectangle");
   if (/circle/.test(key)) return icon("circle");
   if (/ellipse/.test(key)) return icon("ellipse");
-  if (/polygon|polyline|trapezoid|slot/.test(key)) return icon("polygon");
+  if (/voronoi|polygon|polyline|trapezoid|slot/.test(key)) return icon("polygon");
+  if (/grid|pattern|array|polar/.test(key)) return icon("shape");
   if (/mirror|reflect/.test(key)) return icon("mirror");
   if (/rotate|rotation/.test(key)) return icon("rotate");
   if (/scale/.test(key)) return icon("scale");
@@ -215,7 +228,6 @@ onMounted(() => {
     const discovered = runtime.getCatalog();
     const byName = new Map(discovered.map((item) => [item.name, item]));
     catalog.value = discovered;
-    addStarterGraph();
     for (const node of nodes.value as any[]) {
       const resolved = byName.get(node.data.definition.name);
       if (resolved) node.data.definition = resolved;
@@ -223,7 +235,7 @@ onMounted(() => {
     }
     status.value = "Ready";
     logActivity("Python runtime ready", "success");
-    scheduleEvaluation();
+    if (nodes.value.length) scheduleEvaluation();
     if (wantsFullCatalog) void ensureFullCatalog();
   }).catch((error) => {
     status.value = "Initialization failed";
@@ -232,34 +244,54 @@ onMounted(() => {
   });
 });
 
-function addStarterGraph() {
-  const box = catalog.value.find((item) => item.name === "Box");
-  const union = catalog.value.find((item) => item.name === "Union");
-  if (!box || !union) return;
-  const left = createGraphNode(box, `n${nextId++}`, { x: 100, y: 100 });
-  const right = createGraphNode(box, `n${nextId++}`, { x: 100, y: 360 });
-  const combine = createGraphNode(union, `n${nextId++}`, { x: 500, y: 230 });
-  left.data.params = { ...left.data.params, length: 20, width: 20, height: 10 };
-  right.data.params = { ...right.data.params, length: 15, width: 15, height: 15 };
-  left.data.onParameter = onParameter;
-  right.data.onParameter = onParameter;
-  combine.data.onParameter = onParameter;
-  left.data.onVisibility = onVisibility;
-  right.data.onVisibility = onVisibility;
-  combine.data.onVisibility = onVisibility;
-  left.data.onCollapse = onCollapse;
-  right.data.onCollapse = onCollapse;
-  combine.data.onCollapse = onCollapse;
-  left.data.onInspect = onInspect;
-  right.data.onInspect = onInspect;
-  combine.data.onInspect = onInspect;
-  addNodes([left, right, combine] as unknown as Node[]);
-  addEdges([
-    { id: `e${nextId++}`, source: left.id, sourceHandle: "result", target: combine.id, targetHandle: "a", updatable: true },
-    { id: `e${nextId++}`, source: right.id, sourceHandle: "result", target: combine.id, targetHandle: "b", updatable: true },
-  ] as Edge[]);
-  fitView({ padding: 0.25 });
-  scheduleEvaluation();
+
+function clearCanvas() {
+  nodes.value = [];
+  edges.value = [];
+  previews.value = {};
+  socketValues.value = {};
+  selectedExample.value = null;
+}
+
+function loadExample() {
+  const example = selectedExample.value;
+  if (!example) return;
+  const byId = (id: string) => catalog.value.find((item) => item.id === id);
+  const byName = (name: string) => catalog.value.find((item) => item.name === name);
+  const make = (definition: NodeDefinition | undefined, id: string, position: { x: number; y: number }, params: Record<string, unknown> = {}) => {
+    if (!definition) throw new Error("Example node unavailable");
+    const node = createGraphNode(definition, id, position);
+    node.data.params = { ...node.data.params, ...params };
+    node.data.icon = nodeIcon(definition);
+    node.data.onParameter = onParameter;
+    node.data.onVisibility = onVisibility;
+    node.data.onCollapse = onCollapse;
+    node.data.onInspect = onInspect;
+    return node;
+  };
+  try {
+    let exampleNodes: any[] = [];
+    let exampleEdges: any[] = [];
+    if (example === "voronoi") {
+      exampleNodes = [make(byId("core.spatial.voronoi_2d"), "n1", { x: 300, y: 190 })];
+    } else if (example === "boolean") {
+      const a = make(byName("Box"), "n1", { x: 100, y: 100 }, { length: 30, width: 24, height: 12 });
+      const b = make(byName("Box"), "n2", { x: 100, y: 360 }, { length: 22, width: 22, height: 22 });
+      const combine = make(byName("Union") ?? byId("build123d_flow.union"), "n3", { x: 520, y: 230 });
+      exampleNodes = [a, b, combine];
+      exampleEdges = [
+        { id: "e1", source: a.id, sourceHandle: "result", target: combine.id, targetHandle: "a", updatable: true },
+        { id: "e2", source: b.id, sourceHandle: "result", target: combine.id, targetHandle: "b", updatable: true },
+      ];
+    }
+    nodes.value = exampleNodes as unknown as Node[];
+    edges.value = exampleEdges as unknown as Edge[];
+    nextId = exampleNodes.length + 1;
+    scheduleEvaluation();
+    void nextTick(() => fitView({ padding: 0.25 }));
+  } catch (error) {
+    logActivity("Could not load example: " + String(error), "error");
+  }
 }
 
 function addDefinition(definition: NodeDefinition, position?: { x: number; y: number }) {
@@ -505,6 +537,14 @@ async function downloadStep() {
     <Splitter class="workspace" :gutter-size="4">
       <SplitterPanel :size="68" :min-size="35" class="graph-panel">
         <div ref="canvasSurface" class="canvas-surface" @drop="onDrop" @dragover.prevent @contextmenu.prevent="openContextMenu">
+          <div class="examples-toolbar">
+            <Select v-model="selectedExample" :options="exampleOptions" option-label="label" option-value="value" placeholder="Load example…" class="examples-select" :disabled="!runtime.isReady" @change="loadExample" />
+            <Button icon="pi pi-trash" text rounded severity="secondary" aria-label="Clear canvas" title="Clear canvas" :disabled="!nodes.length" @click="clearCanvas" />
+          </div>
+          <div v-if="runtime.isReady && !nodes.length" class="canvas-empty-state">
+            <strong>Empty canvas</strong>
+            <span>Choose an example, open a category, or right-click to add a node</span>
+          </div>
           <VueFlow
             v-model:nodes="nodes"
             v-model:edges="edges"

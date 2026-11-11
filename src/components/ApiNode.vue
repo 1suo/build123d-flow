@@ -144,7 +144,7 @@ function updateStructured(value: string) {
     <template #content>
       <div v-if="!data.collapsed" class="node-body">
         <div v-for="input in inputs" :key="input.name" class="socket-row input-row" :class="{ 'is-connected': isConnected(input.name) }">
-          <Handle :id="input.name" type="target" :position="Position.Left" />
+          <Handle :id="input.name" type="target" :position="Position.Left" class="socket-handle" :title="socketTitle(input, 'Input')" :style="{ '--socket-color': socketColor(input.type) }" />
           <label :title="socketTitle(input, 'Input')" @click.stop="inspect(input.name, 'input')">{{ input.label || input.name }}</label>
           <InputNumber v-if="input.type === 'Number'"
             :model-value="(data.params[input.name] ?? input.default ?? null) as number | null"
@@ -173,7 +173,7 @@ function updateStructured(value: string) {
         <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
           <span class="output-socket-inspect" :title="`Inspect ${output.name}`"
             @click.stop="inspect(output.name, 'output')">{{ output.name }} <small>{{ output.type }}</small></span>
-          <Handle :id="output.name" type="source" :position="Position.Right" />
+          <Handle :id="output.name" type="source" :position="Position.Right" class="socket-handle" :title="socketTitle(output, 'Output')" :style="{ '--socket-color': socketColor(output.type) }" />
         </div>
       </div>
       <Popover v-if="!data.collapsed" ref="valuePopover" append-to="body" class="node-value-popover">

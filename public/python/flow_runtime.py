@@ -96,6 +96,21 @@ def _safe_default(value):
     return None, repr(value), False, False
 
 
+def _json_clean(value):
+    """Recursively remove non-finite numbers before crossing the JS JSON boundary."""
+    if isinstance(value, enum.Enum):
+        return value.name
+    if isinstance(value, float):
+        return value if __import__("math").isfinite(value) else None
+    if isinstance(value, dict):
+        return {str(key): _json_clean(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_clean(item) for item in value]
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    return None
+
+
 def _populate_editor_default(socket):
     """Give required scalar/structured sockets usable initial values."""
     if "default" in socket or not socket.get("required"):
@@ -635,17 +650,17 @@ def discover(include_full=True):
 
 def discovery_report_json():
     """Return an auditable snapshot of the most recent API discovery pass."""
-    return json.dumps(_DISCOVERY_REPORT, default=str)
+    return json.dumps(_json_clean(_DISCOVERY_REPORT), allow_nan=False, default=str)
 
 
 def catalog_json():
     if not _CATALOG:
         discover(include_full=False)
-    return json.dumps(list(_CATALOG.values()), allow_nan=False)
+    return json.dumps(_json_clean(list(_CATALOG.values())), allow_nan=False)
 
 
 def discover_full():
-    return json.dumps(discover(include_full=True), allow_nan=False)
+    return json.dumps(_json_clean(discover(include_full=True)), allow_nan=False)
 
 
 def _mesh_preview(value):

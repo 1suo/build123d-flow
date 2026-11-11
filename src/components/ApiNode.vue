@@ -1,11 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
-import { Handle, Position, useVueFlow } from "@vue-flow/core";
-import InputNumber from "primevue/inputnumber";
-import InputText from "primevue/inputtext";
-import Checkbox from "primevue/checkbox";
-import Textarea from "primevue/textarea";
-import Select from "primevue/select";
+import { computed, ref } from "vue";
+import { Handle, Position } from "@vue-flow/core";
 import Button from "primevue/button";
 import Card from "primevue/card";
 import Popover from "primevue/popover";
@@ -26,16 +21,10 @@ const props = defineProps<{
   };
 }>();
 
-const { getEdges } = useVueFlow();
 const inputs = computed(() => props.data.definition.inputs);
 const outputs = computed(() => props.data.definition.outputs);
-const structuredDrafts = reactive<Record<string, string>>({});
 const errorPopover = ref<any>();
-const valuePopover = ref<any>();
-const activeStructuredName = ref("");
 const canPreview = computed(() => outputs.value.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type)));
-const connectedInputs = computed(() => new Set(getEdges().filter((edge) => edge.target === props.id && edge.targetHandle).map((edge) => String(edge.targetHandle))));
-function isConnected(name: string): boolean { return connectedInputs.value.has(name); }
 function socketColor(type: string): string {
   if (["Shape","Solid","Compound","Face","Edge","Wire","Shell","Part","Sketch"].includes(type)) return "#7CFC00";
   if (["Number","Boolean","Vector2","Vector3","Rotation","Plane","Location","Axis","Color"].includes(type)) return "#DAA520";
@@ -57,42 +46,6 @@ function toggleCollapse() {
   props.data.onCollapse?.(props.id, !props.data.collapsed);
 }
 
-function update(name: string, value: unknown) {
-  props.data.onParameter?.(props.id, name, value === "" ? undefined : value);
-}
-
-function structuredValue(name: string): string {
-  if (name in structuredDrafts) return structuredDrafts[name];
-  const value = props.data.params[name] ?? inputs.value.find((input) => input.name === name)?.default;
-  if (value === undefined || value === null) return "";
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
-
-function structuredSummary(name: string): string {
-  const value = structuredValue(name);
-  return value.replace(/\s+/g, " ").trim() || "Default";
-}
-
-function openStructuredEditor(name: string, event: MouseEvent) {
-  activeStructuredName.value = name;
-  structuredDrafts[name] = structuredValue(name);
-  valuePopover.value?.show(event);
-}
-
-function updateStructured(value: string) {
-  const name = activeStructuredName.value;
-  if (!name) return;
-  structuredDrafts[name] = value;
-  if (!value.trim()) {
-    update(name, undefined);
-    return;
-  }
-  try {
-    update(name, JSON.parse(value));
-  } catch {
-    // Keep incomplete JSON in the popup without sending it to graph evaluation.
-  }
-}
 </script>
 
 <template>
@@ -143,47 +96,18 @@ function updateStructured(value: string) {
     </template>
     <template #content>
       <div v-if="!data.collapsed" class="node-body">
-        <div v-for="input in inputs" :key="input.name" class="socket-row input-row" :class="{ 'is-connected': isConnected(input.name) }">
-          <Handle :id="input.name" type="target" :position="Position.Left" class="socket-handle" :title="socketTitle(input, 'Input')" :style="{ '--socket-color': socketColor(input.type) }" />
-          <label :title="socketTitle(input, 'Input')" @click.stop="inspect(input.name, 'input')">{{ input.label || input.name }}</label>
-          <InputNumber v-if="input.type === 'Number'"
-            :model-value="(data.params[input.name] ?? input.default ?? null) as number | null"
-            :use-grouping="false"  :max-fraction-digits="8" input-class="node-number" :disabled="isConnected(input.name)"
-            @update:model-value="update(input.name, $event)" />
-          <Checkbox v-else-if="input.type === 'Boolean'"
-            :model-value="Boolean(data.params[input.name] ?? input.default)" binary :disabled="isConnected(input.name)"
-            @update:model-value="update(input.name, $event)" />
-          <Textarea v-else-if="input.type === 'Code'"
-            :model-value="String(data.params[input.name] ?? input.default ?? '')"
-            :auto-resize="false" rows="5" spellcheck="false" class="node-code" :disabled="isConnected(input.name)"
-            @update:model-value="update(input.name, $event)" />
-          <InputText v-else-if="input.type === 'String'"
-            :model-value="String(data.params[input.name] ?? input.default ?? '')" class="node-text" :disabled="isConnected(input.name)"
-            @update:model-value="update(input.name, $event)" />
-          <Select v-else-if="input.type === 'Enum'"
-            :model-value="String(data.params[input.name] ?? input.default ?? '')"
-            :options="input.options || []" placeholder="Default" class="node-select" :disabled="isConnected(input.name)"
-            @update:model-value="update(input.name, $event)" />
-          <Button v-else-if="['Vector3', 'Vector2', 'Rotation', 'Plane', 'Location', 'Axis', 'Color', 'List', 'Tuple', 'Set', 'Dict', 'Any'].includes(input.type)"
-            class="node-structured-trigger" severity="secondary" outlined
-            :label="structuredSummary(input.name)" :title="structuredValue(input.name)" :disabled="isConnected(input.name)"
-            @click.stop="openStructuredEditor(input.name, $event)" />
-          <span v-else class="socket-type-hint" :title="socketTitle(input, 'Input')">{{ input.type }}</span>
+        <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
+          <Handle :id="input.name" type="target" :position="Position.Left" class="socket-handle"
+            :title="input.name + ' · ' + input.type" :style="{ '--socket-color': socketColor(input.type) }" />
+          <label :title="input.annotation" @click.stop="inspect(input.name, 'input')">{{ input.label || input.name }}</label>
         </div>
         <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
           <span class="output-socket-inspect" :title="`Inspect ${output.name}`"
             @click.stop="inspect(output.name, 'output')">{{ output.name }} <small>{{ output.type }}</small></span>
-          <Handle :id="output.name" type="source" :position="Position.Right" class="socket-handle" :title="socketTitle(output, 'Output')" :style="{ '--socket-color': socketColor(output.type) }" />
+          <Handle :id="output.name" type="source" :position="Position.Right" class="socket-handle"
+            :title="output.name + ' · ' + output.type" :style="{ '--socket-color': socketColor(output.type) }" />
         </div>
       </div>
-      <Popover v-if="!data.collapsed" ref="valuePopover" append-to="body" class="node-value-popover">
-        <div class="node-value-editor">
-          <strong>{{ activeStructuredName }}</strong>
-          <Textarea :model-value="structuredDrafts[activeStructuredName] || ''"
-            :auto-resize="false" rows="7" spellcheck="false" class="node-value-textarea"
-            @update:model-value="updateStructured" />
-        </div>
-      </Popover>
     </template>
   </Card>
 </template>

@@ -194,3 +194,17 @@
 .socket-row .vue-flow__handle.connecting::after,.socket-row .vue-flow__handle.valid::after{background:#FFD700}
 .input-row.is-connected .p-inputnumber,.input-row.is-connected .p-inputtext,.input-row.is-connected .p-select,.input-row.is-connected .p-checkbox,.input-row.is-connected .p-textarea,.input-row.is-connected .node-structured-trigger{opacity:.38;filter:saturate(.45)}
 .input-row.is-connected>label{color:#BDB76B}
+
+/* Node inputs are edited in the inspector, not inline on graph nodes. */
+.api-node .node-body{gap:5px}
+.api-node .input-row{min-height:22px}
+.api-node .input-row>label{padding:3px 0 3px 7px}
+.inspector-input-control{display:flex;min-width:0;align-items:center;gap:6px;margin-top:6px}
+.inspector-input-control>.p-inputnumber,.inspector-input-control>.p-inputtext,
+.inspector-input-control>.p-textarea,.inspector-input-control>.p-select,
+.inspector-input-control>.p-button{width:100%;min-width:0}
+.inspector-socket-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.inspector-socket-annotation{margin-top:5px;color:#BDB76B;font-size:9px;overflow-wrap:anywhere}
+.inspector-socket.is-linked{border-color:#458b74}
+.inspector-json-editor{position:absolute;z-index:25;right:12px;bottom:12px;left:12px;display:flex;flex-direction:column;gap:7px;padding:10px;border:1px solid #2f4f4f;border-radius:5px;background:#080808;box-shadow:0 8px 28px #000a}
+.inspector-json-editor>div{display:flex;align-items:center;justify-content:space-between;color:#F5DEB3}

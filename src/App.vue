@@ -4,12 +4,11 @@ import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue
 import { Background } from "@vue-flow/background";
 import ApiNode from "./components/ApiNode.vue";
 import GeometryViewport from "./components/GeometryViewport.vue";
-import DataValue from "./components/DataValue.vue";
+import NodeInspector from "./components/NodeInspector.vue";
 import Button from "primevue/button";
 import InputText from "primevue/inputtext";
 import Dock from "primevue/dock";
 import Popover from "primevue/popover";
-import ProgressSpinner from "primevue/progressspinner";
 import Message from "primevue/message";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
@@ -491,10 +490,6 @@ async function downloadStep() {
 
 <template>
   <main class="app-shell">
-    <div v-if="!runtime.isReady && !runtimeError" class="runtime-indicator">
-      <ProgressSpinner style="width:16px;height:16px" stroke-width="4" />
-      <span>{{ status }}</span>
-    </div>
     <Message v-if="runtimeError" severity="error" :closable="false" class="runtime-error">{{ runtimeError }}</Message>
     <Splitter class="workspace" :gutter-size="4">
       <SplitterPanel :size="68" :min-size="35" class="graph-panel">
@@ -535,26 +530,13 @@ async function downloadStep() {
             </Dock>
           </VueFlow>
           <aside v-if="selectedNode && inspectorOpen" class="canvas-node-inspector">
-            <header class="canvas-inspector-header">
-              <div><small>NODE INSPECTOR</small><strong>{{ selectedNode.data.definition.name }}</strong></div>
-              <Button icon="pi pi-times" text rounded severity="secondary" size="small" aria-label="Close inspector" @click="inspectorOpen = false" />
-            </header>
-            <div class="canvas-inspector-body">
-              <section>
-                <h4>Inputs</h4>
-                <div v-for="socket in selectedNodeInputs" :key="socket.name" class="inspector-socket">
-                  <div><strong>{{ socket.name }}</strong><small>{{ socket.type }}{{ socket.connected ? ' · linked' : '' }}</small></div>
-                  <DataValue :label="socket.name" :value="socket.value" />
-                </div>
-              </section>
-              <section>
-                <h4>Outputs</h4>
-                <div v-for="socket in selectedNodeOutputs" :key="socket.name" class="inspector-socket">
-                  <div><strong>{{ socket.name }}</strong><small>{{ socket.type }}</small></div>
-                  <DataValue :label="socket.name" :value="socket.value ?? 'Not evaluated'" />
-                </div>
-              </section>
-            </div>
+            <NodeInspector
+              :node="selectedNode"
+              :inputs="selectedNodeInputs"
+              :outputs="selectedNodeOutputs"
+              :on-parameter="onParameter"
+              @close="inspectorOpen = false"
+            />
           </aside>
           <Button v-if="selectedNode && !inspectorOpen" class="canvas-inspector-reopen" icon="pi pi-sliders-h" text rounded severity="secondary" aria-label="Open node inspector" title="Open node inspector" @click="inspectorOpen = true" />
         </div>

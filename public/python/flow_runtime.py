@@ -240,6 +240,19 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
     callables[node_id] = function
 
 
+def _collection_eval(expression, item=None, index=0, accumulator=None):
+    import math
+    import operator
+    safe_builtins = {
+        "abs": abs, "min": min, "max": max, "round": round,
+        "int": int, "float": float, "str": str, "bool": bool,
+        "len": len, "sum": sum, "pow": pow,
+    }
+    scope = {"__builtins__": safe_builtins, "math": math, "operator": operator,
+             "x": item, "item": item, "index": index, "i": index, "acc": accumulator}
+    return eval(compile(expression, "<collection expression>", "eval"), scope, scope)
+
+
 def _add_core_nodes(found, callables):
     import math
     import operator
@@ -414,6 +427,51 @@ def _add_core_nodes(found, callables):
     _add_node(found, callables, "core.series.geometric", "Geometric Series", "Series",
               lambda start, ratio, count: [float(start) * float(ratio) ** i for i in range(int(count))],
               [("start", "Number"), ("ratio", "Number"), ("count", "Number")], "List")
+
+    _add_node(found, callables, "core.list.first", "First", "Collections",
+              lambda items: items[0], [("items", "List")], "Any")
+    _add_node(found, callables, "core.list.last", "Last", "Collections",
+              lambda items: items[-1], [("items", "List")], "Any")
+    _add_node(found, callables, "core.list.take", "Take", "Collections",
+              lambda items, count: list(items)[:int(count)], [("items", "List"), ("count", "Number")], "List")
+    _add_node(found, callables, "core.list.drop", "Drop", "Collections",
+              lambda items, count: list(items)[int(count):], [("items", "List"), ("count", "Number")], "List")
+    _add_node(found, callables, "core.list.concat", "Concatenate", "Collections",
+              lambda a, b: list(a) + list(b), [("a", "List"), ("b", "List")], "List")
+    _add_node(found, callables, "core.list.sum", "Sum", "Collections",
+              sum, [("items", "List")], "Number")
+    _add_node(found, callables, "core.list.minimum", "List Minimum", "Collections",
+              min, [("items", "List")], "Any")
+    _add_node(found, callables, "core.list.maximum", "List Maximum", "Collections",
+              max, [("items", "List")], "Any")
+    _add_node(found, callables, "core.list.any", "Any", "Collections",
+              any, [("items", "List")], "Boolean")
+    _add_node(found, callables, "core.list.all", "All", "Collections",
+              all, [("items", "List")], "Boolean")
+    _add_node(found, callables, "core.list.count", "Count Value", "Collections",
+              lambda items, value: items.count(value), [("items", "List"), ("value", "Any")], "Number")
+    _add_node(found, callables, "core.list.map", "Map", "Collections",
+              lambda items, expression: [_collection_eval(expression, item, index) for index, item in enumerate(items)],
+              [("items", "List"), ("expression", "Code")], "List",
+              "Evaluate an expression for each item. Use x or item for the current value and index for its position.")
+    _add_node(found, callables, "core.list.filter", "Filter", "Collections",
+              lambda items, expression: [item for index, item in enumerate(items) if _collection_eval(expression, item, index)],
+              [("items", "List"), ("expression", "Code")], "List",
+              "Keep items for which the expression is true. Use x or item and index.")
+    _add_node(found, callables, "core.list.reduce", "Reduce", "Collections",
+              lambda items, initial, expression: __import__("functools").reduce(
+                  lambda acc, item_index: _collection_eval(expression, item_index[1], item_index[0], acc),
+                  enumerate(items), initial),
+              [("items", "List"), ("initial", "Any"), ("expression", "Code")], "Any",
+              "Fold a sequence into one value. Use acc for the accumulated value, x for the current item, and index.")
+    _add_node(found, callables, "core.convert.to_list", "To List", "Collections",
+              lambda value: list(value), [("value", "Any")], "List")
+    _add_node(found, callables, "core.convert.to_tuple", "To Tuple", "Collections",
+              lambda value: tuple(value), [("value", "Any")], "Tuple")
+    _add_node(found, callables, "core.convert.to_set", "To Set", "Collections",
+              lambda value: set(value), [("value", "Any")], "Set")
+    _add_node(found, callables, "core.convert.to_dict", "To Dictionary", "Collections",
+              lambda value: dict(value), [("value", "Any")], "Dict")
 
     # Dictionary operations.
     _add_node(found, callables, "core.dict.construct", "Dictionary", "Collections",

@@ -73,7 +73,7 @@ function resize() {
 onMounted(() => {
   if (!host.value) return;
   scene = new THREE.Scene();
-  scene.background = new THREE.Color("#191816");
+  scene.background = new THREE.Color("#17191c");
   camera = new THREE.PerspectiveCamera(42, 1, 0.1, 10000);
   camera.up.set(0, 0, 1);
   camera.position.set(100, -100, 90);
@@ -82,12 +82,12 @@ onMounted(() => {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   host.value.appendChild(renderer.domElement);
 
-  scene.add(new THREE.HemisphereLight(0xf1e8d8, 0x393127, 2.0));
+  scene.add(new THREE.HemisphereLight(0xdce2e8, 0x30363d, 1.8));
   const key = new THREE.DirectionalLight(0xffffff, 2.2);
   key.position.set(80, -60, 120);
   scene.add(key);
 
-  const grid = new THREE.GridHelper(240, 24, 0x554b3d, 0x332f29);
+  const grid = new THREE.GridHelper(240, 24, 0x4a525b, 0x2c3239);
   grid.rotation.x = Math.PI / 2;
   scene.add(grid);
   scene.add(new THREE.AxesHelper(35));

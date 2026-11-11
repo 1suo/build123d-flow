@@ -378,7 +378,7 @@ function downloadStep() {
         <Accordion v-model:value="expandedGroups" multiple class="palette-accordion">
           <AccordionPanel v-for="group in groupedCatalog" :key="group.category" :value="group.category">
             <AccordionHeader>
-              <span class="palette-group-title"><i :class="categoryIcon(group.category)"></i>{{ group.category }}</span>
+              <span class="palette-group-title"><img class="palette-group-icon" :src="categoryIcon(group.category)" alt="" />{{ group.category }}</span>
               <span class="palette-group-count">{{ group.items.length }}</span>
             </AccordionHeader>
             <AccordionContent>

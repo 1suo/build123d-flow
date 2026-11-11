@@ -47,6 +47,12 @@ function update(name: string, event: Event) {
           type="checkbox"
           @change="update(input.name, $event)"
         />
+        <input
+          v-else-if="input.type === 'String'"
+          :value="String(data.params[input.name] ?? '')"
+          type="text"
+          @change="update(input.name, $event)"
+        />
         <span v-else class="socket-type-hint">{{ input.type }}</span>
       </div>
       <div v-for="output in outputs" :key="output.name" class="socket-row output-row">

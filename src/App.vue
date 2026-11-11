@@ -87,7 +87,7 @@ function paletteGroup(item: NodeDefinition): string {
       id.startsWith("core.convert.")) return "Data";
   if (id.startsWith("core.math.") || id.startsWith("core.compare.") ||
       id.startsWith("core.logic.")) return "Math";
-  if (id.startsWith("core.vector.")) return "Spatial";
+  if (id.startsWith("core.vector.") || name === "vector") return "Spatial";
   if (id.startsWith("core.python.")) return "Scripting";
 
   if (/^(union|difference|intersection|fuse|cut|common|intersect)$/.test(name) ||
@@ -123,7 +123,7 @@ function paletteSection(item: NodeDefinition): string {
   if (id.startsWith("core.convert.")) return "Conversions";
   if (id.startsWith("core.math.")) return "Arithmetic & trigonometry";
   if (id.startsWith("core.compare.") || id.startsWith("core.logic.")) return "Logic";
-  if (id.startsWith("core.vector.")) return "Vectors";
+  if (id.startsWith("core.vector.") || name === "vector") return "Vectors";
   if (id.startsWith("core.utility.")) return "Numeric utilities";
   if (id.startsWith("core.spatial.")) return /voronoi|distance/.test(id) ? "Spatial operations" : "Point distributions";
   if (id.startsWith("core.python.")) return "Python";
@@ -208,7 +208,7 @@ function nodeIcon(item: NodeDefinition): string {
     [/^box$|^cube$/, "box"], [/^cylinder$/, "cylinder"], [/^sphere$/, "sphere"],
     [/extrude/, "extrude"], [/fillet/, "fillet"], [/loft/, "loft-3d"],
     [/sweep/, "sweep-3d"], [/pipe/, "pipe-3d"], [/mirror/, "mirror"],
-    [/ellipse/, "ellipse"], [/arc/, "arc"], [/edge/, "select-edge-3d"],
+    [/ellipse/, "ellipse"], [/arc/, "circle"], [/edge/, "select-edge-3d"],
     [/face/, "select-face-3d"], [/project.*curve/, "project-curve-3d"],
   ];
   for (const [pattern, icon] of iconoir) if (pattern.test(name)) {
@@ -220,7 +220,7 @@ function nodeIcon(item: NodeDefinition): string {
     if (icon === "fillet") return local[4];
     if (icon === "mirror") return local[5];
     if (icon === "ellipse") return local[6];
-    if (icon === "arc") return local[7];
+    if (icon === "circle") return "/icons/cad/circle.svg";
     return "/icons/iconoir/" + icon + ".svg";
   }
   if (/union|fuse/.test(name)) return "/icons/cad/union.svg";

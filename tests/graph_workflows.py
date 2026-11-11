@@ -72,8 +72,8 @@ def run_collection_workflow_tests():
         _core_node("core.series.range", "range", {"start": 0, "stop": 5, "step": 1}),
         _core_node("core.list.map", "mapped", {"expression": "x * 2"}),
         _core_node("core.dict.construct", "dictionary", {"keys": ["a", "b"], "values": [2, 4]}),
-        _core_node("core.set.construct", "set_a", {"items": [1, 2, 2, 3]}),
-        _core_node("core.set.construct", "set_b", {"items": [3, 4]}),
+        _core_node("core.convert.to_set", "set_a", {"value": [1, 2, 2, 3]}),
+        _core_node("core.convert.to_set", "set_b", {"value": [3, 4]}),
         _core_node("core.set.union", "set_union"),
     ]
     edges = [

@@ -11,4 +11,4 @@ The small dataflow glyphs (shape, value, math, logic, code, node) were created f
 
 CAD-specific editor glyphs are vendored from Iconoir's 3D Editor collection:
 - https://github.com/iconoir-icons/iconoir/tree/main/icons/regular
-- MIT License, Copyright (c) 2021 Luca Burgio. The MIT notice is retained with this repository.
+- MIT License, Copyright (c) 2021 Luca Burgio. The MIT license text is included in `public/icons/iconoir/LICENSE`.

@@ -530,8 +530,6 @@ def _add_core_nodes(found, callables):
               [("items", "List"), ("index", "Number"), ("value", "Any")], "List")
     _add_node(found, callables, "core.list.append", "Append", "Collections",
               lambda items, value: list(items) + [value], [("items", "List"), ("value", "Any")], "List")
-    _add_node(found, callables, "core.list.extend", "Extend", "Collections",
-              lambda items, values: list(items) + list(values), [("items", "List"), ("values", "List")], "List")
     _add_node(found, callables, "core.list.insert", "Insert", "Collections",
               lambda items, index, value: (lambda result: (result.insert(index, value), result)[1])(list(items)),
               [("items", "List"), ("index", "Number"), ("value", "Any")], "List")
@@ -555,7 +553,7 @@ def _add_core_nodes(found, callables):
               [("items", "List"), ("reverse", "Boolean")], "List")
     _add_node(found, callables, "core.list.unique", "Unique", "Collections",
               lambda items: list(dict.fromkeys(items)), [("items", "List")], "List")
-    _add_node(found, callables, "core.list.flatten", "Flatten", "Collections",
+    _add_node(found, callables, "core.list.flatten", "Flatten One Level", "Collections",
               lambda items: [value for group in items for value in group],
               [("items", "List")], "List")
     _add_node(found, callables, "core.list.zip", "Zip", "Collections",

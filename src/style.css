@@ -71,3 +71,5 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .empty-state { padding: 12px; color: #8d8478; font-size: 11px; }
 .statusbar { height: 23px; flex: 0 0 23px; padding: 5px 12px; border-top: 1px solid #37332d; color: #81796d; background: #201e1a; font-size: 9px; }
 @media (max-width: 900px) { .workspace { grid-template-columns: 190px minmax(260px, 1fr); } .preview-panel { display: none; } .brand { min-width: auto; } }
+
+.input-row textarea { width: 150px; min-width: 0; resize: vertical; border: 1px solid #4b453b; border-radius: 3px; padding: 5px; color: #e9e1d5; background: #191816; font: 10px/1.4 ui-monospace, monospace; }

@@ -160,7 +160,7 @@ function categoryIcon(category: string): string {
   const value = category.toLowerCase();
   if (value.includes("geometry") || value.includes("primitive") || value.includes("topology")) return asset("icons/cad/shape.svg");
   if (value.includes("boolean") || value.includes("operation") || value.includes("modeling")) return asset("icons/cad/union.svg");
-  if (value.includes("data") || value.includes("value")) return asset("icons/cad/value.svg");
+  if (value.includes("data") || value.includes("value") || value.includes("collection") || value.includes("series")) return asset("icons/cad/value.svg");
   if (value.includes("primitive") || value.includes("solid")) return asset("icons/cad/shape.svg");
   if (value.includes("profile") || value.includes("sketch")) return asset("icons/cad/rectangle.svg");
   if (value.includes("finish")) return asset("icons/cad/fillet.svg");

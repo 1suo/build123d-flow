@@ -183,8 +183,8 @@ function downloadStep() {
 
     <section class="workspace">
       <aside class="catalog-panel">
-        <div class="panel-heading"><strong>Build123d API</strong><span>{{ catalog.length }}</span></div>
-        <input v-model="search" class="search-input" placeholder="Search functions and classes…" />
+        <div class="panel-heading"><strong>Node Library</strong><span>{{ catalog.length }}</span></div>
+        <input v-model="search" class="search-input" placeholder="Search nodes, functions and classes…" />
         <select v-model="selectedCategory" class="category-select">
           <option v-for="category in categories" :key="category">{{ category }}</option>
         </select>
@@ -200,7 +200,7 @@ function downloadStep() {
             <span class="catalog-name">{{ item.name }}</span>
             <span class="catalog-category">{{ item.category }}</span>
           </button>
-          <p v-if="!filteredCatalog.length" class="empty-state">No matching API entries.</p>
+          <p v-if="!filteredCatalog.length" class="empty-state">No matching nodes.</p>
         </div>
         <p class="catalog-hint">Drag a node onto the canvas, or double-click to add it.</p>
       </aside>

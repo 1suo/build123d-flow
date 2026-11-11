@@ -7,6 +7,7 @@ The project combines Vue Flow with the browser-side Python/OCCT runtime demonstr
 ## Architecture
 
 - **Vue 3 + TypeScript + Vue Flow** — graph editor and generated node UI.
+- **PrimeVue** — compact application controls and resizable Splitter-based workspace; Vue Flow remains responsible for the graph canvas.
 - **Pyodide** — Python runtime in the browser.
 - **build123d + OCP.wasm** — exact B-rep/NURBS geometry, running in WebAssembly.
 - **Python introspection** — discovers installed build123d callables and signatures at runtime; a curated core catalog exposes Python math, operators, strings, conversions and vector operations.
@@ -46,7 +47,7 @@ The browser downloads Pyodide and the CAD wheels on first launch. This is a rela
 5. Re-evaluate on graph changes with stale-run suppression; incremental caching is a follow-up.
 6. Make node/socket types explicit, with controlled compatibility and conversions.
 7. Keep helpers and implementation details out of the user-facing node catalog.
-8. Never silently expose arbitrary Python execution as a graph node.
+8. Never silently expose arbitrary Python execution; user-authored code stays explicit in a clearly named Python Function node.
 
 ## License
 

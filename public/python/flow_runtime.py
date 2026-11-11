@@ -432,9 +432,38 @@ def _add_core_nodes(found, callables):
 
     # Tuple and set conversions/operations.
     _add_node(found, callables, "core.tuple.construct", "Tuple", "Collections",
-              tuple, [("items", "List")], "Any")
+              tuple, [("items", "List")], "Tuple")
+    _add_node(found, callables, "core.tuple.get", "Tuple Item", "Collections",
+              lambda items, index: items[index], [("items", "Tuple"), ("index", "Number")], "Any")
+    _add_node(found, callables, "core.tuple.length", "Tuple Length", "Collections",
+              len, [("items", "Tuple")], "Number")
+    _add_node(found, callables, "core.tuple.slice", "Tuple Slice", "Collections",
+              lambda items, start, stop: tuple(items[slice(start, stop)]),
+              [("items", "Tuple"), ("start", "Number"), ("stop", "Number")], "Tuple")
+    _add_node(found, callables, "core.tuple.concat", "Tuple Concatenate", "Collections",
+              lambda a, b: tuple(a) + tuple(b), [("a", "Tuple"), ("b", "Tuple")], "Tuple")
+    _add_node(found, callables, "core.tuple.to_list", "Tuple to List", "Collections",
+              list, [("items", "Tuple")], "List")
     _add_node(found, callables, "core.set.construct", "Set", "Collections",
-              set, [("items", "List")], "Any")
+              set, [("items", "List")], "Set")
+    _add_node(found, callables, "core.set.union", "Set Union", "Collections",
+              lambda a, b: set(a) | set(b), [("a", "Set"), ("b", "Set")], "Set")
+    _add_node(found, callables, "core.set.intersection", "Set Intersection", "Collections",
+              lambda a, b: set(a) & set(b), [("a", "Set"), ("b", "Set")], "Set")
+    _add_node(found, callables, "core.set.difference", "Set Difference", "Collections",
+              lambda a, b: set(a) - set(b), [("a", "Set"), ("b", "Set")], "Set")
+    _add_node(found, callables, "core.set.symmetric_difference", "Symmetric Difference", "Collections",
+              lambda a, b: set(a) ^ set(b), [("a", "Set"), ("b", "Set")], "Set")
+    _add_node(found, callables, "core.set.add", "Set Add", "Collections",
+              lambda items, value: set(items) | {value}, [("items", "Set"), ("value", "Any")], "Set")
+    _add_node(found, callables, "core.set.discard", "Set Remove", "Collections",
+              lambda items, value: set(items) - {value}, [("items", "Set"), ("value", "Any")], "Set")
+    _add_node(found, callables, "core.set.contains", "Set Contains", "Collections",
+              lambda items, value: value in items, [("items", "Set"), ("value", "Any")], "Boolean")
+    _add_node(found, callables, "core.set.length", "Set Length", "Collections",
+              len, [("items", "Set")], "Number")
+    _add_node(found, callables, "core.set.to_list", "Set to List", "Collections",
+              lambda items: sorted(items, key=repr), [("items", "Set")], "List")
     _add_node(found, callables, "core.set.union", "Set Union", "Collections",
               lambda a, b: list(set(a) | set(b)), [("a", "List"), ("b", "List")], "List")
     _add_node(found, callables, "core.set.intersection", "Set Intersection", "Collections",

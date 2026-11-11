@@ -104,3 +104,7 @@
 .inspector-socket small{color:#9da5ad;font-size:9px}
 .inspector-socket pre{max-height:130px;margin:6px 0 0;overflow:auto;color:#c5cbd1;font:10px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 .canvas-inspector-reopen{position:absolute!important;z-index:20;top:54px;right:12px;background:#25292e!important;border:1px solid #51483b!important}
+
+.collapsed-socket-group{max-width:94px;overflow:hidden}
+.collapsed-node-title{max-width:150px;overflow:hidden}
+.collapsed-node-title>strong{max-width:125px}

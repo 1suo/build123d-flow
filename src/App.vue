@@ -8,7 +8,6 @@ import NodeInspector from "./components/NodeInspector.vue";
 import Button from "primevue/button";
 import ProgressSpinner from "primevue/progressspinner";
 import InputText from "primevue/inputtext";
-import Dock from "primevue/dock";
 import Popover from "primevue/popover";
 import Message from "primevue/message";
 import Select from "primevue/select";
@@ -123,15 +122,12 @@ const categories = computed(() => {
     [...groups].filter((group) => !order.includes(group)).sort()
   );
 });
-const categoryItems = computed(() => categories.value.map((category) => ({
-  label: category,
-  category,
-  icon: categoryIcon(category),
-})));
+const categoryItems = computed(() => categories.value);
 const activeCategory = ref("3D Primitives");
 const exampleOptions = [
-  { label: "Voronoi panel", value: "voronoi" },
-  { label: "Boolean solids", value: "boolean" },
+  { label: "Voronoi panel field", value: "voronoi" },
+  { label: "Boolean machining", value: "machining" },
+  { label: "Boolean assembly", value: "boolean" },
 ];
 const selectedExample = ref<string | null>(null);
 const activePaletteItems = computed(() => catalog.value.filter((item) =>
@@ -158,72 +154,12 @@ const graph = computed<GraphDocument>(() => ({
   })),
 }));
 
-const canvasActions = [
-  { label: "Fit graph", icon: "pi pi-expand", command: () => fitView({ padding: 0.2 }) },
-  { label: "Zoom in", icon: "pi pi-plus", command: () => zoomIn() },
-  { label: "Zoom out", icon: "pi pi-minus", command: () => zoomOut() },
-  { label: "Export STEP", icon: "pi pi-download", command: () => downloadStep() },
-];
-
-function runCanvasAction(label: string) {
-  canvasActions.find((item) => item.label === label)?.command();
-}
-
-function categoryIcon(category: string): string {
-  const value = category.toLowerCase();
-  if (value.includes("spatial") || value.includes("distribution") || value.includes("curve")) return asset("icons/cad/polygon.svg");
-  if (value.includes("utility")) return asset("icons/cad/math.svg");
-  if (value.includes("geometry") || value.includes("primitive") || value.includes("topology")) return asset("icons/cad/shape.svg");
-  if (value.includes("boolean") || value.includes("operation") || value.includes("modeling")) return asset("icons/cad/union.svg");
-  if (value.includes("data") || value.includes("value") || value.includes("collection") || value.includes("series")) return asset("icons/cad/value.svg");
-  if (value.includes("primitive") || value.includes("solid")) return asset("icons/cad/shape.svg");
-  if (value.includes("profile") || value.includes("sketch")) return asset("icons/cad/rectangle.svg");
-  if (value.includes("finish")) return asset("icons/cad/fillet.svg");
-  if (value.includes("measure")) return asset("icons/cad/math.svg");
-  if (value.includes("vector") || value.includes("transform")) return asset("icons/cad/move.svg");
-  if (value.includes("math")) return asset("icons/cad/math.svg");
-  if (value.includes("vector") || value.includes("transform") || value.includes("location")) return asset("icons/cad/move.svg");
-  if (value.includes("boolean") || value.includes("topology") || value.includes("shape") || value.includes("operation")) return asset("icons/cad/union.svg");
-  if (value.includes("math") || value.includes("constant") || value.includes("numeric")) return asset("icons/cad/math.svg");
-  if (value.includes("logic") || value.includes("compare")) return asset("icons/cad/logic.svg");
-  if (value.includes("string") || value.includes("text") || value.includes("python")) return asset("icons/cad/code.svg");
-  if (value.includes("value") || value.includes("convert")) return asset("icons/cad/value.svg");
-  return asset("icons/cad/node.svg");
+function deleteSelectedFromDock() {
+  deleteSelected();
 }
 
 function nodeIcon(item: NodeDefinition): string {
-  const name = item.name.toLowerCase().replaceAll("_", " ");
-  const id = item.id.toLowerCase();
-  const key = `${name} ${id}`;
-  const icon = (file: string) => asset(`icons/cad/${file}.svg`);
-
-  if (/\bbox\b|\bblock\b/.test(key)) return icon("box");
-  if (/cylinder/.test(key)) return icon("cylinder");
-  if (/sphere/.test(key)) return icon("sphere");
-  if (/union|fuse|combine/.test(key)) return icon("union");
-  if (/difference|subtract|cut/.test(key)) return icon("difference");
-  if (/intersection|common/.test(key)) return icon("intersection");
-  if (/extrud|loft|sweep|thicken/.test(key)) return icon("extrude");
-  if (/revolv/.test(key)) return icon("revolve");
-  if (/fillet|round/.test(key)) return icon("fillet");
-  if (/chamfer|bevel/.test(key)) return icon("chamfer");
-  if (/rectangle|square/.test(key)) return icon("rectangle");
-  if (/circle/.test(key)) return icon("circle");
-  if (/ellipse/.test(key)) return icon("ellipse");
-  if (/voronoi|polygon|polyline|trapezoid|slot|hex grid/.test(key)) return icon("polygon");
-  if (/edge|face|vertex|wire|shell|topology|boundary/.test(key)) return icon("shape");
-  if (/section|slice|split/.test(key)) return icon("difference");
-  if (/grid|pattern|array|polar|distribut|repeat/.test(key)) return icon("shape");
-  if (/mirror|reflect/.test(key)) return icon("mirror");
-  if (/rotate|rotation/.test(key)) return icon("rotate");
-  if (/scale/.test(key)) return icon("scale");
-  if (/move|translat|transform|location|position|offset/.test(key)) return icon("move");
-  if (/math|numeric|number|measure|area|volume|length|distance|center|mass|inertia/.test(key) || item.category === "Math") return icon("math");
-  if (/logic|compare|boolean|condition/.test(key) || item.category === "Logic") return icon("logic");
-  if (/string|text|python|code|expression/.test(key) || item.category === "Python") return icon("code");
-  if (/list|tuple|dict|set|series|value|constant|convert|partition|weave|transpose|cull|cross reference/.test(key) || item.kind === "value") return icon("value");
-  if (/cone|torus|wedge|prism|primitive|shape|solid|compound|part|face|wire|edge|vertex|shell|sketch|plane|axis/.test(key) || item.kind === "geometry") return icon("shape");
-  return icon("node");
+  return item.kind;
 }
 
 onMounted(() => {
@@ -277,7 +213,25 @@ function loadExample() {
     let exampleNodes: any[] = [];
     let exampleEdges: any[] = [];
     if (example === "voronoi") {
-      exampleNodes = [make(byId("core.spatial.voronoi_2d"), "n1", { x: 300, y: 190 })];
+      const points = make(byId("core.spatial.xy_grid"), "n1", { x: 80, y: 170 }, {
+        x_count: 5, y_count: 4, spacing_x: 24, spacing_y: 22, origin_x: 12, origin_y: 10,
+      });
+      const cells = make(byId("core.spatial.voronoi_2d"), "n2", { x: 470, y: 190 }, {
+        width: 140, height: 100,
+      });
+      exampleNodes = [points, cells];
+      exampleEdges = [
+        { id: "e1", source: points.id, sourceHandle: "result", target: cells.id, targetHandle: "points", updatable: true },
+      ];
+    } else if (example === "machining") {
+      const stock = make(byName("Box"), "n1", { x: 70, y: 100 }, { length: 70, width: 52, height: 24 });
+      const cutter = make(byName("Cylinder"), "n2", { x: 70, y: 390 }, { radius: 13, height: 34 });
+      const difference = make(byId("build123d_flow.difference"), "n3", { x: 500, y: 220 });
+      exampleNodes = [stock, cutter, difference];
+      exampleEdges = [
+        { id: "e1", source: stock.id, sourceHandle: "result", target: difference.id, targetHandle: "a", updatable: true },
+        { id: "e2", source: cutter.id, sourceHandle: "result", target: difference.id, targetHandle: "b", updatable: true },
+      ];
     } else if (example === "boolean") {
       const a = make(byName("Box"), "n1", { x: 100, y: 100 }, { length: 30, width: 24, height: 12 });
       const b = make(byName("Box"), "n2", { x: 100, y: 360 }, { length: 22, width: 22, height: 22 });
@@ -547,13 +501,20 @@ async function downloadStep() {
     <Splitter class="workspace" :gutter-size="4">
       <SplitterPanel :size="68" :min-size="35" class="graph-panel">
         <div ref="canvasSurface" class="canvas-surface" @drop="onDrop" @dragover.prevent @contextmenu.prevent="openContextMenu">
-          <div class="examples-toolbar">
-            <Select v-model="selectedExample" :options="exampleOptions" option-label="label" option-value="value" placeholder="Load example…" class="examples-select" :disabled="!runtime.isReady" @change="loadExample" />
+          <div class="canvas-topbar">
+            <Select v-model="selectedExample" :options="exampleOptions" option-label="label" option-value="value"
+              placeholder="Examples" class="examples-select" :disabled="!runtime.isReady" @change="loadExample" />
+            <span class="topbar-divider"></span>
+            <nav class="category-strip" aria-label="Node categories">
+              <Button v-for="category in categoryItems" :key="category" text severity="secondary"
+                class="category-chip" :label="category" @click="openPalette(category, $event)" />
+              <span v-if="!categoryItems.length" class="category-loading">Loading node catalog…</span>
+            </nav>
+            <span class="topbar-spacer"></span>
             <Button icon="pi pi-sliders-h" text rounded severity="secondary"
-              aria-label="Toggle node inspector" title="Node inspector"
-              :disabled="!selectedNode" :class="{ 'is-active': inspectorOpen }"
+              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
+              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector follows selected node"
               @click="inspectorOpen = !inspectorOpen" />
-            <Button icon="pi pi-trash" text rounded severity="secondary" aria-label="Clear canvas" title="Clear canvas" :disabled="!nodes.length" @click="clearCanvas" />
           </div>
           <div v-if="runtime.isReady && !nodes.length" class="canvas-empty-state">
             <strong>Empty canvas</strong>
@@ -574,26 +535,18 @@ async function downloadStep() {
             @edges-change="scheduleEvaluation"
           >
             <Background pattern-color="#39352e" :gap="22" />
-            <Dock v-if="runtime.isReady" :model="categoryItems" position="top" class="category-dock">
-              <template #item="{ item }">
-                <Button
-                  text
-                  rounded
-                  severity="secondary"
-                  :aria-label="item.category"
-                  :title="item.category"
-                  @click="openPalette(item.category, $event)"
-                >
-                  <template #icon><img class="dock-category-icon" :src="item.icon" alt="" /></template>
-                </Button>
-              </template>
-            </Dock>
-            <Dock :model="canvasActions" position="bottom" class="canvas-dock">
-              <template #item="{ item }">
-                <Button :icon="item.icon" text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Canvas action'" :title="typeof item.label === 'string' ? item.label : 'Canvas action'" @click="typeof item.label === 'string' && runCanvasAction(item.label)" />
-              </template>
-            </Dock>
           </VueFlow>
+          <div class="canvas-bottom-dock" role="toolbar" aria-label="Canvas tools">
+            <Button icon="pi pi-expand" text rounded severity="secondary" aria-label="Fit graph" title="Fit graph" @click="fitView({ padding: 0.12 })" />
+            <Button icon="pi pi-minus" text rounded severity="secondary" aria-label="Zoom out" title="Zoom out" @click="zoomOut()" />
+            <Button icon="pi pi-plus" text rounded severity="secondary" aria-label="Zoom in" title="Zoom in" @click="zoomIn()" />
+            <span class="bottom-dock-divider"></span>
+            <Button icon="pi pi-download" text rounded severity="secondary" aria-label="Export STEP" title="Export STEP" @click="downloadStep()" />
+            <Button icon="pi pi-trash" text rounded severity="secondary" class="delete-action"
+              aria-label="Delete selected nodes or wires" title="Delete selected nodes or wires"
+              :disabled="!nodes.some((node: any) => node.selected) && !edges.some((edge: any) => edge.selected)"
+              @click="deleteSelectedFromDock" />
+          </div>
           <aside v-if="selectedNode && inspectorOpen" class="canvas-node-inspector">
             <NodeInspector
               :node="selectedNode"
@@ -622,7 +575,6 @@ async function downloadStep() {
     <Popover ref="palettePopover" appendTo="self" class="palette-popover">
       <div class="palette-content">
         <div class="palette-heading">
-          <img class="palette-group-icon" :src="categoryIcon(activeCategory)" alt="" />
           <span>{{ activeCategory }}</span>
           <span class="palette-group-count">{{ activePaletteItems.length }}</span>
         </div>
@@ -638,8 +590,10 @@ async function downloadStep() {
             @dragstart="dragNode($event, item)"
             @click="addDefinition(item)"
           >
-            <template #icon><img class="palette-node-icon" :src="nodeIcon(item)" alt="" /></template>
-            <template #default><span class="palette-node-label">{{ item.name }}</span></template>
+            <template #default>
+              <span class="palette-node-kind">{{ item.kind }}</span>
+              <span class="palette-node-label">{{ item.name }}</span>
+            </template>
           </Button>
         </div>
         <div v-if="!activePaletteItems.length" class="palette-empty">
@@ -662,10 +616,8 @@ async function downloadStep() {
             class="context-result"
             @click="addFromContext(item)"
           >
-            <template #icon>
-              <img class="palette-node-icon" :src="nodeIcon(item)" alt="" />
-            </template>
             <template #default>
+              <span class="palette-node-kind">{{ item.kind }}</span>
               <span class="context-result-name">{{ item.name }}</span>
               <span class="context-result-category">{{ item.category }}</span>
             </template>

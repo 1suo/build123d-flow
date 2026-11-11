@@ -7,6 +7,7 @@ import inspect
 import json
 import pkgutil
 import typing
+import types
 
 import build123d as b3d
 
@@ -20,13 +21,19 @@ def _type_name(annotation):
         return "Any"
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
-    if origin in (typing.Union, getattr(typing, "UnionType", object)):
+    if origin in (typing.Union, types.UnionType):
         names = {_type_name(arg) for arg in args if arg is not type(None)}
         return names.pop() if len(names) == 1 else "Any"
     if origin in (list, tuple, set):
         return "List"
-    if inspect.isclass(annotation) and issubclass(annotation, enum.Enum):
-        return "Enum"
+    if inspect.isclass(annotation):
+        try:
+            if issubclass(annotation, enum.Enum):
+                return "Enum"
+            if issubclass(annotation, getattr(b3d, "Shape", object)):
+                return "Shape"
+        except TypeError:
+            pass
     name = getattr(annotation, "__name__", str(annotation)).lower()
     mapping = {
         "int": "Number", "float": "Number", "bool": "Boolean",
@@ -113,7 +120,8 @@ def discover():
             inputs = []
             unsupported = False
             try:
-                hints = typing.get_type_hints(obj)
+                hint_target = obj.__init__ if inspect.isclass(obj) else obj
+                hints = typing.get_type_hints(hint_target)
             except Exception:
                 hints = {}
 

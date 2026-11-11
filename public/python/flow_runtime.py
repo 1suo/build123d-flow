@@ -787,6 +787,7 @@ def discover(include_full=True):
     signatures = {}
     hint_targets = {}
     shape_classes = set()
+    api_classes = set()
     report = {
         "include_full": include_full,
         "modules_visited": [],
@@ -801,6 +802,8 @@ def discover(include_full=True):
         module_name = getattr(module, "__name__", "build123d")
         for exported_name, obj in vars(module).items():
             if inspect.isclass(obj):
+                if getattr(obj, "__module__", "").split(".")[0] == "build123d":
+                    api_classes.add(obj)
                 try:
                     if issubclass(obj, getattr(b3d, "Shape", object)):
                         shape_classes.add(obj)
@@ -920,130 +923,127 @@ def discover(include_full=True):
                 hint_targets[overload_id] = hint_target
                 report["accepted"].append({"id": overload_id, "kind": node_kind})
 
-    # Expose a deliberately small set of useful B-rep methods. The full class
-    # surface contains aliases, low-level helpers and methods that duplicate
-    # the dedicated graph operations below.
-    useful_shape_methods = {
-        "fillet", "chamfer", "shell", "offset", "draft", "clean",
-        "moved", "move", "rotate", "translate", "scale", "mirror",
-        "bounding_box", "center", "center_of_mass", "is_valid",
-        "faces", "edges", "vertices", "wires", "solids", "shells",
-        "area", "volume", "getWires", "getEdges", "getFaces",
-        "getVertices", "getSolids", "getShells", "getBoundingBox",
-    }
-    useful_shape_properties = {
-        "area", "volume", "is_valid", "center", "center_of_mass",
-        "bounding_box", "wires", "edges", "faces", "vertices", "solids", "shells",
-    }
-    # fuse/cut/intersect are already exposed as typed Boolean nodes.
-    for cls in shape_classes:
-        for method_name in sorted(useful_shape_methods):
-            if method_name.startswith("_"):
+    # Discover public instance methods and properties from the actual class
+    # hierarchy. Introspection is static: descriptors are never evaluated here.
+    # Only members declared by build123d classes are exposed; external OCP and
+    # Python implementation details stay out of the graph catalog.
+    for cls in api_classes:
+        seen_members = set()
+        for owner in getattr(cls, "__mro__", (cls,)):
+            if getattr(owner, "__module__", "").split(".")[0] != "build123d":
                 continue
-            try:
-                method = inspect.getattr_static(cls, method_name)
-            except AttributeError:
-                continue
-            if isinstance(method, (staticmethod, classmethod)):
-                method = method.__func__
-            if not inspect.isfunction(method):
-                continue
-            if getattr(method, "__module__", "").split(".")[0] != "build123d":
-                continue
-            try:
-                signature = inspect.signature(method)
-            except (TypeError, ValueError):
-                continue
-            parameters = list(signature.parameters.values())
-            if not parameters or parameters[0].name != "self":
-                continue
-            try:
-                hints = typing.get_type_hints(method)
-            except Exception:
-                hints = {}
-            inputs = [{
-                "name": "self", "label": "shape", "type": _type_name(cls),
-                "annotation": str(cls), "required": True,
-            }]
-            for parameter in parameters[1:]:
-                annotation = hints.get(parameter.name, parameter.annotation)
-                if parameter.kind == parameter.VAR_POSITIONAL:
-                    default, default_repr, required, has_default = [], "()", False, True
-                    socket_type = "List"
-                elif parameter.kind == parameter.VAR_KEYWORD:
-                    default, default_repr, required, has_default = {}, "{}", False, True
-                    socket_type = "Dict"
-                else:
-                    default, default_repr, required, has_default = _safe_default(parameter.default)
-                    socket_type = _type_name(annotation)
-                socket = {
-                    "name": parameter.name,
-                    "kind": parameter.kind.name.lower(),
-                    "type": socket_type,
-                    "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
-                    "required": required,
-                    "default_repr": default_repr,
-                }
-                if has_default:
-                    socket["default"] = default
-                if inspect.isclass(annotation):
-                    try:
-                        if issubclass(annotation, enum.Enum):
-                            socket["options"] = [member.name for member in annotation]
-                    except TypeError:
-                        pass
-                if typing.get_origin(annotation) is typing.Literal:
-                    socket["options"] = list(typing.get_args(annotation))
-                socket.update(_annotation_metadata(annotation))
-                inputs.append(socket)
-            node_id = cls.__module__ + "." + cls.__name__ + "." + method_name
-            if node_id in found:
-                continue
-            output_type = _type_name(hints.get("return", signature.return_annotation))
-            if output_type == "Any" and method_name in {
-                "fuse", "cut", "intersect", "moved", "move", "rotate",
-                "translate", "scale", "mirror", "fillet", "chamfer", "clean",
-            }:
-                output_type = _type_name(cls)
-            found[node_id] = {
-                "id": node_id, "kind": "operation", "name": method_name,
-                "category": cls.__name__ + " Methods",
-                "description": (inspect.getdoc(method) or "").split("\n")[0][:180],
-                "inputs": inputs,
-                "outputs": [{
-                    "name": "result", "type": output_type, "annotation": str(hints.get("return", signature.return_annotation)),
-                    **_annotation_metadata(hints.get("return", signature.return_annotation)),
-                }],
-            }
-            callables[node_id] = method
+            for member_name, raw_member in vars(owner).items():
+                if member_name.startswith("_") or member_name in seen_members:
+                    continue
+                seen_members.add(member_name)
+                node_prefix = owner.__module__ + "." + owner.__name__
+                receiver_type = _type_name(owner)
 
-        # Safe properties are generated separately; getters run only at evaluation.
-        for property_name in sorted(useful_shape_properties):
-            try:
-                descriptor = inspect.getattr_static(cls, property_name)
-            except AttributeError:
-                continue
-            if not isinstance(descriptor, property):
-                continue
-            node_id = cls.__module__ + "." + cls.__name__ + ".property." + property_name
-            if node_id in found:
-                continue
-            getter = lambda self, name=property_name: getattr(self, name)
-            output_type = {
-                "area": "Number", "volume": "Number", "is_valid": "Boolean",
-                "center": "Vector3", "center_of_mass": "Vector3",
-                "wires": "List", "edges": "List", "faces": "List",
-                "vertices": "List", "solids": "List", "shells": "List",
-            }.get(property_name, "Any")
-            found[node_id] = {
-                "id": node_id, "kind": "operation", "name": property_name,
-                "category": cls.__name__ + " Properties",
-                "description": "Read the " + property_name.replace("_", " ") + " property",
-                "inputs": [{"name": "self", "label": "shape", "type": _type_name(cls),
-                            "annotation": str(cls), "required": True}],
-                "outputs": [{"name": "result", "type": output_type, "annotation": ""}],
-            }
-            callables[node_id] = getter
+                if isinstance(raw_member, property):
+                    getter_fn = raw_member.fget
+                    if getter_fn is None:
+                        continue
+                    try:
+                        getter_signature = inspect.signature(getter_fn)
+                    except (TypeError, ValueError):
+                        getter_signature = None
+                    if getter_signature is None:
+                        continue
+                    try:
+                        getter_hints = typing.get_type_hints(getter_fn)
+                    except Exception:
+                        getter_hints = {}
+                    return_annotation = getter_hints.get("return", getter_signature.return_annotation)
+                    property_id = node_prefix + ".property." + member_name
+                    if property_id in found:
+                        continue
+                    getter = lambda self, name=member_name: getattr(self, name)
+                    property_output = _type_name(return_annotation)
+                    property_socket = {
+                        "name": "result", "type": property_output,
+                        "annotation": str(return_annotation) if return_annotation is not inspect.Signature.empty else "",
+                        **_annotation_metadata(return_annotation),
+                    }
+                    found[property_id] = {
+                        "id": property_id, "kind": "operation", "name": member_name,
+                        "category": owner.__name__ + " Properties",
+                        "description": (inspect.getdoc(getter_fn) or "").split("\\n")[0][:180],
+                        "inputs": [{
+                            "name": "self", "label": "object", "type": receiver_type,
+                            "annotation": str(owner), "required": True,
+                        }],
+                        "outputs": [property_socket],
+                    }
+                    callables[property_id] = getter
+                    continue
+
+                if isinstance(raw_member, (staticmethod, classmethod)):
+                    # Static/class methods are module/class API, not receiver members.
+                    continue
+                if not (inspect.isfunction(raw_member) or inspect.ismethoddescriptor(raw_member)
+                        or inspect.isbuiltin(raw_member)):
+                    continue
+                try:
+                    signature = inspect.signature(raw_member)
+                except (TypeError, ValueError):
+                    continue
+                parameters = list(signature.parameters.values())
+                if not parameters or parameters[0].name not in ("self", "cls"):
+                    continue
+                try:
+                    hints = typing.get_type_hints(raw_member)
+                except Exception:
+                    hints = {}
+                inputs = [{
+                    "name": parameters[0].name, "label": "object", "type": receiver_type,
+                    "annotation": str(owner), "required": True,
+                }]
+                for parameter in parameters[1:]:
+                    annotation = hints.get(parameter.name, parameter.annotation)
+                    if parameter.kind == parameter.VAR_POSITIONAL:
+                        default, default_repr, required, has_default = [], "()", False, True
+                        socket_type = "List"
+                    elif parameter.kind == parameter.VAR_KEYWORD:
+                        default, default_repr, required, has_default = {}, "{}", False, True
+                        socket_type = "Dict"
+                    else:
+                        default, default_repr, required, has_default = _safe_default(parameter.default)
+                        socket_type = _type_name(annotation)
+                    socket = {
+                        "name": parameter.name, "kind": parameter.kind.name.lower(),
+                        "type": socket_type,
+                        "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
+                        "required": required, "default_repr": default_repr,
+                    }
+                    if has_default:
+                        socket["default"] = default
+                    if inspect.isclass(annotation):
+                        try:
+                            if issubclass(annotation, enum.Enum):
+                                socket["options"] = [member.name for member in annotation]
+                        except TypeError:
+                            pass
+                    if typing.get_origin(annotation) is typing.Literal:
+                        socket["options"] = list(typing.get_args(annotation))
+                    socket.update(_annotation_metadata(annotation))
+                    inputs.append(socket)
+
+                method_id = node_prefix + "." + member_name
+                if method_id in found:
+                    continue
+                return_annotation = hints.get("return", signature.return_annotation)
+                output_socket = {
+                    "name": "result", "type": _type_name(return_annotation),
+                    "annotation": str(return_annotation) if return_annotation is not inspect.Signature.empty else "",
+                    **_annotation_metadata(return_annotation),
+                }
+                found[method_id] = {
+                    "id": method_id, "kind": "operation", "name": member_name,
+                    "category": owner.__name__ + " Methods",
+                    "description": (inspect.getdoc(raw_member) or "").split("\\n")[0][:180],
+                    "inputs": inputs, "outputs": [output_socket],
+                }
+                callables[method_id] = raw_member
 
     # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.
     _add_core_nodes(found, callables)

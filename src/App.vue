@@ -308,9 +308,10 @@ function isValidConnection(connection: Connection) {
 
 function onConnect(connection: Connection) {
   if (!isValidConnection(connection)) return;
-  const replaced = edges.value
-    .filter((edge: any) => edge.target === connection.target && edge.targetHandle === connection.targetHandle)
-    .map((edge) => edge.id);
+  const replaced: string[] = [];
+  for (const edge of edges.value as unknown as Array<{ id: string; target: string; targetHandle: string | null }>) {
+    if (edge.target === connection.target && edge.targetHandle === connection.targetHandle) replaced.push(edge.id);
+  }
   if (replaced.length) removeEdges(replaced);
   addEdges([{ ...connection, id: `e${Date.now()}`, animated: false, updatable: true } as Edge]);
   scheduleEvaluation();
@@ -318,10 +319,13 @@ function onConnect(connection: Connection) {
 
 function onEdgeUpdate({ edge, connection }: { edge: Edge; connection: Connection }) {
   if (!canConnect(graph.value, connection, edge.id)) return;
-  const replaced = edges.value
-    .filter((candidate: any) => candidate.id !== edge.id &&
-      candidate.target === connection.target && candidate.targetHandle === connection.targetHandle)
-    .map((candidate) => candidate.id);
+  const replaced: string[] = [];
+  for (const candidate of edges.value as unknown as Array<{ id: string; target: string; targetHandle: string | null }>) {
+    if (candidate.id !== edge.id &&
+        candidate.target === connection.target && candidate.targetHandle === connection.targetHandle) {
+      replaced.push(candidate.id);
+    }
+  }
   if (replaced.length) removeEdges(replaced);
   updateEdge(edge as any, connection);
   scheduleEvaluation();

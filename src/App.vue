@@ -263,7 +263,7 @@ function downloadStep() {
     <Message v-if="runtimeError" severity="error" :closable="false" class="runtime-error">{{ runtimeError }}</Message>
     <Dock :model="categoryItems" position="top" class="category-dock">
       <template #item="{ item }">
-        <Button :icon="item.icon" text rounded severity="secondary" :aria-label="item.label" :title="item.label" @click="openPalette(item.category, $event)" />
+        <Button :icon="item.icon" text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Node category'" :title="typeof item.label === 'string' ? item.label : 'Node category'" @click="openPalette(item.category, $event)" />
       </template>
     </Dock>
 
@@ -285,7 +285,7 @@ function downloadStep() {
             <MiniMap pannable zoomable />
             <Dock :model="canvasActions" position="bottom" class="canvas-dock">
               <template #item="{ item }">
-                <Button :icon="item.icon" text rounded severity="secondary" :aria-label="item.label" :title="item.label" @click="item.command?.()" />
+                <Button :icon="item.icon" text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Canvas action'" :title="typeof item.label === 'string' ? item.label : 'Canvas action'" @click="item.command?.($event)" />
               </template>
             </Dock>
           </VueFlow>

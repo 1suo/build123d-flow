@@ -21,7 +21,19 @@ export class PythonRuntime {
       this.pyodide = await window.loadPyodide();
       await this.pyodide.loadPackage(["micropip"]);
 
-      onStatus("Installing build123d and OCP.wasm…");
+      onStatus("Preparing Python dependencies…");
+      this.pyodide.setStdout({
+        batched: (output: string) => {
+          const message = output.trim();
+          if (message) onStatus(message);
+        },
+      });
+      this.pyodide.setStderr({
+        batched: (output: string) => {
+          const message = output.trim();
+          if (message) onStatus(`Python: ${message}`);
+        },
+      });
       const setup = await fetch("/python/setup.py").then((r) => {
         if (!r.ok) throw new Error(`Could not load Python setup: ${r.status}`);
         return r.text();

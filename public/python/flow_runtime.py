@@ -674,7 +674,7 @@ def discover(include_full=True):
                         socket_type = "List"
                     elif parameter.kind == parameter.VAR_KEYWORD:
                         default, default_repr, required, has_default = {}, "{}", False, True
-                        socket_type = "Any"
+                        socket_type = "Dict"
                     else:
                         default, default_repr, required, has_default = _safe_default(parameter.default)
                         socket_type = _type_name(annotation)
@@ -696,16 +696,7 @@ def discover(include_full=True):
                             pass
                     if typing.get_origin(annotation) is typing.Literal:
                         socket["options"] = list(typing.get_args(annotation))
-                    if typing.get_origin(annotation) in (list, tuple, set, frozenset):
-                        item_args = typing.get_args(annotation)
-                        if item_args:
-                            socket["item_type"] = _type_name(item_args[0])
-                    if typing.get_origin(annotation) in (dict, typing.Dict, collections.abc.Mapping):
-                        mapping_args = typing.get_args(annotation)
-                        socket["key_type"] = _type_name(mapping_args[0]) if mapping_args else "String"
-                        socket["value_type"] = _type_name(mapping_args[1]) if len(mapping_args) > 1 else "Any"
-                    if typing.get_origin(annotation) in (typing.Union, types.UnionType):
-                        socket["variants"] = sorted({_type_name(arg) for arg in typing.get_args(annotation) if arg is not type(None)})
+                    socket.update(_annotation_metadata(annotation))
                     _populate_editor_default(socket)
                     inputs.append(socket)
 
@@ -805,12 +796,7 @@ def discover(include_full=True):
                         pass
                 if typing.get_origin(annotation) is typing.Literal:
                     socket["options"] = list(typing.get_args(annotation))
-                if typing.get_origin(annotation) in (list, tuple, set, frozenset):
-                    item_args = typing.get_args(annotation)
-                    if item_args:
-                        socket["item_type"] = _type_name(item_args[0])
-                if typing.get_origin(annotation) in (typing.Union, types.UnionType):
-                    socket["variants"] = sorted({_type_name(arg) for arg in typing.get_args(annotation) if arg is not type(None)})
+                socket.update(_annotation_metadata(annotation))
                 inputs.append(socket)
             node_id = cls.__module__ + "." + cls.__name__ + "." + method_name
             if node_id in found:

@@ -938,7 +938,9 @@ def _inspect_value(value, depth=0):
                 item = getattr(value, name)
                 if callable(item):
                     continue
-                if isinstance(item, (bool, int, float, str, list, tuple, dict)) or item is None:
+                if (isinstance(item, (bool, int, float, str, list, tuple, set, frozenset,
+                                      collections.abc.Mapping, collections.abc.Sequence,
+                                      collections.abc.Set)) or item is None):
                     attributes[name] = _inspect_value(item, depth + 1)
             except Exception:
                 continue

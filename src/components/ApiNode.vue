@@ -96,8 +96,7 @@ function updateStructured(value: string) {
         <div class="collapsed-node-title">
           <strong>{{ data.definition.name }}</strong>
           <Button v-if="data.definition.description" icon="pi pi-info-circle" text rounded size="small"
-            severity="secondary" class="node-description-trigger nodrag nopan"
-            v-tooltip.top="data.definition.description"
+            severity="secondary" class="node-description-trigger" :title="data.definition.description"
             :aria-label="`Description: ${data.definition.name}`" />
         </div>
         <div class="collapsed-socket-group collapsed-outputs">
@@ -114,8 +113,8 @@ function updateStructured(value: string) {
           <strong>{{ data.definition.name }}</strong>
         </div>
         <Button v-if="data.definition.description" icon="pi pi-info-circle" text rounded size="small"
-          severity="secondary" class="node-description-trigger nodrag nopan"
-          v-tooltip.top="data.definition.description" :aria-label="`Description: ${data.definition.name}`" />
+          severity="secondary" class="node-description-trigger" :aria-label="`Description: ${data.definition.name}`"
+          :title="data.definition.description" />
         <Button v-if="data.error" icon="pi pi-exclamation-circle" text rounded size="small" severity="danger"
           class="node-error-trigger" aria-label="Show node error" title="Show node error"
           @click.stop="errorPopover?.toggle($event)" />

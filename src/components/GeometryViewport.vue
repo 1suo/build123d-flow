@@ -39,7 +39,7 @@ function rebuild() {
     geometry.setIndex(preview.triangles);
     geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({
-      color: preview.color ?? 0xb68b54,
+      color: preview.color ?? 0x7cfc00,
       metalness: 0.12,
       roughness: 0.68,
       side: THREE.DoubleSide,

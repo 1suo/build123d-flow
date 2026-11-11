@@ -5,6 +5,7 @@ export type SocketType =
 
 export interface SocketDefinition {
   name: string;
+  label?: string;
   type: SocketType;
   annotation: string;
   required: boolean;

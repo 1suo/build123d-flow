@@ -519,7 +519,7 @@ function downloadStep() {
               </section>
             </div>
           </aside>
-          <Button v-if="selectedNode && !inspectorOpen" class="canvas-inspector-reopen" icon="pi pi-panel" text rounded severity="secondary" aria-label="Open node inspector" title="Open node inspector" @click="inspectorOpen = true" />
+          <Button v-if="selectedNode && !inspectorOpen" class="canvas-inspector-reopen" icon="pi pi-sliders-h" text rounded severity="secondary" aria-label="Open node inspector" title="Open node inspector" @click="inspectorOpen = true" />
         </div>
       </SplitterPanel>
 

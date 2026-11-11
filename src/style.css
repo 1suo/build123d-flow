@@ -334,7 +334,7 @@
 .p-button:not(:disabled):hover{background:color-mix(in srgb,var(--tikal-selection) 25%,transparent)}
 
 /* Give node labels and palette navigation enough room to be read at canvas scale. */
-.vue-flow__node-api{width:370px}
+.vue-flow__node-api{width:max-content;min-width:190px;max-width:320px}
 .api-node .p-card-title{padding:12px 14px 10px}
 .node-category{font-size:10px;letter-spacing:.055em}
 .node-heading strong{font-size:14px;line-height:1.3}
@@ -416,3 +416,42 @@
 
 /* The category strip owns all free topbar width; no competing spacer. */
 .canvas-topbar .category-strip{flex:1 1 auto;min-width:0}
+
+
+/* Compact, content-sized API nodes. */
+.vue-flow__node-api{
+  width:max-content;
+  min-width:190px;
+  max-width:320px;
+}
+.vue-flow__node-api .api-node{
+  width:100%;
+  min-width:0;
+}
+.api-node .socket-row{
+  min-height:23px;
+  padding:2px 12px;
+  font-size:11px;
+  line-height:1.25;
+}
+.api-node .input-row{
+  min-height:23px;
+  gap:7px;
+}
+.api-node .input-row>label{
+  flex:0 1 auto;
+  min-width:0;
+  padding:2px 0 2px 5px;
+  line-height:1.25;
+  white-space:nowrap;
+}
+.api-node .output-row{
+  min-height:23px;
+  padding-top:2px;
+  padding-bottom:2px;
+}
+.api-node .output-row>span{
+  min-width:0;
+  white-space:nowrap;
+}
+.api-node .p-card-content{padding-top:5px;padding-bottom:6px}

@@ -16,8 +16,18 @@ export class PythonRuntime {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
-      onStatus("Loading Pyodide…");
-      if (!window.loadPyodide) throw new Error("Pyodide script did not load");
+      onStatus("Loading Python engine…");
+      if (!window.loadPyodide) {
+        await new Promise<void>((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/pyodide.js";
+          script.async = true;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error("Could not load Pyodide"));
+          document.head.appendChild(script);
+        });
+      }
+      if (!window.loadPyodide) throw new Error("Pyodide script did not initialize");
       this.pyodide = await window.loadPyodide();
       await this.pyodide.loadPackage(["micropip"]);
 

@@ -607,10 +607,14 @@ def evaluate_graph_json(payload):
         except Exception as exc:
             errors[node_id] = type(exc).__name__ + ": " + str(exc)
 
-    # Preview only terminal graph outputs; intermediate solids stay in Python.
+    # Explicitly visible geometry nodes are previewed even when they feed other nodes.
+    # Older graph documents without a visibility flag retain terminal-output behavior.
     source_nodes = {edge.get("source") for edge in edges}
     for node_id in order:
-        if node_id in source_nodes or node_id not in values:
+        if node_id not in values:
+            continue
+        visible = nodes[node_id].get("data", {}).get("visible")
+        if visible is False or (visible is not True and node_id in source_nodes):
             continue
         result = values[node_id].get("result")
         try:

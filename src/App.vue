@@ -14,6 +14,7 @@ import AccordionPanel from "primevue/accordionpanel";
 import AccordionHeader from "primevue/accordionheader";
 import AccordionContent from "primevue/accordioncontent";
 import ProgressSpinner from "primevue/progressspinner";
+import Message from "primevue/message";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
@@ -22,6 +23,7 @@ import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } fro
 
 const runtime = new PythonRuntime();
 const status = ref("Loading Python runtime…");
+const runtimeError = ref("");
 const catalog = ref<NodeDefinition[]>([]);
 const paletteSearch = ref("");
 const contextSearch = ref("");
@@ -102,10 +104,6 @@ function nodeIcon(item: NodeDefinition): string {
   return categoryIcon(item.category);
 }
 
-function isPreviewable(item: NodeDefinition): boolean {
-  return item.outputs.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type));
-}
-
 onMounted(async () => {
   try {
     await runtime.initialize((message) => (status.value = message));
@@ -114,7 +112,7 @@ onMounted(async () => {
     status.value = "Ready";
   } catch (error) {
     status.value = "Initialization failed";
-    errors.value = [error instanceof Error ? error.message : String(error)];
+    runtimeError.value = error instanceof Error ? error.message : String(error);
   }
 });
 
@@ -258,6 +256,11 @@ function downloadStep() {
 
 <template>
   <main class="app-shell">
+    <div v-if="!runtime.isReady && !runtimeError" class="runtime-indicator">
+      <ProgressSpinner style="width:16px;height:16px" stroke-width="4" />
+      <span>{{ status }}</span>
+    </div>
+    <Message v-if="runtimeError" severity="error" :closable="false" class="runtime-error">{{ runtimeError }}</Message>
     <Dock :model="categoryItems" position="top" class="category-dock">
       <template #item="{ item }">
         <Button :icon="item.icon" text rounded severity="secondary" :aria-label="item.label" :title="item.label" @click="openPalette(item.category, $event)" />

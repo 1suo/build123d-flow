@@ -22,6 +22,7 @@ import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } fro
 import { bootCatalog } from "./catalog/boot";
 
 const runtime = new PythonRuntime();
+const asset = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
 const status = ref("Loading Python runtime…");
 const runtimeError = ref("");
 const catalog = ref<NodeDefinition[]>(bootCatalog);
@@ -114,44 +115,44 @@ function runCanvasAction(label: string) {
 
 function categoryIcon(category: string): string {
   const value = category.toLowerCase();
-  if (value.includes("primitive") || value.includes("geometry") || value.includes("solid")) return "/icons/cad/shape.svg";
-  if (value.includes("profile") || value.includes("sketch")) return "/icons/cad/rectangle.svg";
-  if (value.includes("vector") || value.includes("transform") || value.includes("location")) return "/icons/cad/move.svg";
-  if (value.includes("boolean") || value.includes("topology") || value.includes("shape") || value.includes("operation")) return "/icons/cad/union.svg";
-  if (value.includes("math") || value.includes("constant") || value.includes("numeric")) return "/icons/cad/math.svg";
-  if (value.includes("logic") || value.includes("compare")) return "/icons/cad/logic.svg";
-  if (value.includes("string") || value.includes("text") || value.includes("python")) return "/icons/cad/code.svg";
-  if (value.includes("value") || value.includes("convert")) return "/icons/cad/value.svg";
-  return "/icons/cad/node.svg";
+  if (value.includes("primitive") || value.includes("geometry") || value.includes("solid")) return asset("icons/cad/shape.svg");
+  if (value.includes("profile") || value.includes("sketch")) return asset("icons/cad/rectangle.svg");
+  if (value.includes("vector") || value.includes("transform") || value.includes("location")) return asset("icons/cad/move.svg");
+  if (value.includes("boolean") || value.includes("topology") || value.includes("shape") || value.includes("operation")) return asset("icons/cad/union.svg");
+  if (value.includes("math") || value.includes("constant") || value.includes("numeric")) return asset("icons/cad/math.svg");
+  if (value.includes("logic") || value.includes("compare")) return asset("icons/cad/logic.svg");
+  if (value.includes("string") || value.includes("text") || value.includes("python")) return asset("icons/cad/code.svg");
+  if (value.includes("value") || value.includes("convert")) return asset("icons/cad/value.svg");
+  return asset("icons/cad/node.svg");
 }
 
 function nodeIcon(item: NodeDefinition): string {
   const name = item.name.toLowerCase();
   const id = item.id.toLowerCase();
-  if (/^box$/.test(name)) return "/icons/cad/box.svg";
-  if (/cylinder/.test(name)) return "/icons/cad/cylinder.svg";
-  if (/sphere/.test(name)) return "/icons/cad/sphere.svg";
-  if (/union|fuse/.test(name) || id.endsWith(".union")) return "/icons/cad/union.svg";
-  if (/difference|subtract|cut/.test(name) || id.endsWith(".difference")) return "/icons/cad/difference.svg";
-  if (/intersection|common/.test(name) || id.endsWith(".intersection")) return "/icons/cad/intersection.svg";
-  if (/extrude/.test(name)) return "/icons/cad/extrude.svg";
-  if (/revolve/.test(name)) return "/icons/cad/revolve.svg";
-  if (/fillet/.test(name)) return "/icons/cad/fillet.svg";
-  if (/chamfer/.test(name)) return "/icons/cad/chamfer.svg";
-  if (/rectangle|square/.test(name)) return "/icons/cad/rectangle.svg";
-  if (/circle/.test(name)) return "/icons/cad/circle.svg";
-  if (/ellipse/.test(name)) return "/icons/cad/ellipse.svg";
-  if (/polygon/.test(name)) return "/icons/cad/polygon.svg";
-  if (/move|translate/.test(name)) return "/icons/cad/move.svg";
-  if (/rotate/.test(name)) return "/icons/cad/rotate.svg";
-  if (/mirror/.test(name)) return "/icons/cad/mirror.svg";
-  if (/scale/.test(name)) return "/icons/cad/scale.svg";
-  if (item.kind === "geometry") return "/icons/cad/shape.svg";
-  if (item.kind === "value") return "/icons/cad/value.svg";
-  if (item.category === "Math") return "/icons/cad/math.svg";
-  if (item.category === "Logic") return "/icons/cad/logic.svg";
-  if (item.category === "Python") return "/icons/cad/code.svg";
-  return "/icons/cad/node.svg";
+  if (/^box$/.test(name)) return asset("icons/cad/box.svg");
+  if (/cylinder/.test(name)) return asset("icons/cad/cylinder.svg");
+  if (/sphere/.test(name)) return asset("icons/cad/sphere.svg");
+  if (/union|fuse/.test(name) || id.endsWith(".union")) return asset("icons/cad/union.svg");
+  if (/difference|subtract|cut/.test(name) || id.endsWith(".difference")) return asset("icons/cad/difference.svg");
+  if (/intersection|common/.test(name) || id.endsWith(".intersection")) return asset("icons/cad/intersection.svg");
+  if (/extrude/.test(name)) return asset("icons/cad/extrude.svg");
+  if (/revolve/.test(name)) return asset("icons/cad/revolve.svg");
+  if (/fillet/.test(name)) return asset("icons/cad/fillet.svg");
+  if (/chamfer/.test(name)) return asset("icons/cad/chamfer.svg");
+  if (/rectangle|square/.test(name)) return asset("icons/cad/rectangle.svg");
+  if (/circle/.test(name)) return asset("icons/cad/circle.svg");
+  if (/ellipse/.test(name)) return asset("icons/cad/ellipse.svg");
+  if (/polygon/.test(name)) return asset("icons/cad/polygon.svg");
+  if (/move|translate/.test(name)) return asset("icons/cad/move.svg");
+  if (/rotate/.test(name)) return asset("icons/cad/rotate.svg");
+  if (/mirror/.test(name)) return asset("icons/cad/mirror.svg");
+  if (/scale/.test(name)) return asset("icons/cad/scale.svg");
+  if (item.kind === "geometry") return asset("icons/cad/shape.svg");
+  if (item.kind === "value") return asset("icons/cad/value.svg");
+  if (item.category === "Math") return asset("icons/cad/math.svg");
+  if (item.category === "Logic") return asset("icons/cad/logic.svg");
+  if (item.category === "Python") return asset("icons/cad/code.svg");
+  return asset("icons/cad/node.svg");
 }
 
 onMounted(() => {

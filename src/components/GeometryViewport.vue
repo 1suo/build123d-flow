@@ -12,6 +12,7 @@ let camera: THREE.PerspectiveCamera;
 let controls: OrbitControls;
 let resizeObserver: ResizeObserver | undefined;
 let modelGroup: THREE.Group;
+let animationFrame = 0;
 
 function rebuild() {
   if (!scene || !modelGroup) return;
@@ -91,18 +92,18 @@ onMounted(() => {
     renderer.render(scene, camera);
     animationFrame = requestAnimationFrame(animate);
   };
-  let animationFrame = requestAnimationFrame(animate);
+  animationFrame = requestAnimationFrame(animate);
   resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(host.value);
   resize();
   rebuild();
 
-  onBeforeUnmount(() => cancelAnimationFrame(animationFrame));
 });
 
 watch(() => props.previews, rebuild, { deep: true });
 
 onBeforeUnmount(() => {
+  cancelAnimationFrame(animationFrame);
   resizeObserver?.disconnect();
   controls?.dispose();
   renderer?.dispose();

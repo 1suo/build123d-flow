@@ -180,6 +180,7 @@ def _mesh_preview(value):
 
 def evaluate_graph_json(payload):
     global _LAST_VALUES, _LAST_SHAPE
+    _LAST_SHAPE = None
     graph = json.loads(payload)
     nodes = {node["id"]: node for node in graph.get("nodes", [])}
     edges = graph.get("edges", [])

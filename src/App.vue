@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, markRaw, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, markRaw, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import ApiNode from "./components/ApiNode.vue";
@@ -33,7 +33,7 @@ const canvasSurface = ref<HTMLElement | null>(null);
 const palettePopover = ref<any>();
 const contextPopover = ref<any>();
 const contextPosition = ref<{ x: number; y: number } | undefined>();
-const { addNodes, addEdges, removeNodes, removeEdges, updateEdge, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
+const { addNodes, addEdges, updateEdge, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
 
 let nextId = 1;
 let evaluationRevision = 0;
@@ -171,6 +171,7 @@ function nodeIcon(item: NodeDefinition): string {
 }
 
 onMounted(() => {
+  window.addEventListener("keydown", onGlobalKeydown, true);
   void runtime.initialize((message) => (status.value = message)).then(() => {
     const discovered = runtime.getCatalog();
     const byName = new Map(discovered.map((item) => [item.name, item]));
@@ -269,12 +270,31 @@ function onDrop(event: DragEvent) {
 }
 
 function deleteSelected() {
-  const selectedIds = new Set<string>(nodes.value.filter((node: any) => node.selected).map((node: any) => String(node.id)));
+  const selectedIds = new Set<string>(
+    nodes.value.filter((node: any) => node.selected).map((node: any) => String(node.id)),
+  );
   if (!selectedIds.size) return;
-  removeEdges(edges.value.filter((edge: any) => selectedIds.has(edge.source) || selectedIds.has(edge.target)).map((edge) => edge.id));
-  removeNodes([...selectedIds]);
-  previews.value = Object.fromEntries(Object.entries(previews.value).filter(([id]) => !selectedIds.has(id)));
+
+  nodes.value = nodes.value.filter((node: any) => !selectedIds.has(String(node.id)));
+  edges.value = edges.value.filter((edge: any) =>
+    !selectedIds.has(String(edge.source)) && !selectedIds.has(String(edge.target)),
+  );
+  previews.value = Object.fromEntries(
+    Object.entries(previews.value).filter(([id]) => !selectedIds.has(id)),
+  );
   scheduleEvaluation();
+}
+
+function onGlobalKeydown(event: KeyboardEvent) {
+  if (event.key !== "Delete" && event.key !== "Backspace") return;
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("input, textarea, select, [contenteditable='true'], .p-inputtext, .p-textarea")) return;
+  if (!nodes.value.some((node: any) => node.selected)) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+  deleteSelected();
 }
 
 function isValidConnection(connection: Connection) {
@@ -351,6 +371,7 @@ async function evaluate() {
 }
 
 watch([nodes, edges], scheduleEvaluation, { deep: true });
+onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown, true));
 
 function downloadStep() {
   const bytes = runtime.exportStep();
@@ -380,11 +401,11 @@ function downloadStep() {
             :node-types="nodeTypes"
             :is-valid-connection="isValidConnection"
             fit-view-on-init
-            delete-key-code="Delete"
+            :delete-key-code="null"
+            :edges-updatable="true"
             :default-viewport="{ zoom: 0.85, x: 60, y: 60 }"
             @connect="onConnect"
             @edge-update="onEdgeUpdate"
-            @keydown.delete.stop.prevent="deleteSelected"
             @nodes-change="scheduleEvaluation"
             @edges-change="scheduleEvaluation"
           >

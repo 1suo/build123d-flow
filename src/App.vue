@@ -183,7 +183,7 @@ function nodeIcon(item: NodeDefinition): string {
   const key = `${name} ${id}`;
   const icon = (file: string) => asset(`icons/cad/${file}.svg`);
 
-  if (/\\bbox\\b|\\bblock\\b/.test(key)) return icon("box");
+  if (/\bbox\b|\bblock\b/.test(key)) return icon("box");
   if (/cylinder/.test(key)) return icon("cylinder");
   if (/sphere/.test(key)) return icon("sphere");
   if (/union|fuse|combine/.test(key)) return icon("union");

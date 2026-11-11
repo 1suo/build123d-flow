@@ -30,6 +30,7 @@ function compatible(source: string, target: string): boolean {
 export function canConnect(
   graph: GraphDocument,
   connection: { source: string | null; target: string | null; sourceHandle?: string | null; targetHandle?: string | null },
+  excludeEdgeId?: string,
 ): boolean {
   if (!connection.source || !connection.target || !connection.sourceHandle || !connection.targetHandle) return false;
   const source = graph.nodes.find((node) => node.id === connection.source);
@@ -37,9 +38,9 @@ export function canConnect(
   if (!source || !target) return false;
 
   // An input socket accepts only one upstream value.
-  if (graph.edges.some((edge) => edge.target === target.id && edge.targetHandle === connection.targetHandle)) {
-    return false;
-  }
+  if (graph.edges.some((edge) => edge.id !== excludeEdgeId && edge.source === source.id &&
+      edge.target === target.id && edge.sourceHandle === connection.sourceHandle &&
+      edge.targetHandle === connection.targetHandle)) return false;
 
   const output = source.data.definition.outputs.find((socket) => socket.name === connection.sourceHandle);
   const input = target.data.definition.inputs.find((socket) => socket.name === connection.targetHandle);
@@ -63,6 +64,13 @@ export function validateGraph(graph: GraphDocument): string[] {
     const input = target?.data.definition.inputs.find((socket) => socket.name === edge.targetHandle);
     if (!output || !input) errors.push(`Edge ${edge.id}: unknown socket`);
     else if (!compatible(output.type, input.type)) errors.push(`Edge ${edge.id}: incompatible ${output.type} → ${input.type}`);
+  }
+
+  const occupiedInputs = new Set<string>();
+  for (const edge of graph.edges) {
+    const key = `${edge.target}:${edge.targetHandle}`;
+    if (occupiedInputs.has(key)) errors.push(`Input ${key} has multiple connections`);
+    occupiedInputs.add(key);
   }
 
   const incoming = new Map<string, number>();

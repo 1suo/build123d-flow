@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive } from "vue";
+import { computed, reactive, ref } from "vue";
 import { Handle, Position } from "@vue-flow/core";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
@@ -9,6 +9,7 @@ import Select from "primevue/select";
 import Button from "primevue/button";
 import Card from "primevue/card";
 import Message from "primevue/message";
+import Popover from "primevue/popover";
 import type { NodeDefinition } from "../types";
 
 const props = defineProps<{
@@ -19,6 +20,7 @@ const props = defineProps<{
 const inputs = computed(() => props.data.definition.inputs);
 const outputs = computed(() => props.data.definition.outputs);
 const structuredDrafts = reactive<Record<string, string>>({});
+const errorPopover = ref<any>();
 const canPreview = computed(() => outputs.value.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type)));
 
 function toggleVisibility() {
@@ -58,6 +60,21 @@ function updateStructured(name: string, value: string) {
           <span class="node-category">{{ data.definition.category }} · {{ data.definition.kind }}</span>
           <strong>{{ data.definition.name }}</strong>
         </div>
+        <Button
+        v-if="data.error"
+        icon="pi pi-exclamation-circle"
+        text
+        rounded
+        size="small"
+        severity="danger"
+        class="node-error-trigger"
+        aria-label="Show node error"
+        title="Show node error"
+        @click.stop="errorPopover?.toggle($event)"
+        />
+        <Popover ref="errorPopover" append-to="self" class="node-error-popover">
+          <div class="node-error-content">{{ data.error }}</div>
+        </Popover>
         <Button
         v-if="canPreview"
         :icon="data.visible ? 'pi pi-eye' : 'pi pi-eye-slash'"
@@ -117,7 +134,7 @@ function updateStructured(name: string, value: string) {
           @update:model-value="update(input.name, $event)"
         />
         <Textarea
-          v-else-if="['Vector3', 'Plane', 'Location', 'List', 'Any'].includes(input.type)"
+          v-else-if="['Vector3', 'Vector2', 'Plane', 'Location', 'Axis', 'Color', 'List', 'Dict', 'Any'].includes(input.type)"
           :model-value="structuredValue(input.name)"
           :auto-resize="true"
           rows="2"
@@ -132,9 +149,6 @@ function updateStructured(name: string, value: string) {
         <Handle :id="output.name" type="source" :position="Position.Right" />
       </div>
       </div>
-    </template>
-    <template v-if="data.error" #footer>
-      <Message severity="error" variant="simple" :closable="false" class="node-error">{{ data.error }}</Message>
     </template>
   </Card>
 </template>

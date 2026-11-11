@@ -928,12 +928,25 @@ def discover(include_full=True):
         "moved", "move", "rotate", "translate", "scale", "mirror",
         "bounding_box", "center", "center_of_mass", "is_valid",
         "faces", "edges", "vertices", "wires", "solids", "shells",
-        "area", "volume",
+        "area", "volume", "getWires", "getEdges", "getFaces",
+        "getVertices", "getSolids", "getShells", "getBoundingBox",
+    }
+    useful_shape_properties = {
+        "area", "volume", "is_valid", "center", "center_of_mass",
+        "bounding_box", "wires", "edges", "faces", "vertices", "solids", "shells",
     }
     # fuse/cut/intersect are already exposed as typed Boolean nodes.
     for cls in shape_classes:
-        for method_name, method in vars(cls).items():
-            if method_name.startswith("_") or method_name not in useful_shape_methods or not inspect.isfunction(method):
+        for method_name in sorted(useful_shape_methods):
+            if method_name.startswith("_"):
+                continue
+            try:
+                method = inspect.getattr_static(cls, method_name)
+            except AttributeError:
+                continue
+            if isinstance(method, (staticmethod, classmethod)):
+                method = method.__func__
+            if not inspect.isfunction(method):
                 continue
             if getattr(method, "__module__", "").split(".")[0] != "build123d":
                 continue
@@ -1003,6 +1016,34 @@ def discover(include_full=True):
                 }],
             }
             callables[node_id] = method
+
+        # Safe properties are generated separately; getters run only at evaluation.
+        for property_name in sorted(useful_shape_properties):
+            try:
+                descriptor = inspect.getattr_static(cls, property_name)
+            except AttributeError:
+                continue
+            if not isinstance(descriptor, property):
+                continue
+            node_id = cls.__module__ + "." + cls.__name__ + ".property." + property_name
+            if node_id in found:
+                continue
+            getter = lambda self, name=property_name: getattr(self, name)
+            output_type = {
+                "area": "Number", "volume": "Number", "is_valid": "Boolean",
+                "center": "Vector3", "center_of_mass": "Vector3",
+                "wires": "List", "edges": "List", "faces": "List",
+                "vertices": "List", "solids": "List", "shells": "List",
+            }.get(property_name, "Any")
+            found[node_id] = {
+                "id": node_id, "kind": "operation", "name": property_name,
+                "category": cls.__name__ + " Properties",
+                "description": "Read the " + property_name.replace("_", " ") + " property",
+                "inputs": [{"name": "self", "label": "shape", "type": _type_name(cls),
+                            "annotation": str(cls), "required": True}],
+                "outputs": [{"name": "result", "type": output_type, "annotation": ""}],
+            }
+            callables[node_id] = getter
 
     # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.
     _add_core_nodes(found, callables)
@@ -1193,7 +1234,17 @@ def evaluate_graph_json(payload):
                 errors[node_id] = "Input depends on a failed node: " + source_id
                 failed_dependency = True
                 break
-            params[input_name] = values[source_id].get(output_name)
+            source_value = values[source_id].get(output_name)
+            source_node = nodes[source_id]
+            source_definition = source_node.get("data", {}).get("definition", {})
+            target_definition = node.get("data", {}).get("definition", {})
+            source_socket = next((item for item in source_definition.get("outputs", [])
+                                  if item.get("name") == output_name), {})
+            target_socket = next((item for item in target_definition.get("inputs", [])
+                                  if item.get("name") == input_name), {})
+            if source_socket.get("type") == "Wire" and target_socket.get("type") == "Face":
+                source_value = b3d.Face(source_value)
+            params[input_name] = source_value
         if failed_dependency:
             continue
 

@@ -25,6 +25,7 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run typecheck
+      - run: python -m py_compile public/python/flow_runtime.py tests/graph_workflows.py
       - run: npm run build
         env:
           GITHUB_PAGES: "true"

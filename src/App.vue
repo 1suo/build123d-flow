@@ -15,13 +15,12 @@ import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
 import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
-import { bootCatalog } from "./catalog/boot";
 
 const runtime = new PythonRuntime();
 const asset = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
 const status = ref("Loading Python runtime…");
 const runtimeError = ref("");
-const catalog = ref<NodeDefinition[]>(bootCatalog);
+const catalog = ref<NodeDefinition[]>([]);
 const paletteSearch = ref("");
 const contextSearch = ref("");
 const errors = ref<string[]>([]);
@@ -141,12 +140,11 @@ function nodeIcon(item: NodeDefinition): string {
 }
 
 onMounted(() => {
-  // Paint a usable graph and a small palette before downloading Pyodide.
-  addStarterGraph();
   void runtime.initialize((message) => (status.value = message)).then(() => {
     const discovered = runtime.getCatalog();
     const byName = new Map(discovered.map((item) => [item.name, item]));
     catalog.value = discovered;
+    addStarterGraph();
     for (const node of nodes.value as any[]) {
       const resolved = byName.get(node.data.definition.name);
       if (resolved) node.data.definition = resolved;
@@ -378,6 +376,7 @@ function downloadStep() {
         </div>
         <div v-if="!activePaletteItems.length" class="palette-empty">
           <ProgressSpinner v-if="!catalog.length && !errors.length" style="width:20px;height:20px" stroke-width="4" />
+          <span v-else-if="!runtime.isReady">Waiting for Python runtime…</span>
           <span v-else>{{ errors.length ? "Python runtime failed" : "No matching nodes" }}</span>
         </div>
       </div>

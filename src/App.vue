@@ -111,16 +111,15 @@ function runCanvasAction(label: string) {
 
 function categoryIcon(category: string): string {
   const value = category.toLowerCase();
-  if (value.includes("primitive") || value.includes("geometry") || value.includes("solid")) return "pi pi-box";
-  if (value.includes("profile") || value.includes("sketch")) return "pi pi-stop";
-  if (value.includes("vector") || value.includes("transform") || value.includes("location")) return "pi pi-arrows-alt";
-  if (value.includes("boolean") || value.includes("topology") || value.includes("shape") || value.includes("operation")) return "pi pi-sitemap";
-  if (value.includes("math") || value.includes("constant") || value.includes("numeric")) return "pi pi-calculator";
-  if (value.includes("logic") || value.includes("compare")) return "pi pi-sliders-h";
-  if (value.includes("string") || value.includes("text")) return "pi pi-align-left";
-  if (value.includes("python")) return "pi pi-code";
-  if (value.includes("value") || value.includes("convert")) return "pi pi-hashtag";
-  return "pi pi-cog";
+  if (value.includes("primitive") || value.includes("geometry") || value.includes("solid")) return "/icons/cad/shape.svg";
+  if (value.includes("profile") || value.includes("sketch")) return "/icons/cad/rectangle.svg";
+  if (value.includes("vector") || value.includes("transform") || value.includes("location")) return "/icons/cad/move.svg";
+  if (value.includes("boolean") || value.includes("topology") || value.includes("shape") || value.includes("operation")) return "/icons/cad/union.svg";
+  if (value.includes("math") || value.includes("constant") || value.includes("numeric")) return "/icons/cad/math.svg";
+  if (value.includes("logic") || value.includes("compare")) return "/icons/cad/logic.svg";
+  if (value.includes("string") || value.includes("text") || value.includes("python")) return "/icons/cad/code.svg";
+  if (value.includes("value") || value.includes("convert")) return "/icons/cad/value.svg";
+  return "/icons/cad/node.svg";
 }
 
 function nodeIcon(item: NodeDefinition): string {
@@ -150,7 +149,6 @@ function nodeIcon(item: NodeDefinition): string {
   if (item.category === "Logic") return "/icons/cad/logic.svg";
   if (item.category === "Python") return "/icons/cad/code.svg";
   return "/icons/cad/node.svg";
-}
 }
 
 onMounted(() => {
@@ -324,7 +322,9 @@ function downloadStep() {
     <Message v-if="runtimeError" severity="error" :closable="false" class="runtime-error">{{ runtimeError }}</Message>
     <Dock :model="categoryItems" position="top" class="category-dock">
       <template #item="{ item }">
-        <Button :icon="item.icon" text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Node category'" :title="typeof item.label === 'string' ? item.label : 'Node category'" @click="openPalette(item.category, $event)" />
+        <Button text rounded severity="secondary" :aria-label="typeof item.label === 'string' ? item.label : 'Node category'" :title="typeof item.label === 'string' ? item.label : 'Node category'" @click="openPalette(item.category, $event)">
+          <template #icon><img class="dock-category-icon" :src="item.icon" alt="" /></template>
+        </Button>
       </template>
     </Dock>
 
@@ -374,7 +374,6 @@ function downloadStep() {
                   text
                   severity="secondary"
                   class="palette-node"
-                  :label="item.name"
                   draggable="true"
                   @dragstart="dragNode($event, item)"
                   @click="addDefinition(item)"
@@ -382,6 +381,7 @@ function downloadStep() {
                   <template #icon>
                     <img class="palette-node-icon" :src="nodeIcon(item)" alt="" />
                   </template>
+                  <template #default><span class="palette-node-label">{{ item.name }}</span></template>
                 </Button>
               </div>
             </AccordionContent>

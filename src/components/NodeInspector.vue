@@ -6,6 +6,7 @@ import Checkbox from "primevue/checkbox";
 import Textarea from "primevue/textarea";
 import Select from "primevue/select";
 import Button from "primevue/button";
+import Dialog from "primevue/dialog";
 import DataValue from "./DataValue.vue";
 
 const props = defineProps<{
@@ -65,8 +66,9 @@ function updateStructured(value: string) {
             :use-grouping="false" :max-fraction-digits="8" @update:model-value="update(socket, $event)" />
           <Checkbox v-else-if="socket.type === 'Boolean'" :model-value="Boolean(currentValue(socket))" binary
             @update:model-value="update(socket, $event)" />
-          <Textarea v-else-if="socket.type === 'Code'" :model-value="String(currentValue(socket) ?? '')"
-            :auto-resize="false" rows="5" spellcheck="false" @update:model-value="update(socket, $event)" />
+          <Button v-else-if="socket.type === 'Code'" class="node-structured-trigger" severity="secondary" outlined
+            :label="String(currentValue(socket) ?? '').replace(/\s+/g, ' ').trim() || 'Edit code…'"
+            @click="openStructured(socket)" />
           <InputText v-else-if="socket.type === 'String'" :model-value="String(currentValue(socket) ?? '')"
             @update:model-value="update(socket, $event)" />
           <Select v-else-if="socket.type === 'Enum'" :model-value="String(currentValue(socket) ?? '')"
@@ -86,9 +88,10 @@ function updateStructured(value: string) {
       </div>
     </section>
   </div>
-  <div v-if="editorOpen" class="inspector-json-editor">
-    <div><strong>{{ activeName }}</strong><Button icon="pi pi-times" text rounded size="small" @click="editorOpen = false" /></div>
-    <Textarea :model-value="drafts[activeName] || ''" :auto-resize="false" rows="8" spellcheck="false"
+  <Dialog v-model:visible="editorOpen" modal :header="'Edit ' + activeName"
+    :style="{ width: 'min(680px, calc(100vw - 32px))' }" :draggable="false">
+    <Textarea class="inspector-code-editor" :model-value="drafts[activeName] || ''"
+      :auto-resize="false" rows="14" spellcheck="false"
       @update:model-value="updateStructured" />
-  </div>
+  </Dialog>
 </template>

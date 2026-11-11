@@ -312,6 +312,38 @@ def _polar_points(count, radius, center_x, center_y, start_angle, end_angle):
     return [[float(center_x) + float(radius) * math.cos(angle),
              float(center_y) + float(radius) * math.sin(angle)] for angle in angles]
 
+def _hex_grid(columns, rows, spacing, origin_x, origin_y):
+    """Generate staggered hexagonal XY sample points."""
+    columns = max(1, min(200, int(columns)))
+    rows = max(1, min(200, int(rows)))
+    spacing = float(spacing)
+    if spacing <= 0:
+        raise ValueError("Hex grid spacing must be positive")
+    row_step = spacing * (3.0 ** 0.5) / 2.0
+    return [[float(origin_x) + (column + 0.5 * (row % 2)) * spacing,
+             float(origin_y) + row * row_step]
+            for row in range(rows) for column in range(columns)]
+
+
+def _cull_nth(items, n, offset):
+    n = int(n)
+    if n < 1:
+        raise ValueError("Cull interval must be at least 1")
+    offset = int(offset) % n
+    return [item for index, item in enumerate(items) if index % n != offset]
+
+
+def _cross_reference(a, b):
+    return [[left, right] for left in a for right in b]
+
+
+def _transpose(items):
+    rows = [list(row) for row in items]
+    if not rows:
+        return []
+    width = min(len(row) for row in rows)
+    return [[row[index] for row in rows] for index in range(width)]
+
 
 def _voronoi_2d(points, width, height):
     """Build clipped 2D Voronoi cells as a compound of planar faces."""
@@ -679,6 +711,11 @@ def _add_core_nodes(found, callables):
               [("count", "Number"), ("radius", "Number"), ("center_x", "Number"),
                ("center_y", "Number"), ("start_angle", "Number"), ("end_angle", "Number")], "List",
               "Distribute points around a circle; angles are in degrees.")
+    _add_node(found, callables, "core.spatial.hex_grid", "Hex Grid Points", "Spatial", _hex_grid,
+              [("columns", "Number"), ("rows", "Number"), ("spacing", "Number"),
+               ("origin_x", "Number"), ("origin_y", "Number")], "List",
+              "Generate staggered XY points on a regular hexagonal grid.")
+    found["core.spatial.hex_grid"]["inputs"][2]["default"] = 10.0
     found["core.spatial.xy_grid"]["inputs"][2]["default"] = 10.0
     found["core.spatial.xy_grid"]["inputs"][3]["default"] = 10.0
     found["core.spatial.polar_points"]["inputs"][1]["default"] = 50.0
@@ -726,6 +763,15 @@ def _add_core_nodes(found, callables):
               lambda a, b: [item for pair in zip(a, b) for item in pair] + list(a[len(b):]) + list(b[len(a):]),
               [("a", "List"), ("b", "List")], "List",
               "Interleave two sequences while preserving remaining items.")
+    _add_node(found, callables, "core.list.cull_nth", "Cull Every Nth", "Collections", _cull_nth,
+              [("items", "List"), ("n", "Number"), ("offset", "Number")], "List",
+              "Remove every Nth item, with a zero-based offset.")
+    _add_node(found, callables, "core.list.cross_reference", "Cross Reference", "Collections", _cross_reference,
+              [("a", "List"), ("b", "List")], "List",
+              "Create the Cartesian product of two lists as pairs.")
+    _add_node(found, callables, "core.list.transpose", "Transpose", "Collections", _transpose,
+              [("items", "List")], "List",
+              "Transpose rows; incomplete trailing columns are omitted.")
 
 
 

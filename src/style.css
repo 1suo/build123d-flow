@@ -24,10 +24,10 @@
 .node-error-trigger{flex:0 0 auto;width:26px;height:26px}.node-error-popover.p-popover{max-width:360px;background:#080808;border:1px solid #2f4f4f;color:#F5DEB3}.node-error-content{max-height:240px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:#ff3030;font:11px/1.5 ui-monospace,monospace}
 
 /* Clear Blender-like node selection and compact collapsed nodes. */
-.vue-flow__node.selected .api-node,
-.vue-flow__node:focus .api-node {
-  border-color:#FFD700!important;
-  box-shadow:0 0 0 2px #7CFC0080,0 8px 24px rgb(0 0 0 / 38%)!important;
+.vue-flow__node.selected{outline:none!important;box-shadow:none!important}
+.vue-flow__node.selected .api-node {
+  border-color:var(--tikal-cursor)!important;
+  box-shadow:0 5px 18px rgb(0 0 0 / 24%)!important;
 }
 .api-node.is-collapsed .p-card-title{border-bottom:0;padding-bottom:11px}
 .node-header{cursor:grab}
@@ -103,7 +103,10 @@
 .inspector-socket strong{color:#F5DEB3;font-size:10px}
 .inspector-socket small{color:#BDB76B;font-size:9px}
 .inspector-socket pre{max-height:130px;margin:6px 0 0;overflow:auto;color:#F5DEB3;font:10px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
-.canvas-inspector-reopen{position:absolute!important;z-index:20;top:54px;right:12px;background:#0b3b2b!important;border:1px solid #2f4f4f!important}
+.examples-toolbar .p-button.is-active{color:var(--tikal-primary);background:#458b7433}
+.inspector-code-editor{display:block;width:100%;min-height:260px;resize:vertical;color:var(--tikal-foreground);background:var(--tikal-surface);border-color:var(--tikal-border);font:12px/1.5 ui-monospace,monospace}
+.p-dialog .p-dialog-content{background:var(--tikal-surface);color:var(--tikal-foreground)}
+.p-dialog .p-dialog-header{background:var(--tikal-surface);color:var(--tikal-foreground);border-bottom:1px solid var(--tikal-border)}
 
 .collapsed-socket-group{max-width:94px;overflow:hidden}
 .collapsed-node-title{max-width:150px;overflow:hidden}

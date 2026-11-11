@@ -43,7 +43,7 @@ function updateRuntimeStatus(message: string) {
 }
 const previews = shallowRef<Record<string, MeshPreview>>({});
 const socketValues = shallowRef<Record<string, Record<string, unknown>>>({});
-const inspectorOpen = ref(true);
+const inspectorOpen = ref(false);
 const selectedNode = computed(() => nodes.value.find((node: any) => node.selected) as any ?? null);
 const selectedNodeInputs = computed(() => {
   const node = selectedNode.value;
@@ -210,8 +210,10 @@ function nodeIcon(item: NodeDefinition): string {
   if (/rectangle|square/.test(key)) return icon("rectangle");
   if (/circle/.test(key)) return icon("circle");
   if (/ellipse/.test(key)) return icon("ellipse");
-  if (/voronoi|polygon|polyline|trapezoid|slot/.test(key)) return icon("polygon");
-  if (/grid|pattern|array|polar/.test(key)) return icon("shape");
+  if (/voronoi|polygon|polyline|trapezoid|slot|hex grid/.test(key)) return icon("polygon");
+  if (/edge|face|vertex|wire|shell|topology|boundary/.test(key)) return icon("shape");
+  if (/section|slice|split/.test(key)) return icon("difference");
+  if (/grid|pattern|array|polar|distribut|repeat/.test(key)) return icon("shape");
   if (/mirror|reflect/.test(key)) return icon("mirror");
   if (/rotate|rotation/.test(key)) return icon("rotate");
   if (/scale/.test(key)) return icon("scale");
@@ -219,7 +221,7 @@ function nodeIcon(item: NodeDefinition): string {
   if (/math|numeric|number|measure|area|volume|length|distance|center|mass|inertia/.test(key) || item.category === "Math") return icon("math");
   if (/logic|compare|boolean|condition/.test(key) || item.category === "Logic") return icon("logic");
   if (/string|text|python|code|expression/.test(key) || item.category === "Python") return icon("code");
-  if (/list|tuple|dict|set|series|value|constant|convert/.test(key) || item.kind === "value") return icon("value");
+  if (/list|tuple|dict|set|series|value|constant|convert|partition|weave|transpose|cull|cross reference/.test(key) || item.kind === "value") return icon("value");
   if (/cone|torus|wedge|prism|primitive|shape|solid|compound|part|face|wire|edge|vertex|shell|sketch|plane|axis/.test(key) || item.kind === "geometry") return icon("shape");
   return icon("node");
 }
@@ -318,6 +320,12 @@ function ensureFullCatalog() {
   fullCatalogLoading = true;
   void runtime.discoverCatalog().then((fullCatalog) => {
     catalog.value = fullCatalog;
+    const byId = new Map(fullCatalog.map((item) => [item.id, item]));
+    for (const node of nodes.value as any[]) {
+      const definition = byId.get(node.data.definition.id);
+      if (definition) node.data.definition = definition;
+      node.data.icon = nodeIcon(node.data.definition);
+    }
     fullCatalogLoaded = true;
     console.info("[build123d-flow] API discovery report", runtime.getDiscoveryReport());
   }).catch((error) => {
@@ -541,6 +549,10 @@ async function downloadStep() {
         <div ref="canvasSurface" class="canvas-surface" @drop="onDrop" @dragover.prevent @contextmenu.prevent="openContextMenu">
           <div class="examples-toolbar">
             <Select v-model="selectedExample" :options="exampleOptions" option-label="label" option-value="value" placeholder="Load example…" class="examples-select" :disabled="!runtime.isReady" @change="loadExample" />
+            <Button icon="pi pi-sliders-h" text rounded severity="secondary"
+              aria-label="Toggle node inspector" title="Node inspector"
+              :disabled="!selectedNode" :class="{ 'is-active': inspectorOpen }"
+              @click="inspectorOpen = !inspectorOpen" />
             <Button icon="pi pi-trash" text rounded severity="secondary" aria-label="Clear canvas" title="Clear canvas" :disabled="!nodes.length" @click="clearCanvas" />
           </div>
           <div v-if="runtime.isReady && !nodes.length" class="canvas-empty-state">
@@ -591,7 +603,7 @@ async function downloadStep() {
               @close="inspectorOpen = false"
             />
           </aside>
-          <Button v-if="selectedNode && !inspectorOpen" class="canvas-inspector-reopen" icon="pi pi-sliders-h" text rounded severity="secondary" aria-label="Open node inspector" title="Open node inspector" @click="inspectorOpen = true" />
+          
         </div>
       </SplitterPanel>
 

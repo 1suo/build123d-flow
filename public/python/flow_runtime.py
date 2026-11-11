@@ -688,6 +688,37 @@ def _mesh_preview(value):
         raise RuntimeError("Tessellation failed: " + str(exc))
 
 
+def _inspect_value(value, depth=0):
+    value_type = type(value).__name__
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return {"type": value_type, "value": value}
+    if depth >= 5:
+        return {"type": value_type, "repr": repr(value)[:1000], "truncated": True}
+    if isinstance(value, dict):
+        items = {}
+        for key, item in list(value.items())[:200]:
+            items[str(key)] = _inspect_value(item, depth + 1)
+        return {"type": value_type, "items": items, "length": len(value)}
+    if isinstance(value, (list, tuple, set)):
+        sequence = list(value)
+        return {"type": value_type, "items": [_inspect_value(item, depth + 1) for item in sequence[:200]], "length": len(sequence)}
+    attributes = {}
+    try:
+        names = [name for name in dir(value) if not name.startswith("_")]
+        for name in names[:80]:
+            try:
+                item = getattr(value, name)
+                if callable(item):
+                    continue
+                if isinstance(item, (bool, int, float, str, list, tuple, dict)) or item is None:
+                    attributes[name] = _inspect_value(item, depth + 1)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return {"type": value_type, "repr": repr(value)[:2000], "attributes": attributes}
+
+
 def evaluate_graph_json(payload):
     global _LAST_VALUES, _LAST_SHAPE
     _LAST_SHAPE = None
@@ -775,7 +806,7 @@ def evaluate_graph_json(payload):
             errors[node_id] = "Preview: " + str(exc)
 
     _LAST_VALUES = values
-    return json.dumps({"previews": previews, "errors": errors, "order": order})
+    return json.dumps(_json_clean({"previews": previews, "errors": errors, "order": order, "socket_values": {node_id: {name: _inspect_value(value) for name, value in outputs.items()} for node_id, outputs in values.items()}}), allow_nan=False)
 
 
 

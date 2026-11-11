@@ -87,6 +87,24 @@ def _safe_default(value):
     return None, repr(value), False, False
 
 
+def _populate_editor_default(socket):
+    """Give required scalar/structured sockets usable initial values."""
+    if "default" in socket or not socket.get("required"):
+        return
+    socket_type = socket["type"]
+    defaults = {
+        "Number": 1.0, "Boolean": False, "String": "",
+        "Code": "", "Vector2": [0.0, 0.0], "Vector3": [0.0, 0.0, 0.0],
+        "List": [], "Dict": {},
+    }
+    if socket_type == "Enum" and socket.get("options"):
+        socket["default"] = socket["options"][0]
+    elif socket_type in defaults:
+        socket["default"] = defaults[socket_type]
+    if "default" in socket:
+        socket["default_source"] = "editor"
+
+
 def _api_signature(obj):
     """Return the callable signature, using __init__ for classes when needed."""
     try:
@@ -409,6 +427,7 @@ def discover(include_full=True):
                     socket["value_type"] = _type_name(mapping_args[1]) if len(mapping_args) > 1 else "Any"
                 if typing.get_origin(annotation) in (typing.Union, types.UnionType):
                     socket["variants"] = sorted({_type_name(arg) for arg in typing.get_args(annotation) if arg is not type(None)})
+                _populate_editor_default(socket)
                 inputs.append(socket)
             if inspect.isclass(obj):
                 try:

@@ -15,7 +15,9 @@
     "@vue-flow/core": "^1.48.2",
     "@vue-flow/minimap": "^1.5.3",
     "three": "^0.177.0",
-    "vue": "^3.5.13"
+    "vue": "^3.5.13",
+    "primevue": "^4.3.5",
+    "@primeuix/themes": "^1.2.3"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",

@@ -360,3 +360,56 @@
 .vue-flow__edge-path{stroke:var(--tikal-primary);stroke-width:2.5}
 .vue-flow__edge.selected .vue-flow__edge-path{stroke:var(--tikal-cursor)!important;stroke-width:3.5!important}
 @media(max-width:760px){.vue-flow__node-api{width:320px}}
+
+
+/* Category buttons must not inherit the 27px icon-button dimensions. */
+.canvas-topbar .category-chip.p-button{
+  width:max-content;
+  min-width:max-content;
+  max-width:none;
+  min-height:34px;
+  flex:0 0 auto;
+  justify-content:center;
+  padding:6px 11px;
+  overflow:visible;
+  color:var(--tikal-foreground);
+  font-size:12px;
+  line-height:1.35;
+  white-space:nowrap;
+}
+.canvas-topbar .category-chip.p-button .p-button-label{
+  display:block;
+  flex:0 0 auto;
+  min-width:max-content;
+  overflow:visible;
+  text-overflow:clip;
+  white-space:nowrap;
+  font-size:12px;
+  line-height:1.35;
+}
+.canvas-topbar .inspector-toggle.p-button{
+  width:32px;
+  min-width:32px;
+  height:32px;
+  flex:0 0 32px;
+}
+.canvas-topbar .category-strip{
+  flex:1 1 0;
+  min-width:0;
+  gap:4px;
+  padding:2px 0;
+  overflow-x:auto;
+  overflow-y:hidden;
+}
+.canvas-topbar{
+  min-height:44px;
+  gap:8px;
+  padding:5px 7px;
+}
+@media(max-width:900px){
+  .canvas-topbar .category-strip{
+    flex:1 1 100%;
+    width:100%;
+    min-width:0;
+  }
+}

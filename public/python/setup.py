@@ -63,6 +63,9 @@ micropip.add_mock_package("lib3mf", "2.4.1", modules={
         "    Position = _Unavailable\n    Triangle = _Unavailable\n    Color = _Unavailable\n"
     ),
 })
+# add_mock_package registers the mock in micropip's package index; installing
+# it materializes the lib3mf module in Python's import system.
+await micropip.install(["lib3mf==2.4.1"])
 
 print("Installing build123d dependencies…")
 await micropip.install(["webcolors==24.8.0"])

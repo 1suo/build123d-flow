@@ -9,18 +9,32 @@
 * { box-sizing: border-box; }
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 body { background: #171614; }
-button { font: inherit; }
 .app-shell {
   --p-primary-color: #b88b55;
   --p-primary-hover-color: #c79a62;
   --p-primary-active-color: #9d7446;
   --p-primary-contrast-color: #171614;
-  display: flex; flex-direction: column; width: 100%; height: 100%;
-  color: #e7dfd2; background: #171614;
+  --p-content-border-color: #39352e;
+  --p-content-background: #211f1b;
+  --p-surface-0: #171614;
+  --p-surface-50: #201e1a;
+  --p-surface-100: #292620;
+  --p-text-color: #e7dfd2;
+  --p-text-muted-color: #958b7e;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  color: #e7dfd2;
+  background: #171614;
 }
-.topbar {
-  height: 52px; flex: 0 0 52px; display: flex; align-items: center;
-  gap: 22px; padding: 0 16px; border-bottom: 1px solid #37332d;
+.topbar.p-toolbar {
+  min-height: 52px;
+  flex: 0 0 52px;
+  padding: 0 15px;
+  border: 0;
+  border-bottom: 1px solid #37332d;
+  border-radius: 0;
   background: #211f1b;
 }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 245px; }
@@ -28,38 +42,37 @@ button { font: inherit; }
 .brand-mark { display: grid; place-items: center; width: 29px; height: 25px; border-radius: 4px; color: #171614; background: #c49a63; font-size: 11px; font-weight: 800; }
 .brand-divider { width: 1px; height: 18px; margin: 0 3px; background: #494238; }
 .document-name { color: #92897d; font-size: 11px; }
-.runtime-status { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; color: #a69d90; font-size: 11px; }
-.runtime-status > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-status { display: flex; align-items: center; gap: 8px; min-width: 0; color: #a69d90; font-size: 11px; }
 .status-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #a36b4e; }
 .status-dot.ready { background: #88a66e; box-shadow: 0 0 7px #88a66e55; }
 .top-actions { display: flex; align-items: center; gap: 7px; }
 .top-actions .p-button { font-size: 11px; padding: .48rem .7rem; }
-.running-label { color: #d4aa70; font-size: 11px; }
-.workspace { flex: 1; min-height: 0; border: 0; border-radius: 0; background: #191816; }
+.top-actions .p-tag { font-size: 9px; }
+.workspace.p-splitter { flex: 1; min-height: 0; border: 0; border-radius: 0; background: transparent; color: inherit; }
 .p-splitter { border: 0; border-radius: 0; background: transparent; color: inherit; }
 .p-splitter-gutter { background: #171614; transition: background .15s; }
 .p-splitter-gutter:hover { background: #8b6943; }
 .p-splitter-gutter-handle { background: #51483c; }
 .library-panel, .main-panel, .graph-panel, .preview-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-.library-panel { background: #211f1b; }
-.main-panel { background: #191816; }
+.library-panel, .preview-panel { background: #211f1b; }
+.main-panel, .graph-panel { background: #191816; }
 .main-splitter { flex: 1; min-height: 0; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; min-height: 57px; padding: 10px 13px; border-bottom: 1px solid #37332d; }
 .panel-heading > div { display: flex; flex-direction: column; gap: 3px; }
 .panel-heading strong { color: #e8dfd1; font-size: 12px; font-weight: 620; }
+.panel-heading .p-tag { min-width: 22px; justify-content: center; font-size: 9px; }
 .eyebrow { color: #9e815b; font-size: 8px; font-weight: 700; letter-spacing: .13em; }
-.panel-count { display: grid; place-items: center; min-width: 21px; height: 19px; padding: 0 5px; border: 1px solid #484136; border-radius: 4px; color: #aaa092; font-size: 10px; }
 .library-tools { display: flex; flex-direction: column; gap: 7px; padding: 10px; }
 .search-input, .category-select { width: 100%; }
 .search-input.p-inputtext, .category-select.p-select { font-size: 11px; }
 .category-select .p-select-label { padding-top: .48rem; padding-bottom: .48rem; }
 .catalog-list { flex: 1; min-height: 0; overflow: auto; padding: 3px 7px 8px; }
-.catalog-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px 8px; border: 1px solid transparent; border-radius: 4px; color: #dcd3c6; background: transparent; text-align: left; cursor: grab; }
-.catalog-item:hover { border-color: #514535; background: #302b23; }
-.catalog-item-name { font-size: 11px; }
-.catalog-item-category { color: #8f8578; font-size: 9px; }
+.catalog-item.p-button { display: flex; justify-content: space-between; width: 100%; min-height: 32px; padding: 7px 8px; border: 1px solid transparent; border-radius: 4px; color: #dcd3c6; text-align: left; cursor: grab; }
+.catalog-item.p-button:hover { border-color: #514535; background: #302b23; }
+.catalog-item .p-button-label { display: none; }
+.catalog-item-name { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.catalog-item-category { flex: 0 0 auto; color: #8f8578; font-size: 9px; }
 .panel-footnote { padding: 9px 11px; border-top: 1px solid #37332d; color: #81786c; font-size: 9px; }
-.graph-panel { background: #191816; }
 .canvas-toolbar { display: flex; align-items: center; gap: 9px; height: 38px; flex: 0 0 38px; padding: 0 13px; border-bottom: 1px solid #302d27; background: #1d1b18; }
 .canvas-toolbar strong { color: #dcd3c6; font-size: 11px; font-weight: 600; }
 .canvas-hint { margin-left: auto; color: #766f64; font-size: 9px; }
@@ -67,33 +80,39 @@ button { font: inherit; }
 .vue-flow { background: #191816; }
 .vue-flow__edge-path { stroke: #b68b54; stroke-width: 1.7; }
 .vue-flow__connection-path { stroke: #d5a45e; }
-.vue-flow__controls { overflow: hidden; border: 1px solid #454038; border-radius: 5px; box-shadow: none; }
-.vue-flow__controls-button { width: 25px; height: 25px; border-bottom: 1px solid #454038; background: #292620; fill: #d9d0c2; }
 .vue-flow__minimap { overflow: hidden; border: 1px solid #454038; border-radius: 5px; background: #24211c; }
-.preview-panel { background: #211f1b; }
+.canvas-dock.p-dock { position: absolute; z-index: 5; bottom: 15px; left: 50%; transform: translateX(-50%); }
+.canvas-dock .p-dock-list-container { border: 1px solid #51483c; border-radius: 8px; background: #24211deF; box-shadow: 0 8px 24px #0006; }
+.canvas-dock .p-dock-list { gap: 3px; padding: 5px; }
+.canvas-dock .p-button { width: 32px; height: 32px; color: #d9d0c2; }
+.canvas-dock .p-button:hover { color: #e8c28c; background: #393127; }
 .preview-heading { min-height: 57px; }
 .preview-details { flex: 0 0 auto; max-height: 34%; overflow: auto; padding: 8px; border-top: 1px solid #37332d; }
 .mesh-summary { display: flex; flex-direction: column; gap: 4px; margin: 4px 0; padding: 8px; border: 1px solid #454038; border-radius: 4px; background: #26231e; }
 .mesh-summary strong { overflow: hidden; color: #d8cfc2; font-size: 10px; text-overflow: ellipsis; }
 .mesh-summary span { color: #968d80; font-size: 9px; }
-.preview-placeholder { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 65px; color: #81786c; font-size: 10px; }
-.placeholder-mark { color: #a27c4e; font-size: 20px; }
+.preview-placeholder { display: grid; place-items: center; min-height: 65px; color: #81786c; font-size: 10px; }
 .error-list { color: #e08d7e; font-size: 10px; }
 .error-list pre { max-height: 140px; overflow: auto; white-space: pre-wrap; color: #d2a39a; font-size: 9px; }
 .statusbar { height: 23px; flex: 0 0 23px; display: flex; align-items: center; justify-content: space-between; padding: 0 11px; border-top: 1px solid #37332d; color: #81796d; background: #201e1a; font-size: 8px; letter-spacing: .08em; }
-.api-node { min-width: 205px; max-width: 270px; overflow: visible; border: 1px solid #554b3d; border-radius: 6px; background: #292620; box-shadow: 0 5px 18px #0005; color: #e9e1d5; }
+
+/* Vue Flow owns graph geometry; PrimeVue supplies every editable control. */
+.api-node { min-width: 218px; max-width: 290px; overflow: visible; border: 1px solid #554b3d; border-radius: 7px; background: #292620; box-shadow: 0 5px 18px #0005; color: #e9e1d5; }
 .api-node.has-error { border-color: #b65b4b; }
 .node-header { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border-bottom: 1px solid #474035; }
 .node-category { color: #c79b60; font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
 .node-header strong { font-size: 11px; }
 .node-description { margin: 0; padding: 7px 11px 2px; color: #9f9688; font-size: 9px; line-height: 1.4; }
 .node-body { padding: 5px 0; }
-.socket-row { position: relative; display: flex; align-items: center; min-height: 27px; padding: 3px 12px; font-size: 9px; }
+.socket-row { position: relative; display: flex; align-items: center; min-height: 31px; padding: 3px 12px; font-size: 9px; }
 .input-row { gap: 8px; }
-.input-row label { flex: 1; overflow: hidden; color: #c9c0b3; text-overflow: ellipsis; }
-.input-row input:not([type=checkbox]) { width: 83px; min-width: 0; border: 1px solid #4b453b; border-radius: 3px; padding: 4px 5px; color: #e9e1d5; background: #191816; font-size: 9px; }
-.input-row input[type=checkbox] { accent-color: #c39457; }
-.input-row textarea { width: 150px; min-width: 0; resize: vertical; border: 1px solid #4b453b; border-radius: 3px; padding: 5px; color: #e9e1d5; background: #191816; font: 9px/1.4 ui-monospace, monospace; }
+.input-row > label { flex: 1; min-width: 45px; overflow: hidden; color: #c9c0b3; text-overflow: ellipsis; }
+.node-number { width: 88px; padding: .28rem .42rem; font-size: 10px; }
+.node-text.p-inputtext { width: 105px; min-width: 0; padding: .32rem .42rem; font-size: 10px; }
+.node-select.p-select { width: 110px; min-width: 0; font-size: 10px; }
+.node-select .p-select-label { padding: .32rem .42rem; }
+.node-code.p-textarea { width: 165px; min-width: 0; padding: .4rem; font: 9px/1.4 ui-monospace, monospace; resize: vertical; }
+.input-row .p-checkbox { flex: 0 0 auto; }
 .socket-type-hint { color: #897f70; font-size: 9px; }
 .output-row { justify-content: flex-end; color: #d8c9b4; }
 .output-row small { margin-left: 5px; color: #8f8577; }
@@ -102,6 +121,7 @@ button { font: inherit; }
 .empty-state { padding: 12px; color: #8d8478; font-size: 10px; }
 @media (max-width: 850px) {
   .brand { min-width: auto; }
-  .document-name, .brand-divider, .runtime-status { display: none; }
+  .document-name, .brand-divider { display: none; }
+  .runtime-status { display: none; }
   .preview-panel { display: none; }
 }

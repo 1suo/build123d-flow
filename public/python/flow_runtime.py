@@ -910,7 +910,7 @@ def discover(include_full=True):
                     "kind": node_kind,
                     "name": display_name,
                     "category": category,
-                    "description": doc.split("\\n")[0][:180],
+                    "description": doc.split("\n")[0][:180],
                     "inputs": inputs,
                     "outputs": [{
                         "name": "result", "type": output_type, "annotation": "",
@@ -938,6 +938,12 @@ def discover(include_full=True):
                 seen_members.add(member_name)
                 node_prefix = owner.__module__ + "." + owner.__name__
                 receiver_type = _type_name(owner)
+
+                # Public class annotations describe data fields without reading
+                # instances or invoking descriptors.
+                annotations = vars(owner).get("__annotations__", {})
+                if member_name in annotations and member_name not in seen_members:
+                    pass
 
                 if isinstance(raw_member, property):
                     getter_fn = raw_member.fget
@@ -1044,6 +1050,32 @@ def discover(include_full=True):
                     "inputs": inputs, "outputs": [output_socket],
                 }
                 callables[method_id] = raw_member
+
+            # Dataclass/typed fields are discoverable from annotations without
+            # touching instances. Properties above take precedence.
+            for field_name, field_annotation in vars(owner).get("__annotations__", {}).items():
+                if field_name.startswith("_") or field_name in seen_members:
+                    continue
+                field_id = owner.__module__ + "." + owner.__name__ + ".field." + field_name
+                if field_id in found:
+                    continue
+                field_getter = lambda self, name=field_name: getattr(self, name)
+                field_output = {
+                    "name": "result", "type": _type_name(field_annotation),
+                    "annotation": str(field_annotation),
+                    **_annotation_metadata(field_annotation),
+                }
+                found[field_id] = {
+                    "id": field_id, "kind": "operation", "name": field_name,
+                    "category": owner.__name__ + " Properties",
+                    "description": "Read the " + field_name.replace("_", " ") + " field",
+                    "inputs": [{
+                        "name": "self", "label": "object", "type": receiver_type,
+                        "annotation": str(owner), "required": True,
+                    }],
+                    "outputs": [field_output],
+                }
+                callables[field_id] = field_getter
 
     # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.
     _add_core_nodes(found, callables)

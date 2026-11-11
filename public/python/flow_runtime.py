@@ -224,7 +224,7 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
         inputs = function
         function = category
         category = node_id.split(".")[1].title() if len(node_id.split(".")) > 2 else "Core"
-    defaults = {"step": 1, "count": 10, "stop": 10, "index": 0, "start": 0}
+    defaults = {"step": 1, "count": 10, "stop": 10, "index": 0, "start": 0, "default": None}
     found[node_id] = {
         "id": node_id,
         "kind": "value" if not inputs else "operation",
@@ -234,11 +234,12 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
         "inputs": [
             {
                 "name": key, "type": socket_type, "annotation": socket_type,
-                "required": socket_type not in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"},
+                "required": socket_type not in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"} and key != "default",
                 **({"item_type": "Any"} if socket_type in {"List", "Tuple", "Set"} else {}),
                 **({"key_type": "Any", "value_type": "Any"} if socket_type == "Dict" else {}),
                 **({"default": defaults.get(key, {"Number": 0.0, "Boolean": False, "String": "", "List": [], "Tuple": [], "Set": [], "Dict": {}}[socket_type])}
-                   if socket_type in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"} else {}),
+                   if socket_type in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"} else
+                   ({"default": None} if key == "default" else {})),
             }
             for key, socket_type in inputs
         ],
@@ -397,7 +398,7 @@ def _add_core_nodes(found, callables):
     _add_node(found, callables, "core.list.remove", "Remove Value", "Collections",
               lambda items, value: (lambda result: (result.remove(value), result)[1])(list(items)),
               [("items", "List"), ("value", "Any")], "List")
-    _add_node(found, callables, "core.list.pop", "Pop", "Collections",
+    _add_node(found, callables, "core.list.pop", "Remove At", "Collections",
               lambda items, index: (lambda result: (result.pop(index), result)[1])(list(items)),
               [("items", "List"), ("index", "Number")], "List")
     _add_node(found, callables, "core.list.contains", "Contains", "Collections",

@@ -152,10 +152,16 @@ def discover():
 
             if inspect.isclass(obj):
                 try:
-                    output_type = "Shape" if issubclass(obj, getattr(b3d, "Shape", object)) else _type_name(obj)
+                    if issubclass(obj, getattr(b3d, "Shape", object)):
+                        node_kind, output_type = "geometry", "Shape"
+                    elif issubclass(obj, enum.Enum):
+                        node_kind, output_type = "enum", "Enum"
+                    else:
+                        node_kind, output_type = "value", _type_name(obj)
                 except TypeError:
-                    output_type = "Any"
+                    node_kind, output_type = "value", "Any"
             else:
+                node_kind = "operation"
                 output_type = _type_name(hints.get("return", signature.return_annotation))
 
             module_parts = canonical_module.split(".")
@@ -163,6 +169,7 @@ def discover():
             doc = inspect.getdoc(obj) or ""
             found[node_id] = {
                 "id": node_id,
+                "kind": node_kind,
                 "name": name,
                 "category": category,
                 "description": doc.split("\n")[0][:180],

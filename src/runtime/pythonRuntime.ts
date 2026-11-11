@@ -60,10 +60,12 @@ export class PythonRuntime {
   async evaluate(graph: GraphDocument): Promise<EvaluationResult> {
     if (!this.ready) throw new Error("Python runtime is not ready");
     const payload = JSON.stringify(graph);
-    const fn = this.pyodide.globals.get("flow_runtime").get("evaluate_graph_json");
+    const fn = this.pyodide.runPython("flow_runtime.evaluate_graph_json");
     try {
       const result = await fn(payload);
-      return JSON.parse(result);
+      const json = typeof result === "string" ? result : result.toJs();
+      if (typeof result !== "string") result.destroy();
+      return JSON.parse(json);
     } finally {
       fn.destroy();
     }

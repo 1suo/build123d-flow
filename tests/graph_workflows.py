@@ -237,6 +237,8 @@ def run_preview_style_test():
     result = json.loads(runtime.evaluate_graph_json(json.dumps({"nodes": nodes, "edges": edges})))
     if result["errors"] or "styled" not in result["previews"]:
         raise AssertionError("Preview Style failed: " + json.dumps(result["errors"]))
+    if "box" in result["previews"]:
+        raise AssertionError("Preview Style must replace, not overlap, the upstream preview")
     preview = result["previews"]["styled"]
     if preview.get("faceColor") != "#d8c3a5" or preview.get("edgeColor") != "#2b2118":
         raise AssertionError("Preview Style colors were not applied")

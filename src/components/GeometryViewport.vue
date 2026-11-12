@@ -96,6 +96,7 @@ function rebuild() {
       metalness: 0.12, roughness: 0.68, side: THREE.DoubleSide,
       transparent: (preview.opacity ?? 1) < 1, opacity: preview.opacity ?? 1,
       depthWrite: (preview.opacity ?? 1) >= 1,
+      polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = "faces";

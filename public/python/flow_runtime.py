@@ -1458,7 +1458,7 @@ def _mesh_preview(value, style=None):
             flat_triangles.extend(offset + int(index) for triangle in triangles for index in triangle)
             for edge in shape.edges():
                 try:
-                    samples = [_point_xyz(edge.position_at(index / 24)) for index in range(25)]
+                    samples = [_point_xyz(point) for point in edge.positions(deflection=0.15)]
                     for first, second in zip(samples, samples[1:]):
                         edge_segments.extend(first)
                         edge_segments.extend(second)
@@ -1679,11 +1679,17 @@ def evaluate_graph_json(payload):
             errors[node_id] = type(exc).__name__ + ": " + str(exc)
 
     source_nodes = {edge.get("source") for edge in edges}
+    # Preview Style replaces the upstream viewport representation to avoid coplanar z-fighting.
+    styled_sources = {
+        edge.get("source") for edge in edges
+        if nodes.get(edge.get("target"), {}).get("data", {}).get("definition", {}).get("id") == "core.preview.style"
+        and nodes.get(edge.get("target"), {}).get("data", {}).get("visible") is not False
+    }
     for node_id in order:
         if node_id not in values:
             continue
         visible = nodes[node_id].get("data", {}).get("visible")
-        if visible is False or (visible is not True and node_id in source_nodes):
+        if node_id in styled_sources or visible is False or (visible is not True and node_id in source_nodes):
             continue
         result = values[node_id].get("result")
         key = node_keys.get(node_id)

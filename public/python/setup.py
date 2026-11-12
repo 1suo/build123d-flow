@@ -6,6 +6,7 @@ import micropip
 import importlib.metadata
 
 micropip.set_index_urls(["https://pypi.org/simple"])
+OCP_VERSION = "8.0.1.0.post202609202030"
 
 print("Preparing browser-compatible dependencies…")
 
@@ -31,14 +32,18 @@ micropip.add_mock_package("pillow", "12.2.0", modules={
     ),
 })
 
-print("Downloading OCP.wasm…")
-await micropip.install([
-    "cadquery-ocp-novtk-OCP.wasm==8.0.1.0.post202609202030",
-])
+# Re-register lightweight aliases on each interpreter start; micropip metadata
+# is in-memory and must be recreated after restoring site-packages from IndexedDB.
+micropip.add_mock_package("cadquery-ocp-novtk", OCP_VERSION, modules={})
+micropip.add_mock_package("cadquery-ocp", OCP_VERSION, modules={})
 
-ocp_version = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm")
-micropip.add_mock_package("cadquery-ocp-novtk", ocp_version, modules={})
-micropip.add_mock_package("cadquery-ocp", ocp_version, modules={})
+try:
+    ocp_installed = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm") == OCP_VERSION
+except importlib.metadata.PackageNotFoundError:
+    ocp_installed = False
+if not ocp_installed:
+    print("Downloading OCP.wasm…")
+    await micropip.install([f"cadquery-ocp-novtk-OCP.wasm=={OCP_VERSION}"])
 
 # build123d 0.13.0 marks lib3mf as required on every platform except Linux/aarch64.
 # Pyodide reports a wasm platform, but this app does not use 3MF import/export.
@@ -63,35 +68,64 @@ micropip.add_mock_package("lib3mf", "2.4.1", modules={
         "    Position = _Unavailable\n    Triangle = _Unavailable\n    Color = _Unavailable\n"
     ),
 })
-# add_mock_package registers the mock in micropip's package index; installing
-# it materializes the lib3mf module in Python's import system.
-await micropip.install(["lib3mf==2.4.1"])
+# Register the mock every session; install its importable module only if absent.
+micropip.add_mock_package("lib3mf", "2.4.1", modules={
+    "lib3mf": (
+        "from enum import Enum\n"
+        "class _ModelUnit(Enum):\n"
+        "    MicroMeter = 0\n    MilliMeter = 1\n    CentiMeter = 2\n"
+        "    Inch = 3\n    Foot = 4\n    Meter = 5\n"
+        "class _ObjectType(Enum):\n"
+        "    Other = 0\n    Model = 1\n    Support = 2\n    SolidSupport = 3\n"
+        "class _Unavailable: pass\n"
+        "class Lib3MF:\n"
+        "    __file__ = '/lib3mf/__init__.py'\n"
+        "    ModelUnit = _ModelUnit\n    ObjectType = _ObjectType\n"
+        "    Wrapper = _Unavailable\n    MeshObject = _Unavailable\n"
+        "    MeshObjectIterator = _Unavailable\n    ComponentsObject = _Unavailable\n"
+        "    Position = _Unavailable\n    Triangle = _Unavailable\n    Color = _Unavailable\n"
+    ),
+})
+try:
+    lib3mf_installed = importlib.metadata.version("lib3mf") == "2.4.1"
+except importlib.metadata.PackageNotFoundError:
+    lib3mf_installed = False
+if not lib3mf_installed:
+    await micropip.install(["lib3mf==2.4.1"])
 
-print("Installing build123d dependencies…")
-await micropip.install(["webcolors==24.8.0"])
-# Install build123d without its upstream dependency resolver: its platform marker
-# selects lib3mf on Pyodide/WASM even though this app never uses 3MF.
-# Install the supported runtime dependencies explicitly, excluding lib3mf.
-await micropip.install([
-    "typing_extensions>=4.16,<5",
-    "numpy>=2,<3",
-    "svgpathtools>=1.5.1,<2",
-    "anytree>=2.8,<3",
-    "ezdxf>=1.1,<2",
-    "fonttools>=4.39,<5",
-    "ipython>=8,<10",
-    "ocpsvg>=0.7,<0.8",
-    "ocp_gordon>=0.3.1,<0.4",
-    "trianglesolver",
-    "sympy",
-    "scipy",
-    "scikit-learn>=1.5,<2",
-    "webcolors~=24.8.0",
-    "requests>=2.32,<3",
-    "bd_materials>=0.2,<0.3",
-    "threejs-materials>=1.2.1,<1.3",
-])
-await micropip.install(["build123d==0.13.0"], deps=False)
+try:
+    build123d_installed = importlib.metadata.version("build123d") == "0.13.0"
+except importlib.metadata.PackageNotFoundError:
+    build123d_installed = False
+
+if not build123d_installed:
+    print("Installing build123d dependencies…")
+    await micropip.install(["webcolors==24.8.0"])
+    # Install build123d without its upstream dependency resolver: its platform marker
+    # selects lib3mf on Pyodide/WASM even though this app never uses 3MF.
+    # Install the supported runtime dependencies explicitly, excluding lib3mf.
+    await micropip.install([
+        "typing_extensions>=4.16,<5",
+        "numpy>=2,<3",
+        "svgpathtools>=1.5.1,<2",
+        "anytree>=2.8,<3",
+        "ezdxf>=1.1,<2",
+        "fonttools>=4.39,<5",
+        "ipython>=8,<10",
+        "ocpsvg>=0.7,<0.8",
+        "ocp_gordon>=0.3.1,<0.4",
+        "trianglesolver",
+        "sympy",
+        "scipy",
+        "scikit-learn>=1.5,<2",
+        "webcolors~=24.8.0",
+        "requests>=2.32,<3",
+        "bd_materials>=0.2,<0.3",
+        "threejs-materials>=1.2.1,<1.3",
+    ])
+    await micropip.install(["build123d==0.13.0"], deps=False)
+else:
+    print("Using restored build123d packages; skipping installation")
 
 print("Importing build123d…")
 import build123d

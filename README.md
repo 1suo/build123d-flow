@@ -39,6 +39,12 @@ The GitHub Actions workflow typechecks and builds the static client, then deploy
 - The first preview path tessellates explicitly visible geometry-node outputs into triangle meshes; per-node eye controls toggle viewer visibility. The authoritative B-rep stays inside Pyodide. Viewer camera framing is initialized once and is preserved across subsequent evaluations. The browser bootstrap installs OCP.wasm and build123d; it deliberately omits `lib3mf`, `ocp_vscode` and `ocp-tessellate`, because the app exports STEP and has its own Three.js mesh viewer. Python bootstrap output is surfaced in the runtime status. The curated node layer includes spatial distributions (XY grid, polar points, clipped 2D Voronoi), numeric remapping/interpolation, and Grasshopper-style list operations (partition, repeat, cull pattern, shift and weave). The discovered build123d API remains available alongside these higher-level nodes.
 - Graph persistence and multi-output nodes are not implemented yet. The cache is session-local and does not serialize B-rep objects to browser storage.
 
+## Browser-side runtime persistence
+
+The app registers a small service worker in production. It caches versioned app assets, the Python bootstrap files, and the pinned Pyodide CDN assets; the cache is replaced when the service-worker cache version changes. The browser's HTTP cache and micropip's browser wheel cache remain additional cache layers.
+
+The installed Python environment is mounted from IndexedDB through Pyodide's `fsInit` hook. Its marker includes the Pyodide version and a SHA-256 fingerprint of `public/python/setup.py`; a mismatch clears the old site-packages directory before reinstalling. If IndexedDB is unavailable, blocked, or full, the runtime falls back to an in-memory environment and remains usable. Browser storage can still be cleared or evicted by the user or browser. This stores installed packages, not graph results or live Python/B-rep objects.
+
 ## Design principles
 
 1. Discover the installed Python API; do not hand-maintain a parallel list of build123d functions.

@@ -1,4 +1,4 @@
-const CACHE_NAME = "build123d-flow-static-v314.0.7-v2";
+const CACHE_NAME = "build123d-flow-static-v314.0.7-v3";
 const PYODIDE_PREFIX = "/pyodide/v314.0.7/full/";
 
 self.addEventListener("install", (event) => {
@@ -22,7 +22,7 @@ self.addEventListener("fetch", (event) => {
   const scope = new URL(self.registration.scope);
   const sameOriginAppAsset = url.origin === self.location.origin &&
     url.pathname.startsWith(scope.pathname) &&
-    (url.pathname.includes("/assets/") || url.pathname.includes("/python/") ||
+    (url.pathname.includes("/assets/") || url.pathname.includes("/python/") || url.pathname.includes("/pyodide/") ||
       url.pathname.endsWith("/favicon.svg"));
   const pyodideAsset = url.origin === "https://cdn.jsdelivr.net" &&
     url.pathname.startsWith(PYODIDE_PREFIX);

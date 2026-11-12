@@ -88,6 +88,7 @@ const edges = ref<Edge[]>([]);
 const nodeTypes = { api: markRaw(ApiNode) } as any;
 const canvasSurface = ref<HTMLElement | null>(null);
 const palettePopover = ref<any>();
+const settingsPopover = ref<any>();
 const isMobile = ref(false);
 let mobileMediaQuery: MediaQueryList | undefined;
 function updateMobileLayout() { isMobile.value = Boolean(mobileMediaQuery?.matches); }
@@ -552,12 +553,6 @@ async function downloadStep() {
               </span>
               <span v-if="!runtime.isReady" class="category-loading">Loading runtime…</span>
             </nav>
-            <label class="theme-switcher">
-              <span>Palette</span>
-              <select v-model="activePalette" aria-label="Findspot palette" @change="persistPalette">
-                <option v-for="option in paletteOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
-            </label>
           </div>
           <div v-if="runtime.isReady && !nodes.length" class="canvas-empty-state">
             <strong>Empty canvas</strong>
@@ -592,6 +587,17 @@ async function downloadStep() {
               aria-label="Delete selected nodes or wires" title="Delete selected nodes or wires"
               :disabled="!nodes.some((node: any) => node.selected) && !edges.some((edge: any) => edge.selected)"
               @click="deleteSelectedFromDock" />
+            <span class="bottom-dock-divider"></span>
+            <Button icon="pi pi-cog" text rounded severity="secondary"
+              aria-label="Settings" title="Settings" @click="settingsPopover?.toggle($event)" />
+            <Popover ref="settingsPopover" class="settings-popover">
+              <label class="theme-switcher settings-theme-switcher">
+                <span>Color scheme</span>
+                <select v-model="activePalette" aria-label="Findspot color scheme" @change="persistPalette">
+                  <option v-for="option in paletteOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+            </Popover>
           </div>
           <aside v-if="selectedNode && inspectorOpen" class="canvas-node-inspector">
             <NodeInspector
@@ -619,12 +625,6 @@ async function downloadStep() {
               </span>
               <span v-if="!runtime.isReady" class="category-loading">Loading runtime…</span>
             </nav>
-            <label class="theme-switcher">
-              <span>Palette</span>
-              <select v-model="activePalette" aria-label="Findspot palette" @change="persistPalette">
-                <option v-for="option in paletteOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
-            </label>
           </div>
           <div v-if="runtime.isReady && !nodes.length" class="canvas-empty-state">
             <strong>Empty canvas</strong>
@@ -659,6 +659,17 @@ async function downloadStep() {
               aria-label="Delete selected nodes or wires" title="Delete selected nodes or wires"
               :disabled="!nodes.some((node: any) => node.selected) && !edges.some((edge: any) => edge.selected)"
               @click="deleteSelectedFromDock" />
+            <span class="bottom-dock-divider"></span>
+            <Button icon="pi pi-cog" text rounded severity="secondary"
+              aria-label="Settings" title="Settings" @click="settingsPopover?.toggle($event)" />
+            <Popover ref="settingsPopover" class="settings-popover">
+              <label class="theme-switcher settings-theme-switcher">
+                <span>Color scheme</span>
+                <select v-model="activePalette" aria-label="Findspot color scheme" @change="persistPalette">
+                  <option v-for="option in paletteOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </label>
+            </Popover>
           </div>
           <aside v-if="selectedNode && inspectorOpen" class="canvas-node-inspector">
             <NodeInspector

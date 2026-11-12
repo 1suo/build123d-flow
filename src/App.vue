@@ -525,16 +525,19 @@ async function downloadPython() {
           >
             <Background :pattern-color="'var(--tikal-border)'" :gap="22" />
           </VueFlow>
-          <div class="canvas-left-rail" role="toolbar" aria-label="Canvas sidebar">
-            <Button icon="pi pi-objects-column" text rounded severity="secondary"
-              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
-              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector"
-              @click="inspectorOpen = !inspectorOpen" />
-          </div>
           <div class="canvas-bottom-dock" role="toolbar" aria-label="Canvas tools">
             <Button icon="pi pi-expand" text rounded severity="secondary" aria-label="Fit graph" title="Fit graph" @click="fitView({ padding: 0.12 })" />
             <Button icon="pi pi-minus" text rounded severity="secondary" aria-label="Zoom out" title="Zoom out" @click="zoomOut()" />
             <Button icon="pi pi-plus" text rounded severity="secondary" aria-label="Zoom in" title="Zoom in" @click="zoomIn()" />
+            <Button text rounded severity="secondary" class="inspector-toggle"
+              :class="{ 'is-active': inspectorOpen }" :aria-pressed="inspectorOpen"
+              aria-label="Toggle inspector" title="Inspector"
+              @click="inspectorOpen = !inspectorOpen">
+              <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="2.5" y="3" width="19" height="18" rx="2" />
+                <path d="M9 3v18" />
+              </svg>
+            </Button>
             <span class="bottom-dock-divider"></span>
             <Button icon="pi pi-trash" text rounded severity="secondary" class="delete-action"
               aria-label="Delete selected nodes or wires" title="Delete selected nodes or wires"
@@ -603,16 +606,19 @@ async function downloadPython() {
           >
             <Background :pattern-color="'var(--tikal-border)'" :gap="22" />
           </VueFlow>
-          <div class="canvas-left-rail" role="toolbar" aria-label="Canvas sidebar">
-            <Button icon="pi pi-objects-column" text rounded severity="secondary"
-              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
-              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector"
-              @click="inspectorOpen = !inspectorOpen" />
-          </div>
           <div class="canvas-bottom-dock" role="toolbar" aria-label="Canvas tools">
             <Button icon="pi pi-expand" text rounded severity="secondary" aria-label="Fit graph" title="Fit graph" @click="fitView({ padding: 0.12 })" />
             <Button icon="pi pi-minus" text rounded severity="secondary" aria-label="Zoom out" title="Zoom out" @click="zoomOut()" />
             <Button icon="pi pi-plus" text rounded severity="secondary" aria-label="Zoom in" title="Zoom in" @click="zoomIn()" />
+            <Button text rounded severity="secondary" class="inspector-toggle"
+              :class="{ 'is-active': inspectorOpen }" :aria-pressed="inspectorOpen"
+              aria-label="Toggle inspector" title="Inspector"
+              @click="inspectorOpen = !inspectorOpen">
+              <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="2.5" y="3" width="19" height="18" rx="2" />
+                <path d="M9 3v18" />
+              </svg>
+            </Button>
             <span class="bottom-dock-divider"></span>
             <Button icon="pi pi-trash" text rounded severity="secondary" class="delete-action"
               aria-label="Delete selected nodes or wires" title="Delete selected nodes or wires"

@@ -28,6 +28,12 @@ export interface NodeDefinition {
   kind: "geometry" | "operation" | "value" | "enum";
   name: string;
   category: string;
+  /** Explicit API/runtime provenance; independent of node identity and presentation. */
+  source: "build123d" | "python" | "flow";
+  /** User-facing functional palette category. */
+  palette_category: string;
+  /** Optional subgroup within a functional palette category. */
+  palette_section: string;
   description: string;
   inputs: SocketDefinition[];
   outputs: SocketDefinition[];

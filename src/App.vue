@@ -135,12 +135,16 @@ const contextResults = computed(() => catalog.value.filter((item) =>
   (item.name + " " + item.category + " " + item.id).toLowerCase().includes(contextSearch.value.toLowerCase())
 ).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name)).slice(0, 60));
 
-const graph = computed<GraphDocument>(() => ({
+const graph = computed<GraphDocument>(() => JSON.parse(JSON.stringify({
   nodes: nodes.value.map((node: any) => ({
     id: node.id,
     type: "api",
-    position: node.position,
-    data: node.data,
+    position: { x: Number(node.position.x), y: Number(node.position.y) },
+    data: {
+      definition: node.data.definition,
+      params: node.data.params,
+      visible: node.data.visible,
+    },
   })),
   edges: edges.value.map((edge: any) => ({
     id: edge.id,
@@ -149,7 +153,7 @@ const graph = computed<GraphDocument>(() => ({
     sourceHandle: edge.sourceHandle,
     targetHandle: edge.targetHandle,
   })),
-}));
+})));
 
 function deleteSelectedFromDock() {
   deleteSelected();

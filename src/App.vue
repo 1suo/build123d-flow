@@ -338,7 +338,7 @@ function onConnect(connection: Connection) {
     if (edge.target === connection.target && edge.targetHandle === connection.targetHandle) replaced.push(edge.id);
   }
   if (replaced.length) removeEdges(replaced);
-  addEdges([{ ...connection, id: `e${Date.now()}`, animated: false, updatable: true } as Edge]);
+  addEdges([{ ...connection, id: `e${crypto.randomUUID()}`, animated: false, updatable: true } as Edge]);
   scheduleEvaluation();
 }
 

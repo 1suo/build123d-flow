@@ -5,7 +5,7 @@ import Button from "primevue/button";
 import Card from "primevue/card";
 import Popover from "primevue/popover";
 import type { NodeDefinition } from "../types";
-import { socketColor, socketTypeLabel } from "../runtime/socketPresentation";
+import { isGeometrySocket, socketColor, socketTypeLabel } from "../runtime/socketPresentation";
 
 const props = defineProps<{
   id: string;
@@ -26,10 +26,7 @@ const props = defineProps<{
 const inputs = computed(() => props.data.definition.inputs);
 const outputs = computed(() => props.data.definition.outputs);
 const errorPopover = ref<any>();
-const canPreview = computed(() => outputs.value.some((output) =>
-  ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type) ||
-  ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.item_type || "")
-));
+const canPreview = computed(() => outputs.value.some(isGeometrySocket));
 function socketTitle(socket: any, direction: string): string {
   return direction + ": " + socket.name + " · " + socketTypeLabel(socket) + (socket.annotation ? " | " + socket.annotation : "");
 }

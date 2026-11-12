@@ -4,8 +4,12 @@ const GEOMETRY_TYPES = new Set([
   "Shape", "Solid", "Compound", "Face", "Edge", "Wire", "Shell", "Part", "Sketch",
 ]);
 
+export function isGeometryType(type: string): boolean {
+  return GEOMETRY_TYPES.has(type);
+}
+
 export function isGeometrySocket(socket: SocketDefinition): boolean {
-  return GEOMETRY_TYPES.has(socket.type) || GEOMETRY_TYPES.has(socket.item_type ?? "");
+  return isGeometryType(socket.type) || isGeometryType(socket.item_type ?? "");
 }
 
 export function socketTypeLabel(socket: SocketDefinition): string {

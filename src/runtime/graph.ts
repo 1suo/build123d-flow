@@ -1,5 +1,5 @@
 import type { GraphDocument, GraphNode, NodeDefinition, SocketDefinition } from "../types";
-import { isGeometrySocket } from "./socketPresentation";
+import { isGeometrySocket, isGeometryType } from "./socketPresentation";
 
 export function createGraphNode(
   definition: NodeDefinition,
@@ -24,7 +24,7 @@ export function createGraphNode(
 
 function compatibleTypes(source: string, target: string): boolean {
   if (target === "Any" || source === "Any" || source === target) return true;
-  if (target === "Shape" && ["Solid", "Compound", "Face", "Edge", "Wire", "Shell", "Part", "Sketch"].includes(source)) return true;
+  if (target === "Shape" && isGeometryType(source)) return true;
   return false;
 }
 

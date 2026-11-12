@@ -17,7 +17,6 @@ _CATALOG = {}
 _CATALOG_CALLABLES = {}
 _CATALOG_SIGNATURES = {}
 _CATALOG_HINT_TARGETS = {}
-_LAST_VALUES = {}
 _LAST_SHAPE = None
 _DISCOVERY_REPORT = {}
 _EVAL_CACHE = {}
@@ -233,14 +232,6 @@ def _annotation_metadata(annotation):
     return metadata
 
 
-def _json_default(value):
-    if isinstance(value, enum.Enum):
-        return value.name
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return None
-
-
 def _safe_default(value):
     if value is inspect.Signature.empty:
         return None, None, True, False
@@ -352,10 +343,6 @@ def _candidate_rejection(obj):
     return None
 
 
-def _is_candidate(obj, module_name):
-    return _candidate_rejection(obj) is None
-
-
 def _discover_modules(report=None):
     modules = [b3d]
     seen = {b3d.__name__}
@@ -387,10 +374,10 @@ def _discover_modules(report=None):
 # Domain-specific presentation belongs in _NODE_METADATA_OVERRIDES below.
 _PYTHON_OPERATOR_SPECS = {
     "__add__": {"symbol": "+", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__sub__": {"symbol": "−", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__mul__": {"symbol": "×", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__rmul__": {"symbol": "×", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__truediv__": {"symbol": "÷", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__sub__": {"symbol": "-", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__mul__": {"symbol": "*", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__rmul__": {"symbol": "*", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__truediv__": {"symbol": "/", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__floordiv__": {"symbol": "//", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__mod__": {"symbol": "%", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__pow__": {"symbol": "**", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
@@ -400,7 +387,7 @@ _PYTHON_OPERATOR_SPECS = {
     "__xor__": {"symbol": "^", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
     "__lshift__": {"symbol": "<<", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
     "__rshift__": {"symbol": ">>", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
-    "__neg__": {"symbol": "−", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
+    "__neg__": {"symbol": "-", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
     "__pos__": {"symbol": "+", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
     "__invert__": {"symbol": "~", "family": "unary", "palette_category": "Logic", "palette_section": "Bitwise operators"},
 }
@@ -1131,10 +1118,6 @@ def discover(include_full=True):
                 overload_id = node_id + ".overload-" + str(overload_index) if is_overloaded_constructor else node_id
                 display_name = name
                 if is_overloaded_constructor:
-                    typed_args = ", ".join(
-                        parameter.name + ": " + _type_name(hints.get(parameter.name, parameter.annotation))
-                        for parameter in signature.parameters.values()
-                    )
                     display_name = name + "(" + ", ".join(parameter.name for parameter in signature.parameters.values()) + ")"
 
                 module_parts = canonical_module.split(".")
@@ -1665,7 +1648,7 @@ def _trim_cache(cache):
 
 
 def evaluate_graph_json(payload):
-    global _LAST_VALUES, _LAST_SHAPE
+    global _LAST_SHAPE
     _LAST_SHAPE = None
     graph = json.loads(payload)
     nodes = {node["id"]: node for node in graph.get("nodes", [])}
@@ -1808,7 +1791,6 @@ def evaluate_graph_json(payload):
         except Exception as exc:
             errors[node_id] = "Preview: " + str(exc)
 
-    _LAST_VALUES = values
     return json.dumps(_json_clean({
         "previews": previews, "errors": errors, "order": order,
         "cache": {"hits": cache_hits, "misses": cache_misses},
@@ -2091,13 +2073,6 @@ def export_python_code(payload):
     statements = []
     variables = {node_id: "_node_{}".format(index + 1) for index, node_id in enumerate(order)}
     unsupported = []
-    operator_symbols = {
-        "__add__": "+", "__sub__": "-", "__mul__": "*", "__rmul__": "*", "__truediv__": "/",
-        "__floordiv__": "//", "__mod__": "%", "__pow__": "**", "__matmul__": "@",
-        "__and__": "&", "__or__": "|", "__xor__": "^", "__lshift__": "<<",
-        "__rshift__": ">>", "__neg__": "-", "__pos__": "+", "__invert__": "~",
-    }
-
     for node_id in order:
         node = nodes[node_id]
         data = node.get("data", {})
@@ -2157,13 +2132,11 @@ def export_python_code(payload):
                 receiver = value_expression(receiver_socket)
                 args = [item for item in sockets if item is not receiver_socket]
                 operands = [value_expression(item) for item in args]
-                symbol = operator_symbols.get(method_name)
+                symbol = _PYTHON_OPERATOR_SPECS.get(method_name, {}).get("symbol")
                 if symbol is None:
                     raise ValueError("Unsupported native operator: " + method_name)
                 if method_name in {"__neg__", "__pos__", "__invert__"}:
                     expression = "({}{})".format(symbol, receiver)
-                elif method_name == "__rsub__":
-                    expression = "({} - {})".format(operands[0], receiver)
                 elif method_name == "__rmul__":
                     expression = "({} * {})".format(operands[0], receiver)
                 else:

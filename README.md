@@ -31,7 +31,7 @@ npm install
 npm run dev
 ```
 
-The GitHub Actions workflow typechecks and builds the static client, then deploys it to GitHub Pages on pushes to `main`. The empty workspace and core node catalog render synchronously. Example graphs are loaded explicitly from the canvas dropdown. Pyodide is downloaded only after the app mounts; OCP.wasm and build123d are installed in the background. Full API introspection is deferred until the first category is selected. Repeat-visit caching is implemented for deterministic graph nodes and their mesh previews; worker isolation remains a future optimization.
+The GitHub Actions workflow typechecks and builds the static client, then deploys it to GitHub Pages on pushes to `main`. The empty workspace and core node catalog render synchronously. Pyodide is downloaded after the app mounts; OCP.wasm and build123d are installed in the background. Full API introspection is deferred until the first category is selected. Python evaluation runs in a dedicated Web Worker. Repeat-visit caching is implemented for deterministic graph nodes and their mesh previews.
 
 ## Current limitations
 

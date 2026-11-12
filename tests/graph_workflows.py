@@ -128,8 +128,33 @@ def run_collection_workflow_tests():
     return {"name": "collections and series", "map": True, "dict": True, "set_union": True}
 
 
+def run_shape_collection_workflow_test():
+    box = _definition("Box")
+    cylinder = _definition("Cylinder")
+    union = _definition("Union")
+    append = runtime._CATALOG["core.list.append"]
+    union_inputs = [socket["name"] for socket in union["inputs"]]
+    nodes = [
+        _node(box, "box_a", {"length": 10, "width": 10, "height": 10}),
+        _node(box, "box_b", {"length": 8, "width": 8, "height": 8}),
+        _node(cylinder, "cylinder", {"radius": 3, "height": 12}),
+        _node(append, "list_a"),
+        _node(append, "shape_list"),
+        _node(union, "union"),
+    ]
+    edges = [
+        _edge("box_a", "list_a", "value"),
+        _edge("list_a", "shape_list", "items"),
+        _edge("box_b", "shape_list", "value"),
+        _edge("shape_list", "union", union_inputs[0]),
+        _edge("cylinder", "union", union_inputs[1]),
+    ]
+    result = _run("List[Shape] → item-wise Union", nodes, edges, "union")
+    return {"name": "shape collection", "preview": result["preview"], "step_bytes": result["step_bytes"]}
+
+
 def run_graph_workflow_tests():
-    results = [run_collection_workflow_tests(), run_data_mapping_tests()]
+    results = [run_collection_workflow_tests(), run_data_mapping_tests(), run_shape_collection_workflow_test()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

@@ -1182,16 +1182,34 @@ def discover_full():
     return json.dumps(_json_clean(discover(include_full=True)), allow_nan=False)
 
 
-def _mesh_preview(value):
-    shape_type = getattr(b3d, "Shape", None)
-    if shape_type is None or not isinstance(value, shape_type):
+def _iter_shapes(value):
+    if isinstance(value, b3d.Shape):
+        yield value
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _iter_shapes(item)
+
+
+def _as_export_shape(value):
+    shapes = list(_iter_shapes(value))
+    if not shapes:
         return None
+    return shapes[0] if len(shapes) == 1 else b3d.Compound(children=shapes)
+
+
+def _mesh_preview(value):
+    shapes = list(_iter_shapes(value))
+    if not shapes:
+        return None
+    flat_vertices = []
+    flat_triangles = []
     try:
-        vertices, triangles = value.tessellate(0.15, 0.25)
-        flat_vertices = []
-        for vertex in vertices:
-            flat_vertices.extend([float(vertex.X), float(vertex.Y), float(vertex.Z)])
-        flat_triangles = [int(index) for triangle in triangles for index in triangle]
+        for shape in shapes:
+            vertices, triangles = shape.tessellate(0.15, 0.25)
+            offset = len(flat_vertices) // 3
+            for vertex in vertices:
+                flat_vertices.extend([float(vertex.X), float(vertex.Y), float(vertex.Z)])
+            flat_triangles.extend(offset + int(index) for triangle in triangles for index in triangle)
         return {"vertices": flat_vertices, "triangles": flat_triangles}
     except Exception as exc:
         raise RuntimeError("Tessellation failed: " + str(exc))
@@ -1370,7 +1388,7 @@ def evaluate_graph_json(payload):
             preview = _mesh_preview(result)
             if preview is not None:
                 previews[node_id] = preview
-                _LAST_SHAPE = result
+                _LAST_SHAPE = _as_export_shape(result)
         except Exception as exc:
             errors[node_id] = "Preview: " + str(exc)
 

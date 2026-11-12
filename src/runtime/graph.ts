@@ -16,7 +16,10 @@ export function createGraphNode(
     data: {
       definition,
       params,
-      visible: definition.outputs.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type)),
+      visible: definition.outputs.some((output) =>
+        ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type) ||
+        ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.item_type ?? "")
+      ),
     },
   };
 }

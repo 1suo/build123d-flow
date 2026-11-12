@@ -373,23 +373,23 @@ def _discover_modules(report=None):
 # language-level symbol and default palette semantics for recognized operators.
 # Domain-specific presentation belongs in _NODE_METADATA_OVERRIDES below.
 _PYTHON_OPERATOR_SPECS = {
-    "__add__": {"symbol": "+", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__sub__": {"symbol": "-", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__mul__": {"symbol": "*", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__rmul__": {"symbol": "*", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__truediv__": {"symbol": "/", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__floordiv__": {"symbol": "//", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__mod__": {"symbol": "%", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__pow__": {"symbol": "**", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__matmul__": {"symbol": "@", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
-    "__and__": {"symbol": "&", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
-    "__or__": {"symbol": "|", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
-    "__xor__": {"symbol": "^", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
-    "__lshift__": {"symbol": "<<", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
-    "__rshift__": {"symbol": ">>", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
-    "__neg__": {"symbol": "-", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
-    "__pos__": {"symbol": "+", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
-    "__invert__": {"symbol": "~", "family": "unary", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__add__": {"symbol": "+", "codegen_symbol": "+", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__sub__": {"symbol": "−", "codegen_symbol": "-", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__mul__": {"symbol": "×", "codegen_symbol": "*", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__rmul__": {"symbol": "×", "codegen_symbol": "*", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__truediv__": {"symbol": "÷", "codegen_symbol": "/", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__floordiv__": {"symbol": "//", "codegen_symbol": "//", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__mod__": {"symbol": "%", "codegen_symbol": "%", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__pow__": {"symbol": "**", "codegen_symbol": "**", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__matmul__": {"symbol": "@", "codegen_symbol": "@", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__and__": {"symbol": "&", "codegen_symbol": "&", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__or__": {"symbol": "|", "codegen_symbol": "|", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__xor__": {"symbol": "^", "codegen_symbol": "^", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__lshift__": {"symbol": "<<", "codegen_symbol": "<<", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__rshift__": {"symbol": ">>", "codegen_symbol": ">>", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__neg__": {"symbol": "−", "codegen_symbol": "-", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
+    "__pos__": {"symbol": "+", "codegen_symbol": "+", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
+    "__invert__": {"symbol": "~", "codegen_symbol": "~", "family": "unary", "palette_category": "Logic", "palette_section": "Bitwise operators"},
 }
 
 # Native Shape algebra keeps its actual Python method identity and signature.
@@ -2132,7 +2132,7 @@ def export_python_code(payload):
                 receiver = value_expression(receiver_socket)
                 args = [item for item in sockets if item is not receiver_socket]
                 operands = [value_expression(item) for item in args]
-                symbol = _PYTHON_OPERATOR_SPECS.get(method_name, {}).get("symbol")
+                symbol = _PYTHON_OPERATOR_SPECS.get(method_name, {}).get("codegen_symbol")
                 if symbol is None:
                     raise ValueError("Unsupported native operator: " + method_name)
                 if method_name in {"__neg__", "__pos__", "__invert__"}:

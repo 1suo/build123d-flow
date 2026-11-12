@@ -47,6 +47,7 @@ jobs:
           python scripts/prepare-pyodide.py /tmp/pyodide-314.0.7.tar.bz2 public/pyodide/v314.0.7/full public/python/setup.py
       - run: npm install
       - run: npm run typecheck
+      - run: python -m unittest discover -s tests -p 'test_*.py'
       - run: python -m py_compile public/python/flow_runtime.py tests/graph_workflows.py
       - run: npm run build
         env:

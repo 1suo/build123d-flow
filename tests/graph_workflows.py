@@ -224,8 +224,44 @@ def run_catalog_metadata_tests():
 
 
 
+def run_python_export_tests():
+    box = _definition("Box")
+    cylinder = _definition("Cylinder")
+    union = _shape_operator("__add__")
+    union_inputs = [socket["name"] for socket in union["inputs"]]
+    nodes = [
+        _node(box, "box_a", {"length": 12, "width": 12, "height": 12}),
+        _node(cylinder, "cylinder_b", {"radius": 5, "height": 16}),
+        _node(union, "union"),
+    ]
+    edges = [
+        _edge("box_a", "union", union_inputs[0]),
+        _edge("cylinder_b", "union", union_inputs[1]),
+    ]
+    source = runtime.export_python_code(json.dumps({"nodes": nodes, "edges": edges}))
+    compile(source, "<build123d-flow-export>", "exec")
+    if "import build123d as b3d" not in source:
+        raise AssertionError("Python export is missing the build123d import")
+    if "b3d.Box(" not in source or "b3d.Cylinder(" not in source:
+        raise AssertionError("Python export did not preserve native build123d constructors")
+    if "_node_1 + _node_2" not in source or "result = _node_3" not in source:
+        raise AssertionError("Python export did not preserve the native Shape operator graph")
+    if "flow.boolean." in source:
+        raise AssertionError("Python export still references app-authored Boolean wrappers")
+
+    unsupported = _core_node("core.math.add", "add")
+    try:
+        runtime.export_python_code(json.dumps({"nodes": [unsupported], "edges": []}))
+    except ValueError as exc:
+        if "Unsupported nodes" not in str(exc):
+            raise
+    else:
+        raise AssertionError("Python export silently accepted an unsupported Flow operation")
+    return {"name": "Python export", "native_constructors": True, "native_operators": True}
+
+
 def run_graph_workflow_tests():
-    results = [run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_shape_collection_workflow_test()]
+    results = [run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_shape_collection_workflow_test(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

@@ -118,9 +118,9 @@ def run_data_mapping_tests():
     )
     tree_items = runtime._map_item_inputs(
         {"value": [[1, 2], [3, 4]]}, {"value": "tree"},
-        lambda values: sum(values["value"]),
+        lambda values: values["value"] * 2,
     )
-    if list_items != [[1, 2], [3, 4]] or tree_items != [3, 7]:
+    if list_items != [[1, 2], [3, 4]] or tree_items != [[2, 4], [6, 8]]:
         raise AssertionError("List and tree stream semantics were conflated")
 
     shape_list = runtime._annotation_metadata(list[runtime.b3d.Face])

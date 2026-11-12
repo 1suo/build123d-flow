@@ -13,7 +13,7 @@ destination = Path(sys.argv[2])
 destination.mkdir(parents=True, exist_ok=True)
 
 core_files = {
-    "pyodide.js",
+    "pyodide.mjs",
     "pyodide.asm.mjs",
     "pyodide.asm.wasm",
     "python_stdlib.zip",

@@ -168,9 +168,9 @@ def run_catalog_metadata_tests():
         "core.value.string": "flow",
         "core.value.boolean": "flow",
         "core.python.function": "python",
-        "build123d_flow.union": "flow",
-        "build123d_flow.difference": "flow",
-        "build123d_flow.intersection": "flow",
+        "flow.boolean.union": "flow",
+        "flow.boolean.difference": "flow",
+        "flow.boolean.intersection": "flow",
     }
     for node_id, expected in expected_sources.items():
         actual = catalog[node_id]["source"]
@@ -185,7 +185,7 @@ def run_catalog_metadata_tests():
     if box["palette_category"] != "Create":
         raise AssertionError("Geometry constructors must use their declared API palette group")
 
-    for node_id in ("build123d_flow.union", "build123d_flow.difference", "build123d_flow.intersection"):
+    for node_id in ("flow.boolean.union", "flow.boolean.difference", "flow.boolean.intersection"):
         definition = catalog[node_id]
         if definition["palette_category"] != "Boolean":
             raise AssertionError(node_id + " is missing its Boolean palette declaration")

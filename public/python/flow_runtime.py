@@ -9,6 +9,7 @@ import pkgutil
 import typing
 import types
 import collections.abc
+import hashlib
 
 import build123d as b3d
 
@@ -19,6 +20,9 @@ _CATALOG_HINT_TARGETS = {}
 _LAST_VALUES = {}
 _LAST_SHAPE = None
 _DISCOVERY_REPORT = {}
+_EVAL_CACHE = {}
+_PREVIEW_CACHE = {}
+_CACHE_LIMIT = 128
 
 
 def _type_name(annotation):
@@ -1290,8 +1294,24 @@ def _map_item_inputs(params, access, invoke, matching="longest", path=()):
         child = dict(params)
         for name, value in zip(names, row):
             child[name] = value
-        results.append(_map_item_inputs(child, access, invoke, matching, path + (index,)))
-    return results
+        results.append(_map_item_inputs(cdef _cache_key(definition_id, params, upstream_keys):
+    payload = json.dumps([definition_id, params, sorted(upstream_keys.items())],
+                         sort_keys=True, separators=(",", ":"), default=repr, allow_nan=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _cacheable(definition):
+    node_id, name, category = definition.get("id", ""), definition.get("name", ""), definition.get("category", "")
+    if node_id.startswith("core.python.") or category.endswith((" Methods", " Properties")):
+        return False
+    if name in {"BuildPart", "BuildSketch", "BuildLine", "Build123d", "BuildSheet"}:
+        return False
+    return True
+
+
+def _trim_cache(cache):
+    while len(cache) > _CACHE_LIMIT:
+        cache.pop(next(iter(cache)))
 
 
 def evaluate_graph_json(payload):
@@ -1300,21 +1320,16 @@ def evaluate_graph_json(payload):
     graph = json.loads(payload)
     nodes = {node["id"]: node for node in graph.get("nodes", [])}
     edges = graph.get("edges", [])
-    incoming = {}
-    outgoing = {node_id: [] for node_id in nodes}
+    incoming, outgoing = {}, {node_id: [] for node_id in nodes}
     indegree = {node_id: 0 for node_id in nodes}
-
     for edge in edges:
         source, target = edge.get("source"), edge.get("target")
-        source_handle, target_handle = edge.get("sourceHandle"), edge.get("targetHandle")
         if source not in nodes or target not in nodes:
             continue
-        incoming.setdefault(target, {})[target_handle] = (source, source_handle)
+        incoming.setdefault(target, {})[edge.get("targetHandle")] = (source, edge.get("sourceHandle"))
         outgoing[source].append(target)
         indegree[target] += 1
-
-    queue = [node_id for node_id, degree in indegree.items() if degree == 0]
-    order = []
+    queue, order = [node_id for node_id, degree in indegree.items() if degree == 0], []
     while queue:
         node_id = queue.pop(0)
         order.append(node_id)
@@ -1322,15 +1337,12 @@ def evaluate_graph_json(payload):
             indegree[target] -= 1
             if indegree[target] == 0:
                 queue.append(target)
-
     if len(order) != len(nodes):
-        return json.dumps({
-            "previews": {}, "errors": {"graph": "Graph contains a cycle"}, "order": order
-        })
+        return json.dumps({"previews": {}, "errors": {"graph": "Graph contains a cycle"},
+                           "order": order, "cache": {"hits": 0, "misses": 0}})
 
-    values = {}
-    previews = {}
-    errors = {}
+    values, previews, errors, node_keys = {}, {}, {}, {}
+    cache_hits = cache_misses = 0
     for node_id in order:
         node = nodes[node_id]
         definition_id = node.get("data", {}).get("definition", {}).get("id")
@@ -1338,44 +1350,50 @@ def evaluate_graph_json(payload):
         if definition is None:
             errors[node_id] = "Unknown or unavailable API node: " + str(definition_id)
             continue
-
         params = dict(node.get("data", {}).get("params", {}))
-        failed_dependency = False
-        for input_name, source_ref in incoming.get(node_id, {}).items():
-            source_id, output_name = source_ref
+        upstream_keys, failed_dependency = {}, False
+        for input_name, (source_id, output_name) in incoming.get(node_id, {}).items():
             if source_id in errors or source_id not in values:
                 errors[node_id] = "Input depends on a failed node: " + source_id
                 failed_dependency = True
                 break
-            source_value = values[source_id].get(output_name)
-            source_node = nodes[source_id]
-            source_definition = source_node.get("data", {}).get("definition", {})
-            target_definition = node.get("data", {}).get("definition", {})
-            params[input_name] = source_value
+            params[input_name] = values[source_id].get(output_name)
+            source_key = node_keys.get(source_id)
+            if source_key is not None:
+                upstream_keys[input_name] = source_key
+            else:
+                failed_dependency = True
         if failed_dependency:
+            if node_id not in errors:
+                errors[node_id] = "Input depends on a non-cacheable or failed node"
             continue
-
+        can_cache = _cacheable(definition) and len(upstream_keys) == len(incoming.get(node_id, {}))
         try:
+            key = _cache_key(definition_id, node.get("data", {}).get("params", {}), upstream_keys) if can_cache else None
+            cached = _EVAL_CACHE.get(key) if key else None
+            if cached is not None:
+                values[node_id] = {"result": cached}
+                node_keys[node_id] = key
+                cache_hits += 1
+                _EVAL_CACHE[key] = cached
+                continue
+            cache_misses += 1
             callable_obj = _resolve_callable(definition_id)
             invoke = lambda mapped: _call_with_coercion(
-                callable_obj, mapped,
-                signature=_CATALOG_SIGNATURES.get(definition_id),
-                hint_target=_CATALOG_HINT_TARGETS.get(definition_id),
-            )
-            input_access = {
-                socket["name"]: socket.get("data_access", "item")
-                for socket in definition.get("inputs", [])
-            }
-            result = _map_item_inputs(
-                params, input_access, invoke,
-                matching=definition.get("data_matching", "longest"),
-            )
+                callable_obj, mapped, signature=_CATALOG_SIGNATURES.get(definition_id),
+                hint_target=_CATALOG_HINT_TARGETS.get(definition_id))
+            input_access = {socket["name"]: socket.get("data_access", "item")
+                            for socket in definition.get("inputs", [])}
+            result = _map_item_inputs(params, input_access, invoke,
+                                      matching=definition.get("data_matching", "longest"))
             values[node_id] = {"result": result}
+            if key:
+                _EVAL_CACHE[key] = result
+                _trim_cache(_EVAL_CACHE)
+                node_keys[node_id] = key
         except Exception as exc:
             errors[node_id] = type(exc).__name__ + ": " + str(exc)
 
-    # Explicitly visible geometry nodes are previewed even when they feed other nodes.
-    # Older graph documents without a visibility flag retain terminal-output behavior.
     source_nodes = {edge.get("source") for edge in edges}
     for node_id in order:
         if node_id not in values:
@@ -1384,16 +1402,27 @@ def evaluate_graph_json(payload):
         if visible is False or (visible is not True and node_id in source_nodes):
             continue
         result = values[node_id].get("result")
+        key = node_keys.get(node_id)
         try:
-            preview = _mesh_preview(result)
+            preview = _PREVIEW_CACHE.get(key) if key else None
+            if preview is None:
+                preview = _mesh_preview(result)
+                if preview is not None and key:
+                    _PREVIEW_CACHE[key] = preview
+                    _trim_cache(_PREVIEW_CACHE)
             if preview is not None:
                 previews[node_id] = preview
                 _LAST_SHAPE = _as_export_shape(result)
         except Exception as exc:
             errors[node_id] = "Preview: " + str(exc)
-
     _LAST_VALUES = values
-    return json.dumps(_json_clean({"previews": previews, "errors": errors, "order": order, "socket_values": {node_id: {name: _inspect_value(value) for name, value in outputs.items()} for node_id, outputs in values.items()}}), allow_nan=False)
+    return json.dumps(_json_clean({
+        "previews": previews, "errors": errors, "order": order,
+        "cache": {"hits": cache_hits, "misses": cache_misses},
+        "socket_values": {node_id: {name: _inspect_value(value) for name, value in outputs.items()}
+                          for node_id, outputs in values.items()},
+    }), allow_nan=False)
+s.items()} for node_id, outputs in values.items()}}), allow_nan=False)
 
 
 

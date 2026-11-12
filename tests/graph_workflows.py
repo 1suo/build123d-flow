@@ -201,6 +201,13 @@ def run_catalog_metadata_tests():
             raise AssertionError(method_name + " is missing its native operator identity")
         if definition["palette_category"] != "Boolean":
             raise AssertionError(method_name + " is missing its Boolean palette placement")
+        if method_name == "__add__":
+            other = next(socket for socket in definition["inputs"] if socket["name"] == "other")
+            if other.get("item_type") != "Shape" or other.get("data_access") != "structure":
+                raise AssertionError("Shape + must retain its Shape | Iterable[Shape] input contract")
+            output = definition["outputs"][0]
+            if not {"Shape", "Compound"}.issubset(set(output.get("variants", []))):
+                raise AssertionError("Shape + must expose its Self | Compound return contract")
     if any(node_id.startswith("flow.boolean.") for node_id in catalog):
         raise AssertionError("Legacy app-authored Boolean wrappers remain in the catalog")
     return {"name": "catalog metadata", "explicit_provenance": True, "explicit_palette": True}

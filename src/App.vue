@@ -398,6 +398,8 @@ async function evaluate() {
   const revision = ++evaluationRevision;
   const validation = validateGraph(graph.value);
   if (validation.length) {
+    previews.value = {};
+    socketValues.value = {};
     errors.value = validation;
     return;
   }
@@ -415,6 +417,9 @@ async function evaluate() {
     for (const node of nodes.value as any[]) node.data.error = result.errors[node.id] ?? "";
   } catch (error) {
     if (revision === evaluationRevision) {
+      previews.value = {};
+      socketValues.value = {};
+      for (const node of nodes.value as any[]) node.data.error = String(error);
       errors.value = [String(error)];
       logActivity(String(error), "error");
     }

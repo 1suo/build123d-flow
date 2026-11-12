@@ -86,6 +86,7 @@ if not restored_environment:
         "svgpathtools>=1.5.1,<2",
         "anytree>=2.8,<3",
         "ezdxf>=1.1,<2",
+        "pyparsing>=3.1,<4",
         "fonttools>=4.39,<5",
         "ipython>=8,<10",
         "ocpsvg>=0.7,<0.8",

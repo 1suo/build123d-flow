@@ -184,9 +184,10 @@ function nodeIcon(item: NodeDefinition): string {
     [/polygon/, "/icons/cad/polygon.svg"],
     [/revolve|revolution/, "/icons/cad/revolve.svg"],
   ];
-  return icons.find(([pattern]) => pattern.test(name))?.[1]
+  const path = icons.find(([pattern]) => pattern.test(name))?.[1]
     ?? (item.kind === "value" || item.kind === "enum" ? "/icons/cad/value.svg"
       : item.kind === "operation" ? "/icons/cad/node.svg" : "/icons/cad/shape.svg");
+  return `${import.meta.env.BASE_URL}${path.replace(/^\//, "")}`;
 }
 onMounted(() => {
   try {

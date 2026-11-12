@@ -157,7 +157,10 @@ def run_shape_collection_workflow_test():
         _edge("box_a", "union", union_inputs[0]),
         _edge("shape_list", "union", union_inputs[1]),
     ]
-    result = _run("List[Shape] → item-wise Union", nodes, edges, "union")
+    other_socket = next(socket for socket in union["inputs"] if socket["name"] == union_inputs[1])
+    if other_socket.get("data_access") != "structure":
+        raise AssertionError("Shape | Iterable[Shape] operator input must preserve the collection")
+    result = _run("Shape + Iterable[Shape]", nodes, edges, "union")
     return {"name": "shape collection", "preview": result["preview"], "step_bytes": result["step_bytes"]}
 
 

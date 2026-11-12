@@ -553,8 +553,8 @@ async function downloadPython() {
               <div class="settings-divider"></div>
               <div class="settings-export-actions">
                 <span>Export</span>
-                <Button icon="pi pi-download" label="STEP model" text severity="secondary" @click="downloadStep(); settingsPopover?.hide()" />
-                <Button icon="pi pi-file-export" label="Python script" text severity="secondary" @click="downloadPython()" />
+                <Button icon="pi pi-download" label="STEP model" text severity="secondary" @click="downloadStep(); settingsPopover?.hide()" :disabled="!runtime.isReady" />
+                <Button icon="pi pi-file-export" label="Python script" text severity="secondary" @click="downloadPython()" :disabled="!runtime.isReady || !nodes.length" />
               </div>
             </Popover>
           </div>

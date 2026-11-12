@@ -71,7 +71,7 @@ The runtime assembles the catalog from three explicit providers:
 - Python operator-protocol discovery registers supported dunder methods declared by build123d classes as native API nodes. Shape `__add__`, `__sub__` and `__and__` are exposed as union, difference and intersection while retaining their canonical method identity and `source="build123d"`.
 - `_register_python_nodes()` registers the Python Function node with `source="python"`.
 
-Each provider also supplies `palette_category` and `palette_section`. The old name-substring taxonomy and the default-to-build123d provenance fallback have been removed. Operator identity is explicit metadata on each discovered node; only a defined set of Python algebra/transform protocol methods is exposed, never arbitrary dunder internals. Catalog construction rejects entries that omit either field. Boolean utility node IDs use the `flow.boolean.*` namespace; their ownership is explicit in both identity and metadata.
+Each provider also supplies `palette_category` and `palette_section`. The old name-substring taxonomy and the default-to-build123d provenance fallback have been removed. Operator identity is explicit metadata on each discovered node; only a defined set of Python algebra/transform protocol methods is exposed, never arbitrary dunder internals. Catalog construction rejects entries that omit either field. Native Boolean operator nodes use canonical build123d class and special-method identities.
 
 ## Discovery and evaluation
 

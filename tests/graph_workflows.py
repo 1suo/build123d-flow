@@ -111,7 +111,7 @@ def run_data_mapping_tests():
     )
     if preserved != (1, 2, 3):
         raise AssertionError("Variadic argument collection was unexpectedly item-mapped")
-    rotation_annotation = typing.Union[runtime.b3d.Rotation, tuple[float, float, float]]
+    rotation_annotation = runtime.typing.Union[runtime.b3d.Rotation, tuple[float, float, float]]
     rotation_metadata = runtime._annotation_metadata(rotation_annotation)
     if rotation_metadata.get("data_access") != "structure":
         raise AssertionError("Rotation | tuple[float, float, float] must not be item-mapped")

@@ -953,9 +953,7 @@ def discover(include_full=True):
                     hints = {}
 
                 for parameter in signature.parameters.values():
-                    annotation = _resolve_self_annotation(
-                        hints.get(parameter.name, parameter.annotation), owner
-                    )
+                    annotation = hints.get(parameter.name, parameter.annotation)
                     if parameter.kind == parameter.VAR_POSITIONAL:
                         default, default_repr, required, has_default = [], "()", False, True
                         socket_type = "List"
@@ -1130,7 +1128,9 @@ def discover(include_full=True):
                     "annotation": str(owner), "required": True, "data_access": "item",
                 }]
                 for parameter in parameters[1:]:
-                    annotation = hints.get(parameter.name, parameter.annotation)
+                    annotation = _resolve_self_annotation(
+                        hints.get(parameter.name, parameter.annotation), owner
+                    )
                     if parameter.kind == parameter.VAR_POSITIONAL:
                         default, default_repr, required, has_default = [], "()", False, True
                         socket_type = "List"

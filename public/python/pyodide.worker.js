@@ -1,5 +1,5 @@
-/* Pyodide runs in a dedicated classic worker so large WASM modules compile off the UI thread. */
-const VERSION="314.0.7", CDN_ROOTS=["https://cdn.jsdelivr.net/pyodide/","https://fastly.jsdelivr.net/pyodide/","https://gcore.jsdelivr.net/pyodide/"], MARKER=".build123d-flow-environment";
+/* Pyodide runs in a dedicated classic worker; all runtime assets are same-origin. */
+const VERSION="314.0.7", MARKER=".build123d-flow-environment";
 let pyodide=null;
 const status=message=>self.postMessage({type:"status",message});
 const sync=(FS,populate)=>new Promise((resolve,reject)=>FS.syncfs(populate,e=>e?reject(e):resolve()));
@@ -9,9 +9,9 @@ async function initialize(base){
  status("Preparing Python environment in background worker…");
  const [setup,runtime]=await Promise.all(["setup.py","flow_runtime.py"].map(async f=>{const r=await fetch(base+"python/"+f);if(!r.ok)throw Error("Could not load "+f+": "+r.status);return r.text();}));
  const key=VERSION+":"+await hash(setup);
- let indexURL="",loadErrors=[];
- for(const root of CDN_ROOTS){const candidate=root+"v"+VERSION+"/full/";try{status("Loading Pyodide from "+new URL(root).host+"…");importScripts(candidate+"pyodide.js");indexURL=candidate;break;}catch(e){loadErrors.push(root+": "+String(e));}}
- if(!indexURL)throw Error("Could not download Pyodide "+VERSION+" from the available CDNs. Check access to cdn.jsdelivr.net, fastly.jsdelivr.net and gcore.jsdelivr.net. "+loadErrors.join(" | "));
+ const indexURL=new URL(base+"pyodide/v"+VERSION+"/full/",self.location.href).href;
+ status("Loading local Pyodide runtime…");
+ try{importScripts(indexURL+"pyodide.js");}catch(e){throw Error("Could not load the self-hosted Pyodide loader at "+indexURL+"pyodide.js: "+String(e));}
  let persistent=false,restored=false;
  pyodide=await loadPyodide({indexURL,fsInit:async(FS,info)=>{
   try{if(!FS.filesystems?.IDBFS)throw Error("IDBFS unavailable");FS.mount(FS.filesystems.IDBFS,{},info.sitePackages);persistent=true;status("Checking saved Python environment…");await sync(FS,true);
@@ -20,7 +20,7 @@ async function initialize(base){
   }catch(e){persistent=false;status("Persistent cache unavailable; using temporary storage ("+e+")");}
  }});
  pyodide.setStdout({batched:s=>{if(s.trim())status(s.trim());}});pyodide.setStderr({batched:s=>{if(s.trim())status("Python: "+s.trim());}});
- if(!restored)await pyodide.loadPackage(["micropip"]);
+ status("Loading micropip from the local runtime…");await pyodide.loadPackage(["micropip"]);
  status(restored?"Verifying saved Python packages…":"Installing Python dependencies…");await pyodide.runPythonAsync(setup);
  status("Loading graph runtime…");pyodide.FS.writeFile("/flow_runtime.py",runtime);await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/')");await pyodide.runPythonAsync("import flow_runtime");
  if(persistent)try{status("Saving Python environment…");const dir=pyodide.runPython("import sysconfig; sysconfig.get_paths()['purelib']");pyodide.FS.writeFile(dir+"/"+MARKER,key);await sync(pyodide.FS,false);status(restored?"Python environment restored":"Python environment saved");}catch(e){status("Could not persist environment ("+e+")");}

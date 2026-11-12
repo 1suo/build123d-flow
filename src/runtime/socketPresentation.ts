@@ -24,7 +24,7 @@ export function socketTypeLabel(socket: SocketDefinition): string {
 export function socketColor(socket: SocketDefinition): string {
   const type = socket.item_type || socket.value_type || socket.type;
   if (GEOMETRY_TYPES.has(type)) return "var(--socket-geometry)";
-  if (["Number", "Boolean", "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis", "Color"].includes(type)) return "var(--socket-numeric)";
+  if (["Number", "Boolean", "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis", "Color", "Matrix"].includes(type)) return "var(--socket-numeric)";
   if (["String", "Code", "Enum"].includes(type)) return "var(--socket-text)";
   return "var(--socket-generic)";
 }

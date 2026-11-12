@@ -90,6 +90,7 @@ def _type_name(annotation):
         "int": "Number", "float": "Number", "bool": "Boolean", "str": "String",
         "vector": "Vector3", "vector2": "Vector2", "vector3": "Vector3",
         "rotation": "Rotation", "plane": "Plane", "location": "Location", "axis": "Axis", "color": "Color",
+        "matrix": "Matrix",
         "shape": "Shape", "solid": "Solid", "compound": "Compound", "face": "Face",
         "edge": "Edge", "wire": "Wire", "shell": "Shell", "part": "Part",
         "sketch": "Sketch", "code": "Code", "callable": "Code",
@@ -1915,6 +1916,9 @@ def _coerce_annotation(value, annotation):
             return b3d.Axis(*value)
         if name == "color" and isinstance(value, (list, tuple)):
             return b3d.Color(*value)
+        if name == "matrix" and isinstance(value, (list, tuple)):
+            # A 4×3 affine row list is the JSON shape of a Matrix.
+            return b3d.Matrix(value if any(isinstance(row, (list, tuple)) for row in value) else [list(value)])
         if annotation is bool:
             return bool(value)
         if annotation is int:

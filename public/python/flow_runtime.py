@@ -1669,10 +1669,16 @@ def evaluate_graph_json(payload):
 
             cache_misses += 1
             callable_obj = _resolve_callable(definition_id)
+            signature = _CATALOG_SIGNATURES.get(definition_id)
+            hint_target = _CATALOG_HINT_TARGETS.get(definition_id)
+            params = _coerce_literal_inputs(
+                params, signature, hint_target,
+                set(params) - set(incoming.get(node_id, {})),
+            )
             invoke = lambda mapped: _call_with_coercion(
                 callable_obj, mapped,
-                signature=_CATALOG_SIGNATURES.get(definition_id),
-                hint_target=_CATALOG_HINT_TARGETS.get(definition_id),
+                signature=signature,
+                hint_target=hint_target,
             )
             input_access = {
                 socket["name"]: socket.get("data_access", "item")
@@ -1808,6 +1814,44 @@ def _coerce_annotation(value, annotation):
         if annotation is str:
             return str(value)
     return value
+
+
+def _coerce_literal_inputs(params, signature, hint_target, literal_names):
+    """Normalize serialized literal values before dataflow mapping.
+
+    Connected outputs are already runtime values. Unconnected editor parameters
+    are JSON values and must first be decoded according to their Python
+    annotations; otherwise coordinate/rotation arrays are mistaken for streams
+    and split into scalar invocations before coercion can run.
+    """
+    if hint_target is False:
+        target, hints = None, {}
+    else:
+        target = hint_target
+        try:
+            hints = typing.get_type_hints(target) if target is not None else {}
+        except Exception:
+            hints = {}
+    converted = dict(params)
+    for name in literal_names:
+        if name not in converted:
+            continue
+        parameter = signature.parameters.get(name) if signature else None
+        annotation = hints.get(name, parameter.annotation if parameter else None)
+        if isinstance(annotation, str) and target is not None:
+            try:
+                annotation = eval(annotation, getattr(target, "__globals__", {}))
+            except Exception:
+                pass
+        if annotation is None or annotation is inspect.Signature.empty:
+            continue
+        try:
+            converted[name] = _coerce_annotation(converted[name], annotation)
+        except (TypeError, ValueError, KeyError, OverflowError):
+            # A list supplied to a scalar socket can intentionally be a stream.
+            # Leave it intact for the declared data_access policy to handle.
+            continue
+    return converted
 
 
 def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):

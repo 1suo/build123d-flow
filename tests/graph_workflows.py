@@ -116,6 +116,17 @@ def run_data_mapping_tests():
     if rotation_metadata.get("data_access") != "structure":
         raise AssertionError("Rotation | tuple[float, float, float] must not be item-mapped")
     rotation_value = [0, 0, 0]
+    rotation_signature = runtime.inspect.Signature([
+        runtime.inspect.Parameter(
+            "rotation", runtime.inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=rotation_annotation,
+        )
+    ])
+    normalized_rotation = runtime._coerce_literal_inputs(
+        {"rotation": rotation_value}, rotation_signature, False, {"rotation"}
+    )
+    if not isinstance(normalized_rotation["rotation"], runtime.b3d.Rotation):
+        raise AssertionError("Serialized Rotation literal must be decoded before data mapping")
     preserved_rotation = runtime._map_item_inputs(
         {"rotation": rotation_value},
         {"rotation": rotation_metadata.get("data_access", "item")},

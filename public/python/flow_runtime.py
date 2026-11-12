@@ -1828,7 +1828,7 @@ def _python_code_literal(value, annotation=None):
                     break
             except TypeError:
                 pass
-            if candidate_origin in (list, tuple, set, frozenset) and isinstance(value, (list, tuple, set)):
+            if candidate_origin in (list, tuple, set, frozenset, collections.abc.Sequence, collections.abc.Iterable, collections.abc.Collection) and isinstance(value, (list, tuple, set)):
                 selected = candidate
                 break
         annotation = selected or (candidates[0] if candidates else None)
@@ -1940,7 +1940,7 @@ def export_python_code(payload):
     variables = {node_id: "_node_{}".format(index + 1) for index, node_id in enumerate(order)}
     unsupported = []
     operator_symbols = {
-        "__add__": "+", "__sub__": "-", "__mul__": "*", "__truediv__": "/",
+        "__add__": "+", "__sub__": "-", "__mul__": "*", "__rmul__": "*", "__truediv__": "/",
         "__floordiv__": "//", "__mod__": "%", "__pow__": "**", "__matmul__": "@",
         "__and__": "&", "__or__": "|", "__xor__": "^", "__lshift__": "<<",
         "__rshift__": ">>", "__neg__": "-", "__pos__": "+", "__invert__": "~",

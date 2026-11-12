@@ -12,6 +12,12 @@ archive = Path(sys.argv[1])
 destination = Path(sys.argv[2])
 destination.mkdir(parents=True, exist_ok=True)
 
+# Pyodide wheels used by micropip for the build123d/ezdxf/requests stack.
+PYODIDE_PACKAGE_ROOTS = {
+    "micropip", "pyparsing", "wrapt", "deprecated", "svgwrite",
+    "idna", "packaging", "urllib3", "charset-normalizer", "certifi",
+}
+
 core_files = {
     "pyodide.mjs",
     "pyodide.asm.mjs",
@@ -37,7 +43,7 @@ with tarfile.open(archive, "r:bz2") as bundle:
     packages = lock.get("packages", {})
 
     required_packages = set()
-    pending = ["micropip"]
+    pending = sorted(PYODIDE_PACKAGE_ROOTS)
     while pending:
         package_name = pending.pop()
         if package_name in required_packages:

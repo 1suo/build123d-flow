@@ -14,7 +14,7 @@ destination.mkdir(parents=True, exist_ok=True)
 
 # Pyodide wheels used by micropip for the build123d/ezdxf/requests stack.
 PYODIDE_PACKAGE_ROOTS = {
-    "micropip", "pyparsing", "wrapt", "deprecated", "svgwrite",
+    "micropip", "requests", "pyparsing", "wrapt", "deprecated", "svgwrite",
     "idna", "packaging", "urllib3", "charset-normalizer", "certifi",
 }
 

@@ -20,7 +20,7 @@ async function initialize(base){
   }catch(e){persistent=false;status("Persistent cache unavailable; using temporary storage ("+e+")");}
  }});
  pyodide.setStdout({batched:s=>{if(s.trim())status(s.trim());}});pyodide.setStderr({batched:s=>{if(s.trim())status("Python: "+s.trim());}});
- status("Loading micropip and required Pyodide packages from the local runtime…");await pyodide.loadPackage(["micropip","pyparsing","wrapt","deprecated","svgwrite","idna","packaging","urllib3","charset-normalizer","certifi"]);
+ status("Loading micropip and required Pyodide packages from the local runtime…");await pyodide.loadPackage(["micropip","requests","pyparsing","wrapt","deprecated","svgwrite","idna","packaging","urllib3","charset-normalizer","certifi"]);
  status(restored?"Verifying saved Python packages…":"Installing Python dependencies…");await pyodide.runPythonAsync(setup);
  status("Loading graph runtime…");pyodide.FS.writeFile("/flow_runtime.py",runtime);await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/')");await pyodide.runPythonAsync("import flow_runtime");
  if(persistent)try{status("Saving Python environment…");const dir=pyodide.runPython("import sysconfig; sysconfig.get_paths()['purelib']");pyodide.FS.writeFile(dir+"/"+MARKER,key);await sync(pyodide.FS,false);status(restored?"Python environment restored":"Python environment saved");}catch(e){status("Could not persist environment ("+e+")");}

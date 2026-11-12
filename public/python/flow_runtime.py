@@ -814,7 +814,7 @@ def _python_function(code, a=None, b=None, c=None):
 
 
 def discover(include_full=True):
-    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS
+    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
     found = {}
     callables = {}
     signatures = {}
@@ -1191,6 +1191,9 @@ def discover(include_full=True):
     }
     global _DISCOVERY_REPORT
     _DISCOVERY_REPORT = report
+    # Catalog replacement can change a node callable or signature; discard old values.
+    _EVAL_CACHE.clear()
+    _PREVIEW_CACHE.clear()
     _CATALOG = found
     _CATALOG_CALLABLES = callables
     _CATALOG_SIGNATURES = signatures

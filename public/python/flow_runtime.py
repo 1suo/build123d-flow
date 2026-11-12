@@ -23,6 +23,8 @@ _DISCOVERY_REPORT = {}
 _EVAL_CACHE = {}
 _PREVIEW_CACHE = {}
 _CACHE_LIMIT = 128
+# Optional curated presentation/eligibility overrides keyed by canonical node id.
+_NODE_METADATA_OVERRIDES = {}
 
 
 def _type_name(annotation):
@@ -220,6 +222,12 @@ def _candidate_rejection(obj):
         return "not defined in build123d"
     if getattr(obj, "__name__", "").startswith("_"):
         return "private name"
+    if inspect.isclass(obj):
+        # Builder/context-manager lifecycles cannot be represented by a stateless node call.
+        for owner in getattr(obj, "__mro__", (obj,)):
+            members = vars(owner)
+            if "__enter__" in members and "__exit__" in members:
+                return "stateful context-manager class"
     try:
         _api_signature(obj)
     except (TypeError, ValueError) as exc:
@@ -955,6 +963,11 @@ def discover(include_full=True):
     # Only members declared by build123d classes are exposed; external OCP and
     # Python implementation details stay out of the graph catalog.
     for cls in api_classes:
+        # Instance methods are useful as nodes on shapes and value-like geometry objects.
+        if cls not in shape_classes and cls.__name__ not in {
+            "Vector", "Vector2D", "Plane", "Location", "Rotation", "Axis", "Color",
+        }:
+            continue
         seen_members = set()
         for owner in getattr(cls, "__mro__", (cls,)):
             if getattr(owner, "__module__", "").split(".")[0] != "build123d":
@@ -1144,6 +1157,20 @@ def discover(include_full=True):
             "outputs": [{"name": "result", "type": "Shape", "annotation": "Shape"}],
         }
         callables[node_id] = function
+
+    # Keep curated presentation/eligibility policy separate from introspection.
+    for node_id, override in _NODE_METADATA_OVERRIDES.items():
+        if node_id not in found:
+            continue
+        if override.get("hidden"):
+            found.pop(node_id, None)
+            callables.pop(node_id, None)
+            signatures.pop(node_id, None)
+            hint_targets.pop(node_id, None)
+            continue
+        for field in ("name", "category", "description"):
+            if field in override:
+                found[node_id][field] = override[field]
 
     report["node_count"] = len(found)
     report["kind_counts"] = {}

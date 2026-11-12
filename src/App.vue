@@ -563,7 +563,7 @@ async function downloadStep() {
             @connect="onConnect"
             @edge-update="onEdgeUpdate"
           >
-            <Background pattern-color="#39352e" :gap="22" />
+            <Background :pattern-color="'var(--tikal-border)'" :gap="22" />
           </VueFlow>
           <div class="canvas-bottom-dock" role="toolbar" aria-label="Canvas tools">
             <Button icon="pi pi-expand" text rounded severity="secondary" aria-label="Fit graph" title="Fit graph" @click="fitView({ padding: 0.12 })" />

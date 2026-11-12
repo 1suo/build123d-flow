@@ -224,6 +224,32 @@ def run_catalog_metadata_tests():
 
 
 
+def run_preview_style_test():
+    box = _definition("Box")
+    style = runtime._CATALOG["core.preview.style"]
+    nodes = [
+        _node(box, "box", {"length": 10, "width": 12, "height": 14}),
+        _node(style, "styled", {"face_color": "#d8c3a5", "edge_color": "#2b2118",
+                                "vertex_color": "#ff8800", "opacity": 0.7,
+                                "show_edges": True, "show_vertices": False}),
+    ]
+    edges = [_edge("box", "styled", "shape")]
+    result = json.loads(runtime.evaluate_graph_json(json.dumps({"nodes": nodes, "edges": edges})))
+    if result["errors"] or "styled" not in result["previews"]:
+        raise AssertionError("Preview Style failed: " + json.dumps(result["errors"]))
+    preview = result["previews"]["styled"]
+    if preview.get("faceColor") != "#d8c3a5" or preview.get("edgeColor") != "#2b2118":
+        raise AssertionError("Preview Style colors were not applied")
+    if preview.get("opacity") != 0.7 or preview.get("showVertices") is not False:
+        raise AssertionError("Preview Style opacity/visibility was not applied")
+    if not preview.get("edges") or not preview.get("points"):
+        raise AssertionError("Topology edge/vertex geometry was not extracted")
+    source = runtime.export_python_code(json.dumps({"nodes": nodes, "edges": edges}))
+    compile(source, "<preview-style-export>", "exec")
+    if "result = _node_2" not in source:
+        raise AssertionError("Preview Style must export as a geometry pass-through")
+    return {"name": "preview style and topology", "faces": True, "edges": True, "vertices": True}
+
 def run_python_export_tests():
     box = _definition("Box")
     cylinder = _definition("Cylinder")
@@ -261,7 +287,7 @@ def run_python_export_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_shape_collection_workflow_test(), run_python_export_tests()]
+    results = [run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

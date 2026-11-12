@@ -421,6 +421,7 @@ _FLOW_PALETTE = {
     "Constants": ("Math", "Constants"),
     "Values": ("Data", "Literal values"),
     "Boolean": ("Boolean", "Boolean operations"),
+    "Preview": ("Inspect", "Preview styling"),
 }
 
 
@@ -591,6 +592,11 @@ def _shift_list(items, offset, wrap):
         return [None] * amount + values[:len(values) - amount]
     amount = min(-amount, len(values))
     return values[amount:] + [None] * amount
+
+
+def _preview_style(shape, face_color="#a6b6c8", edge_color="#342b24", vertex_color="#ffb347", opacity=1.0, show_edges=True, show_vertices=True):
+    """Pass geometry through; preview generation consumes the style parameters."""
+    return shape
 
 
 def _register_flow_nodes(found, callables):
@@ -941,6 +947,19 @@ def _register_flow_nodes(found, callables):
     _add_node(found, callables, "core.list.transpose", "Transpose", "Collections", _transpose,
               [("items", "List")], "List",
               "Transpose rows; incomplete trailing columns are omitted.")
+    _add_node(found, callables, "core.preview.style", "Preview Style", "Preview",
+              _preview_style,
+              [("shape", "Shape"), ("face_color", "String"), ("edge_color", "String"),
+               ("vertex_color", "String"), ("opacity", "Number"),
+               ("show_edges", "Boolean"), ("show_vertices", "Boolean")],
+              "Shape", "Pass geometry through unchanged and customize its viewport appearance.")
+    found["core.preview.style"]["kind"] = "geometry"
+    for socket in found["core.preview.style"]["inputs"]:
+        defaults = {"face_color": "#a6b6c8", "edge_color": "#342b24",
+                    "vertex_color": "#ffb347", "opacity": 1.0,
+                    "show_edges": True, "show_vertices": True}
+        if socket["name"] in defaults:
+            socket["default"] = defaults[socket["name"]]
 
 
 
@@ -1421,23 +1440,49 @@ def _as_export_shape(value):
     return shapes[0] if len(shapes) == 1 else b3d.Compound(children=shapes)
 
 
-def _mesh_preview(value):
+def _point_xyz(point):
+    return [float(point.X), float(point.Y), float(point.Z)]
+
+
+def _mesh_preview(value, style=None):
     shapes = list(_iter_shapes(value))
     if not shapes:
         return None
-    flat_vertices = []
-    flat_triangles = []
+    flat_vertices, flat_triangles, edge_segments, vertex_points = [], [], [], []
     try:
         for shape in shapes:
             vertices, triangles = shape.tessellate(0.15, 0.25)
             offset = len(flat_vertices) // 3
             for vertex in vertices:
-                flat_vertices.extend([float(vertex.X), float(vertex.Y), float(vertex.Z)])
+                flat_vertices.extend(_point_xyz(vertex))
             flat_triangles.extend(offset + int(index) for triangle in triangles for index in triangle)
-        return {"vertices": flat_vertices, "triangles": flat_triangles}
+            for edge in shape.edges():
+                try:
+                    samples = [_point_xyz(edge.position_at(index / 24)) for index in range(25)]
+                    for first, second in zip(samples, samples[1:]):
+                        edge_segments.extend(first)
+                        edge_segments.extend(second)
+                except Exception:
+                    endpoints = [_point_xyz(vertex.center()) for vertex in edge.vertices()]
+                    if len(endpoints) >= 2:
+                        edge_segments.extend(endpoints[0])
+                        edge_segments.extend(endpoints[-1])
+            for vertex in shape.vertices():
+                vertex_points.extend(_point_xyz(vertex.center()))
+        preview = {"vertices": flat_vertices, "triangles": flat_triangles,
+                   "edges": edge_segments, "points": vertex_points}
+        if style:
+            preview.update({
+                "faceColor": style.get("face_color", "#a6b6c8"),
+                "edgeColor": style.get("edge_color", "#342b24"),
+                "vertexColor": style.get("vertex_color", "#ffb347"),
+                "opacity": max(0.0, min(1.0, float(style.get("opacity", 1.0)))),
+                "showEdges": bool(style.get("show_edges", True)),
+                "showVertices": bool(style.get("show_vertices", True)),
+            })
+        return preview
     except Exception as exc:
-        raise RuntimeError("Tessellation failed: " + str(exc))
-
+        raise RuntimeError("Topology preview extraction failed: " + str(exc))
 
 def _inspect_value(value, depth=0):
     value_type = type(value).__name__
@@ -1568,6 +1613,7 @@ def evaluate_graph_json(payload):
         })
 
     values, previews, errors, node_keys = {}, {}, {}, {}
+    evaluated_params = {}
     cache_hits = cache_misses = 0
     for node_id in order:
         node = nodes[node_id]
@@ -1593,6 +1639,7 @@ def evaluate_graph_json(payload):
                 upstream_cacheable = False
         if failed_dependency:
             continue
+        evaluated_params[node_id] = params
 
         can_cache = _cacheable(definition) and upstream_cacheable
         try:
@@ -1643,7 +1690,8 @@ def evaluate_graph_json(payload):
         try:
             preview = _PREVIEW_CACHE.get(key) if key else None
             if preview is None:
-                preview = _mesh_preview(result)
+                style = evaluated_params.get(node_id, {}) if nodes[node_id].get("data", {}).get("definition", {}).get("id") == "core.preview.style" else None
+                preview = _mesh_preview(result, style)
                 if preview is not None and key:
                     _PREVIEW_CACHE[key] = preview
                     _trim_cache(_PREVIEW_CACHE)
@@ -1956,7 +2004,8 @@ def export_python_code(payload):
         if source not in {"build123d", "flow"}:
             unsupported.append(definition["name"] + " (" + source + ")")
             continue
-        if source == "flow" and definition.get("kind") == "value":
+        is_preview_style = definition.get("id") == "core.preview.style"
+        if source == "flow" and (definition.get("kind") == "value" or is_preview_style):
             pass
         elif source != "build123d":
             unsupported.append(definition["name"] + " (Flow utility)")
@@ -1987,10 +2036,12 @@ def export_python_code(payload):
             annotation = _python_node_annotation(definition, socket)
             return _python_code_literal(value, annotation)
 
-        # Literal value nodes are graph constants, not calls into the Flow runtime.
+        # Preview styling is omitted from exported model code; it is a pass-through.
         if source == "flow" and definition.get("kind") == "value":
             socket = definition.get("inputs", [{}])[0]
             expression = value_expression(socket)
+        elif is_preview_style:
+            expression = value_expression(next(socket for socket in definition["inputs"] if socket["name"] == "shape"))
         else:
             api_id = definition["id"].split(".overload-", 1)[0]
             if ".operator." in api_id:

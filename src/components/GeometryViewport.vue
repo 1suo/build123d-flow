@@ -7,6 +7,7 @@ import type { MeshPreview } from "../types";
 
 const props = defineProps<{
   previews: Record<string, MeshPreview>;
+  selectedNodeId?: string;
   running?: boolean;
   runtimeStatus?: string;
   downloadStatus?: string;
@@ -38,57 +39,92 @@ function applyTheme() {
     (materials[0] as THREE.LineBasicMaterial | undefined)?.color.copy(cssColor("--tikal-selection", "#458b74"));
     (materials[1] as THREE.LineBasicMaterial | undefined)?.color.copy(cssColor("--tikal-border", "#2f4f4f"));
   }
-  if (modelGroup) {
-    for (const child of modelGroup.children) {
-      if (!(child instanceof THREE.Mesh)) continue;
-      const preview = props.previews[child.name];
-      if (preview?.color === undefined) {
-        const materials = Array.isArray(child.material) ? child.material : [child.material];
-        materials.forEach((material) => {
-          if (material instanceof THREE.MeshStandardMaterial) material.color.copy(cssColor("--tikal-primary", "#7cfc00"));
-        });
-      }
+  rebuildMaterials();
+  renderer?.render(scene, camera);
+}
+
+function rebuildMaterials() {
+  if (!modelGroup) return;
+  for (const group of modelGroup.children) {
+    const preview = props.previews[group.name];
+    if (!preview) continue;
+    const selected = group.name === props.selectedNodeId;
+    const face = group.getObjectByName("faces") as THREE.Mesh | undefined;
+    const edge = group.getObjectByName("edges") as THREE.LineSegments | undefined;
+    const points = group.getObjectByName("vertices") as THREE.Points | undefined;
+    if (face) {
+      const material = face.material as THREE.MeshStandardMaterial;
+      material.color.set(preview.faceColor ?? preview.color ?? "#a6b6c8");
+      material.opacity = preview.opacity ?? 1;
+      material.transparent = material.opacity < 1;
+      material.depthWrite = material.opacity >= 1;
+      material.emissive.set(selected ? cssColor("--tikal-selection", "#458b74") : "#000000");
+      material.emissiveIntensity = selected ? 0.42 : 0;
+    }
+    if (edge) {
+      (edge.material as THREE.LineBasicMaterial).color.set(selected ? cssColor("--tikal-selection", "#458b74") : (preview.edgeColor ?? "#342b24"));
+      edge.visible = preview.showEdges !== false;
+    }
+    if (points) {
+      (points.material as THREE.PointsMaterial).color.set(selected ? cssColor("--tikal-selection", "#458b74") : (preview.vertexColor ?? "#ffb347"));
+      points.visible = preview.showVertices !== false;
     }
   }
-  renderer?.render(scene, camera);
 }
 
 function rebuild() {
   if (!scene || !modelGroup) return;
-  for (const child of modelGroup.children) {
-    if (child instanceof THREE.Mesh) {
-      child.geometry.dispose();
-      const materials = Array.isArray(child.material) ? child.material : [child.material];
-      materials.forEach((material) => material.dispose());
-    }
+  for (const child of [...modelGroup.children]) {
+    child.traverse((object) => {
+      if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Points) {
+        object.geometry.dispose();
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.forEach((material) => material.dispose());
+      }
+    });
+    modelGroup.remove(child);
   }
-  modelGroup.clear();
   for (const [id, preview] of Object.entries(props.previews)) {
+    const group = new THREE.Group();
+    group.name = id;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(preview.vertices, 3));
     geometry.setIndex(preview.triangles);
     geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({
-      color: preview.color ?? cssColor("--tikal-primary", "#7cfc00"),
-      metalness: 0.12,
-      roughness: 0.68,
-      side: THREE.DoubleSide,
+      color: preview.faceColor ?? preview.color ?? "#a6b6c8",
+      metalness: 0.12, roughness: 0.68, side: THREE.DoubleSide,
+      transparent: (preview.opacity ?? 1) < 1, opacity: preview.opacity ?? 1,
+      depthWrite: (preview.opacity ?? 1) >= 1,
     });
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.name = id;
-    modelGroup.add(mesh);
+    mesh.name = "faces";
+    group.add(mesh);
+    if (preview.edges?.length) {
+      const edgeGeometry = new THREE.BufferGeometry();
+      edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(preview.edges, 3));
+      const lines = new THREE.LineSegments(edgeGeometry, new THREE.LineBasicMaterial({ color: preview.edgeColor ?? "#342b24" }));
+      lines.name = "edges";
+      group.add(lines);
+    }
+    if (preview.points?.length) {
+      const pointGeometry = new THREE.BufferGeometry();
+      pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(preview.points, 3));
+      const cloud = new THREE.Points(pointGeometry, new THREE.PointsMaterial({
+        color: preview.vertexColor ?? "#ffb347", size: 5, sizeAttenuation: false,
+      }));
+      cloud.name = "vertices";
+      group.add(cloud);
+    }
+    modelGroup.add(group);
   }
+  rebuildMaterials();
   const bounds = new THREE.Box3().setFromObject(modelGroup);
-  // Fit once when the first model arrives. Subsequent evaluations never move the camera.
   if (!hasInitialFit && !bounds.isEmpty()) {
     const sphere = bounds.getBoundingSphere(new THREE.Sphere());
     controls.target.copy(sphere.center);
     const distance = Math.max(sphere.radius * 2.8, 45);
-    camera.position.set(
-      sphere.center.x + distance,
-      sphere.center.y - distance,
-      sphere.center.z + distance * 0.75,
-    );
+    camera.position.set(sphere.center.x + distance, sphere.center.y - distance, sphere.center.z + distance * 0.75);
     camera.near = Math.max(distance / 1000, 0.01);
     camera.far = Math.max(distance * 100, 10000);
     camera.updateProjectionMatrix();
@@ -96,7 +132,6 @@ function rebuild() {
     hasInitialFit = true;
   }
 }
-
 function resize() {
   if (!host.value || !renderer || !camera) return;
   const width = Math.max(host.value.clientWidth, 1);
@@ -155,12 +190,20 @@ onMounted(() => {
 });
 
 watch(() => props.previews, rebuild, { deep: true });
+watch(() => props.selectedNodeId, rebuildMaterials);
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(animationFrame);
   resizeObserver?.disconnect();
   themeObserver?.disconnect();
   controls?.dispose();
+  for (const child of modelGroup?.children ?? []) child.traverse((object) => {
+    if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Points) {
+      object.geometry.dispose();
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      materials.forEach((material) => material.dispose());
+    }
+  });
   renderer?.dispose();
   renderer?.domElement.remove();
 });

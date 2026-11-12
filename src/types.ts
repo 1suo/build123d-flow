@@ -77,6 +77,14 @@ export interface MeshPreview {
   vertices: number[];
   triangles: number[];
   color?: string;
+  edges?: number[];
+  points?: number[];
+  faceColor?: string;
+  edgeColor?: string;
+  vertexColor?: string;
+  opacity?: number;
+  showEdges?: boolean;
+  showVertices?: boolean;
 }
 
 export interface EvaluationResult {

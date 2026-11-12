@@ -486,6 +486,7 @@ async function downloadPython() {
       <SplitterPanel :size="isMobile ? 42 : 32" :min-size="isMobile ? 25 : 20" class="preview-panel">
         <GeometryViewport
           :previews="previews"
+          :selected-node-id="selectedNode?.id"
           :running="running"
           :runtime-status="status"
           :download-status="downloadStatus"
@@ -658,6 +659,7 @@ async function downloadPython() {
       <SplitterPanel :size="isMobile ? 42 : 32" :min-size="isMobile ? 25 : 20" class="preview-panel">
         <GeometryViewport
           :previews="previews"
+          :selected-node-id="selectedNode?.id"
           :running="running"
           :runtime-status="status"
           :download-status="downloadStatus"

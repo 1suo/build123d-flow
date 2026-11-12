@@ -74,6 +74,16 @@ def _type_name(annotation):
     return mapping.get(name, "Any")
 
 
+def _resolve_self_annotation(annotation, owner):
+    """Resolve typing.Self against the class that declares a discovered member."""
+    if annotation is getattr(typing, "Self", None):
+        return owner
+    origin = typing.get_origin(annotation)
+    if origin in (typing.Union, types.UnionType):
+        return typing.Union[tuple(_resolve_self_annotation(arg, owner) for arg in typing.get_args(annotation))]
+    return annotation
+
+
 def _annotation_metadata(annotation):
     """Return structured socket metadata for Python generic annotations."""
     origin = typing.get_origin(annotation)
@@ -110,13 +120,21 @@ def _annotation_metadata(annotation):
         metadata["key_type"] = _type_name(args[0]) if args else "String"
         metadata["value_type"] = _type_name(args[1]) if len(args) > 1 else "Any"
     if origin in (typing.Union, types.UnionType):
-        variants = sorted({_type_name(arg) for arg in args if arg is not type(None)})
+        collection_args = [arg for arg in args if typing.get_origin(arg) in collection_origins]
+        scalar_args = [arg for arg in args if arg is not type(None) and arg not in collection_args]
+        variants = sorted({_type_name(arg) for arg in scalar_args})
         if len(variants) > 1:
             metadata["variants"] = variants
         # A union such as Shape | Iterable[Shape] accepts either one object or
         # a collection. Keep that collection intact for the native operator.
-        if any(typing.get_origin(arg) in collection_origins for arg in args):
+        if collection_args:
             metadata["data_access"] = "structure"
+            item_types = {
+                _type_name(typing.get_args(collection)[0])
+                for collection in collection_args if typing.get_args(collection)
+            }
+            if len(item_types) == 1:
+                metadata["item_type"] = item_types.pop()
     return metadata
 
 
@@ -935,7 +953,9 @@ def discover(include_full=True):
                     hints = {}
 
                 for parameter in signature.parameters.values():
-                    annotation = hints.get(parameter.name, parameter.annotation)
+                    annotation = _resolve_self_annotation(
+                        hints.get(parameter.name, parameter.annotation), owner
+                    )
                     if parameter.kind == parameter.VAR_POSITIONAL:
                         default, default_repr, required, has_default = [], "()", False, True
                         socket_type = "List"
@@ -1171,10 +1191,11 @@ def discover(include_full=True):
                 if method_id in found:
                     continue
                 return_annotation = hints.get("return", signature.return_annotation)
+                resolved_return = _resolve_self_annotation(return_annotation, owner)
                 output_socket = {
-                    "name": "result", "type": _type_name(return_annotation),
+                    "name": "result", "type": _type_name(resolved_return),
                     "annotation": str(return_annotation) if return_annotation is not inspect.Signature.empty else "",
-                    **_annotation_metadata(return_annotation),
+                    **_annotation_metadata(resolved_return),
                 }
                 found[method_id] = {
                     "id": method_id, "source": "build123d",

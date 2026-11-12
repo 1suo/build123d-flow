@@ -175,7 +175,39 @@ def run_annotation_resolution_tests():
         })))
         if result["errors"]:
             raise AssertionError("Pos(v=list) failed: " + json.dumps(result["errors"]))
-    return {"name": "annotation resolution", "forward_refs": True, "bare_collections": True}
+
+    # A numeric stream reaching an item-access object input must be rejected
+    # with the socket name, never item-mapped into the native kernel.
+    box = _definition("Box")
+    moved = runtime._CATALOG["build123d.topology.shape_core.Shape.moved"]
+    nodes = [
+        _node(box, "box", {"length": 10, "width": 10, "height": 10}),
+        _core_node("core.series.range", "rng", {"start": 0, "stop": 3, "step": 1}),
+        _node(moved, "moved"),
+    ]
+    result = json.loads(runtime.evaluate_graph_json(json.dumps({
+        "nodes": nodes,
+        "edges": [_edge("box", "moved", "self"), _edge("rng", "moved", "loc")],
+    })))
+    error = result["errors"].get("moved", "")
+    if "input 'loc' expects" not in error or "Data mapping at [" in error:
+        raise AssertionError("Scalar stream into moved(loc) was not rejected cleanly: " + error)
+
+    # Legitimate Location streams must keep mapping item-wise.
+    function = runtime._CATALOG["core.python.function"]
+    nodes = [
+        _node(box, "box", {"length": 10, "width": 10, "height": 10}),
+        _node(function, "locs", {"code": "result = [b3d.Location((x, 0, 0)) for x in range(3)]"}),
+        _node(moved, "moved"),
+    ]
+    result = json.loads(runtime.evaluate_graph_json(json.dumps({
+        "nodes": nodes,
+        "edges": [_edge("box", "moved", "self"), _edge("locs", "moved", "loc")],
+    })))
+    if result["errors"]:
+        raise AssertionError("Location stream mapping failed: " + json.dumps(result["errors"]))
+    return {"name": "annotation resolution", "forward_refs": True, "bare_collections": True,
+            "stream_validation": True}
 
 
 def run_dataflow_shape_inference_tests():

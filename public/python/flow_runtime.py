@@ -448,7 +448,7 @@ _FLOW_PALETTE = {
 }
 
 
-def _add_node(found, callables, node_id, name, category, function, inputs, output_type, description=""):
+def _add_node(found, callables, node_id, name, category, function, inputs, output_type, description="", item_type=None):
     """Register an app-owned Flow primitive with explicit provenance and palette metadata."""
     if category not in _FLOW_PALETTE:
         raise ValueError("Unknown Flow primitive category: " + str(category))
@@ -482,7 +482,7 @@ def _add_node(found, callables, node_id, name, category, function, inputs, outpu
             "type": "Any" if output_type in {"List", "Tuple", "Set", "Dict"} else output_type,
             "annotation": output_type,
             **({"data_structure": {"List": "list", "Tuple": "tuple", "Set": "set"}[output_type],
-                "item_type": "Any"} if output_type in {"List", "Tuple", "Set"} else {}),
+                "item_type": item_type or "Any"} if output_type in {"List", "Tuple", "Set"} else {}),
             **({"data_structure": "dict", "key_type": "Any", "value_type": "Any"} if output_type == "Dict" else {}),
         }],
     }
@@ -777,17 +777,21 @@ def _register_flow_nodes(found, callables):
     # Numeric series are explicit list-producing nodes; stop is exclusive like Python range.
     _add_node(found, callables, "core.series.range", "Range", "Series",
               lambda start, stop, step: list(range(int(start), int(stop), int(step))),
-              [("start", "Number"), ("stop", "Number"), ("step", "Number")], "List")
+              [("start", "Number"), ("stop", "Number"), ("step", "Number")], "List",
+              item_type="Number")
     _add_node(found, callables, "core.series.linspace", "Linspace", "Series",
               lambda start, stop, count: ([float(start)] if int(count) <= 1 else
                   [float(start) + (float(stop) - float(start)) * i / (int(count) - 1) for i in range(int(count))]),
-              [("start", "Number"), ("stop", "Number"), ("count", "Number")], "List")
+              [("start", "Number"), ("stop", "Number"), ("count", "Number")], "List",
+              item_type="Number")
     _add_node(found, callables, "core.series.arithmetic", "Arithmetic Series", "Series",
               lambda start, step, count: [float(start) + i * float(step) for i in range(int(count))],
-              [("start", "Number"), ("step", "Number"), ("count", "Number")], "List")
+              [("start", "Number"), ("step", "Number"), ("count", "Number")], "List",
+              item_type="Number")
     _add_node(found, callables, "core.series.geometric", "Geometric Series", "Series",
               lambda start, ratio, count: [float(start) * float(ratio) ** i for i in range(int(count))],
-              [("start", "Number"), ("ratio", "Number"), ("count", "Number")], "List")
+              [("start", "Number"), ("ratio", "Number"), ("count", "Number")], "List",
+              item_type="Number")
 
     _add_node(found, callables, "core.list.first", "First", "Collections",
               lambda items: items[0], [("items", "List")], "Any")
@@ -836,7 +840,8 @@ def _register_flow_nodes(found, callables):
 
     _add_node(found, callables, "core.string.split", "Split", "Strings",
               lambda value, separator: value.split(separator),
-              [("value", "String"), ("separator", "String")], "List")
+              [("value", "String"), ("separator", "String")], "List",
+              item_type="String")
     _add_node(found, callables, "core.string.strip", "Strip", "Strings",
               lambda value: value.strip(), [("value", "String")], "String")
     _add_node(found, callables, "core.string.join_list", "Join List", "Strings",
@@ -1611,7 +1616,76 @@ def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None
     return inferred
 
 
-def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(), depth=0):
+def _stream_item_kind(value):
+    """Classify a stream item for input validation without importing anything."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return "scalar"
+    if isinstance(value, str):
+        return "scalar"
+    if isinstance(value, b3d.Shape):
+        return "geometry"
+    if isinstance(value, (list, tuple, set, frozenset,
+                          collections.abc.Mapping, collections.abc.Sequence, collections.abc.Set)):
+        return "collection"
+    return "object"
+
+
+_GEOMETRY_INPUT_TYPES = {"Shape", "Solid", "Compound", "Face", "Edge", "Wire", "Shell", "Part", "Sketch"}
+_SCALAR_INPUT_TYPES = {"Number", "Boolean", "String", "Code"}
+_OBJECT_INPUT_TYPES = {
+    "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis", "Color", "Matrix", "Enum",
+}
+
+
+def _validate_stream_items(definition, params, stream_shapes):
+    """Reject stream items the declared input types cannot accept.
+
+    List[Any] outputs connect anywhere in the editor, so a numeric stream can
+    reach an item-access input declared as Location or Matrix. Catch that
+    before native code runs, so users get the socket name instead of an
+    opaque kernel error such as "'int' object has no attribute 'wrapped'".
+    """
+    for input_socket in definition.get("inputs", []):
+        name = input_socket.get("name")
+        if name not in stream_shapes:
+            continue
+        value = params.get(name)
+        if not isinstance(value, (list, tuple)) or not value:
+            continue
+        # Variants carry the contract when the merged union collapsed the type
+        # to Any; mirror the editor's variant-first compatibility logic.
+        target_types = list(input_socket.get("variants") or [])
+        if not target_types:
+            target_types = [input_socket.get("type")]
+        if any(target in ("Any", "List", "Tuple", "Set", "Dict") for target in target_types):
+            continue
+        geometry_target = any(target in _GEOMETRY_INPUT_TYPES for target in target_types)
+        scalar_target = any(target in _SCALAR_INPUT_TYPES for target in target_types)
+        object_target = any(target in _OBJECT_INPUT_TYPES for target in target_types)
+        if not (geometry_target or scalar_target or object_target):
+            continue
+        kinds = {_stream_item_kind(item) for item in value}
+        accepts_scalar = scalar_target
+        accepts_geometry = geometry_target
+        accepts_object = object_target or geometry_target
+        if "scalar" in kinds and not accepts_scalar:
+            raise TypeError(
+                "input '{}' expects {}; the connected stream supplies scalar items. "
+                "Use a matching value node or a vector/list location instead.".format(
+                    name, " or ".join(sorted(set(target_types)))
+                )
+            )
+        if ("geometry" in kinds and not accepts_geometry) or (
+            "object" in kinds and not (accepts_object or accepts_geometry)
+        ):
+            raise TypeError(
+                "input '{}' expects {}; the connected stream supplies incompatible items".format(
+                    name, " or ".join(sorted(set(target_types)))
+                )
+            )
+
+
+def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(), depth=0, _validate=None):
     """Map only inputs explicitly identified as graph streams.
 
     Python lists and tuples are ordinary values unless graph metadata says that
@@ -1624,6 +1698,8 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
         if shape in ("list", "tuple", "tree") and isinstance(value, (list, tuple)):
             sequences[name] = list(value)
     if not sequences:
+        if _validate is not None and not path:
+            _validate()
         try:
             return invoke(params)
         except Exception as exc:
@@ -1632,6 +1708,8 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
     if any(not value for value in sequences.values()):
         return []
     names = list(sequences)
+    if _validate is not None and not path:
+        _validate()
     if matching == "cross":
         rows = list(__import__("itertools").product(*(sequences[name] for name in names)))
     else:
@@ -1799,6 +1877,7 @@ def evaluate_graph_json(payload):
             result = _map_item_inputs(
                 params, stream_shapes, invoke,
                 matching=definition.get("data_matching", "longest"),
+                _validate=lambda: _validate_stream_items(definition, params, stream_shapes),
             )
             values[node_id] = {"result": result}
             if key:

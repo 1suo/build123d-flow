@@ -207,7 +207,15 @@ def _annotation_metadata(annotation):
         metadata["key_type"] = _type_name(args[0]) if args else "String"
         metadata["value_type"] = _type_name(args[1]) if len(args) > 1 else "Any"
     if origin in (typing.Union, types.UnionType):
-        collection_args = [arg for arg in args if typing.get_origin(arg) in collection_origins]
+        # Tuple alternatives are structural too. In particular build123d's
+        # RotationLike contract is Rotation | tuple[float, float, float].
+        # Without this, a JSON rotation [x, y, z] is item-mapped into three
+        # scalar calls, eventually passing an int where a wrapped geometry /
+        # rotation object is expected.
+        collection_args = [
+            arg for arg in args
+            if typing.get_origin(arg) in collection_origins or typing.get_origin(arg) is tuple
+        ]
         scalar_args = [arg for arg in args if arg is not type(None) and arg not in collection_args]
         variants = sorted({_type_name(arg) for arg in scalar_args})
         if len(variants) > 1:

@@ -111,6 +111,18 @@ def run_data_mapping_tests():
     )
     if preserved != (1, 2, 3):
         raise AssertionError("Variadic argument collection was unexpectedly item-mapped")
+    rotation_annotation = typing.Union[runtime.b3d.Rotation, tuple[float, float, float]]
+    rotation_metadata = runtime._annotation_metadata(rotation_annotation)
+    if rotation_metadata.get("data_access") != "structure":
+        raise AssertionError("Rotation | tuple[float, float, float] must not be item-mapped")
+    rotation_value = [0, 0, 0]
+    preserved_rotation = runtime._map_item_inputs(
+        {"rotation": rotation_value},
+        {"rotation": rotation_metadata.get("data_access", "item")},
+        lambda values: values["rotation"],
+    )
+    if preserved_rotation != rotation_value:
+        raise AssertionError("Rotation tuple was split into scalar items")
     shape_list = runtime._annotation_metadata(list[runtime.b3d.Face])
     if shape_list.get("data_structure") != "list" or shape_list.get("item_type") != "Face":
         raise AssertionError("List[Face] metadata conflates collection and element types")

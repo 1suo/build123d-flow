@@ -21,7 +21,8 @@ async function initialize(base){
  }});
  pyodide.setStdout({batched:s=>{if(s.trim())status(s.trim());}});pyodide.setStderr({batched:s=>{if(s.trim())status("Python: "+s.trim());}});
  status("Loading micropip from the local runtime…");await pyodide.loadPackage(["micropip"]);
- status(restored?"Verifying saved Python packages…":"Installing Python dependencies…");await pyodide.runPythonAsync(setup);
+ pyodide.runPython("import os; os.environ['BUILD123D_FLOW_ENV_RESTORED'] = '" + (restored ? "1" : "0") + "'");
+ status(restored?"Using saved Python packages…":"Installing Python dependencies…");await pyodide.runPythonAsync(setup);
  status("Loading graph runtime…");pyodide.FS.writeFile("/flow_runtime.py",runtime);await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/')");await pyodide.runPythonAsync("import flow_runtime");
  if(persistent)try{status("Saving Python environment…");const dir=pyodide.runPython("import sysconfig; sysconfig.get_paths()['purelib']");pyodide.FS.writeFile(dir+"/"+MARKER,key);await sync(pyodide.FS,false);status(restored?"Python environment restored":"Python environment saved");}catch(e){status("Could not persist environment ("+e+")");}
  status("build123d ready");self.postMessage({type:"ready"});

@@ -452,7 +452,7 @@ async function evaluate() {
     socketValues.value = result.socket_values ?? {};
     errors.value = Object.entries(result.errors).map(([id, error]) => `${id}: ${error}`);
     if (errors.value.length) errors.value.forEach((error) => logActivity(error, "error"));
-    else logActivity(`Evaluation complete · ${Object.keys(result.previews).length} visible geometry`, "success");
+    else logActivity("Evaluation complete · " + Object.keys(result.previews).length + " visible geometry · cache " + (result.cache?.hits ?? 0) + " hits", "success");
     for (const node of nodes.value as any[]) node.data.error = result.errors[node.id] ?? "";
   } catch (error) {
     if (revision === evaluationRevision) {

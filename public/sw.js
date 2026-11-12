@@ -1,4 +1,4 @@
-const CACHE_NAME = "build123d-flow-static-v314.0.7-v3";
+const CACHE_NAME = "build123d-flow-static-v314.0.7-v4";
 const PYODIDE_PREFIX = "/pyodide/v314.0.7/full/";
 
 self.addEventListener("install", (event) => {
@@ -24,8 +24,6 @@ self.addEventListener("fetch", (event) => {
     url.pathname.startsWith(scope.pathname) &&
     (url.pathname.includes("/assets/") || url.pathname.includes("/python/") || url.pathname.includes("/pyodide/") ||
       url.pathname.endsWith("/favicon.svg"));
-  const pyodideAsset = url.origin === "https://cdn.jsdelivr.net" &&
-    url.pathname.startsWith(PYODIDE_PREFIX);
 
   if (request.mode === "navigate" && url.origin === self.location.origin) {
     event.respondWith((async () => {
@@ -41,7 +39,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (!sameOriginAppAsset && !pyodideAsset) return;
+  if (!sameOriginAppAsset) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
     const cached = await cache.match(request);

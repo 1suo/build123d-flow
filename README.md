@@ -20,7 +20,7 @@ There is no required Python server. Python, build123d and the geometry kernel ru
 
 ## Current status
 
-Early scaffold. The initial implementation includes dynamic API discovery, curated geometry constructors (Box, Cylinder, Sphere, Cone, Torus, Rectangle, Circle, Ellipse and RegularPolygon), a Vue Flow graph, Python graph evaluation and a Three.js mesh preview. Browser package loading and CAD behavior still need validation against the pinned OCP.wasm wheels.
+Early scaffold. The implementation includes dynamic build123d API discovery, explicitly registered Flow and Python node providers, a Vue Flow graph, Python graph evaluation and a Three.js mesh preview. Browser package loading and CAD behavior still need validation against the pinned OCP.wasm wheels.
 
 ## Development
 

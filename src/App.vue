@@ -21,7 +21,6 @@ const status = ref("Loading Python runtime…");
 const runtimeError = ref("");
 const catalog = ref<NodeDefinition[]>([]);
 const paletteSearch = ref("");
-const activeSource = ref<PaletteSource>("flow");
 const contextSearch = ref("");
 const errors = ref<string[]>([]);
 const downloadStatus = ref("");
@@ -157,27 +156,32 @@ function paletteOrigin(item: NodeDefinition): PaletteSource {
   if (id.startsWith("core.") || id.startsWith("build123d_flow.")) return "flow";
   return "python";
 }
-const sourceItems = computed(() => catalog.value.filter((item) => paletteOrigin(item) === activeSource.value));
-const activePaletteItems = computed(() => sourceItems.value.filter((item) =>
-  (item.name + " " + item.id + " " + item.description + " " + paletteGroup(item) + " " + paletteSection(item)).toLowerCase().includes(paletteSearch.value.toLowerCase())
-).sort((a, b) => paletteGroup(a).localeCompare(paletteGroup(b)) || paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name)));
-const activePaletteSections = computed(() => {
-  const groups = new Map<string, NodeDefinition[]>();
-  for (const item of activePaletteItems.value) {
-    const group = paletteGroup(item);
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group)!.push(item);
-  }
-  return [...groups].map(([label, items]) => {
-    const sections = new Map<string, NodeDefinition[]>();
-    for (const item of items.sort((a, b) => paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name))) {
-      const section = paletteSection(item);
-      if (!sections.has(section)) sections.set(section, []);
-      sections.get(section)!.push(item);
+const paletteGroups = computed(() => {
+  const matchingItems = catalog.value.filter((item) =>
+    (item.name + " " + item.id + " " + item.description + " " + paletteGroup(item) + " " + paletteSection(item))
+      .toLowerCase().includes(paletteSearch.value.toLowerCase())
+  );
+  return paletteSources.map((source) => {
+    const sourceItems = matchingItems.filter((item) => paletteOrigin(item) === source.id);
+    const groups = new Map<string, NodeDefinition[]>();
+    for (const item of sourceItems) {
+      const group = paletteGroup(item);
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group)!.push(item);
     }
-    return { label, sections: [...sections].map(([section, sectionItems]) => ({ label: section, items: sectionItems })) };
+    const sections = [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([label, items]) => {
+      const subsections = new Map<string, NodeDefinition[]>();
+      for (const item of items.sort((a, b) => paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name))) {
+        const section = paletteSection(item);
+        if (!subsections.has(section)) subsections.set(section, []);
+        subsections.get(section)!.push(item);
+      }
+      return { label, sections: [...subsections].map(([section, sectionItems]) => ({ label: section, items: sectionItems })) };
+    });
+    return { ...source, count: sourceItems.length, sections };
   });
 });
+const paletteItemCount = computed(() => paletteGroups.value.reduce((total, group) => total + group.count, 0));
 const contextResults = computed(() => catalog.value.filter((item) =>
   (item.name + " " + item.category + " " + item.id).toLowerCase().includes(contextSearch.value.toLowerCase())
 ).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name)).slice(0, 60));
@@ -272,9 +276,8 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
   scheduleEvaluation();
 }
 
-function openPalette(source: PaletteSource, event: MouseEvent) {
+function openPalette(event: MouseEvent) {
   paletteSearch.value = "";
-  activeSource.value = source;
   palettePopover.value?.show(event);
 }
 
@@ -483,10 +486,9 @@ async function downloadStep() {
       <SplitterPanel :size="isMobile ? 58 : 68" :min-size="isMobile ? 40 : 35" class="graph-panel">
         <div ref="canvasSurface" class="canvas-surface" @drop="onDrop" @dragover.prevent @contextmenu.prevent="openContextMenu">
           <div class="canvas-topbar">
-            <nav class="category-strip" aria-label="Node sources">
-              <Button v-for="source in paletteSources" :key="source.id" text severity="secondary"
-                class="category-chip" :class="{ 'is-active': activeSource === source.id }"
-                :label="source.label" @click="openPalette(source.id, $event)" />
+            <nav class="category-strip" aria-label="Node palette">
+              <Button text severity="secondary" class="category-chip palette-open"
+                icon="pi pi-th-large" label="Nodes" @click="openPalette($event)" />
               <span v-if="!runtime.isReady" class="category-loading">Loading node catalog…</span>
             </nav>
           </div>
@@ -552,28 +554,35 @@ async function downloadStep() {
     <Popover ref="palettePopover" appendTo="self" class="palette-popover">
       <div class="palette-content">
         <div class="palette-heading">
-          <span>{{ paletteSources.find((source) => source.id === activeSource)?.label }}</span>
-          <span class="palette-group-count">{{ activePaletteItems.length }}</span>
+          <span>Node palette</span>
+          <span class="palette-group-count">{{ paletteItemCount }}</span>
         </div>
         <InputText v-model="paletteSearch" placeholder="Search nodes…" class="palette-search" />
         <div class="palette-node-list">
-          <section v-for="group in activePaletteSections" :key="group.label" class="palette-section">
-            <div class="palette-section-heading"><span>{{ group.label }}</span><span class="palette-section-rule"></span></div>
-            <div v-for="section in group.sections" :key="section.label" class="palette-subsection">
-              <div class="palette-subsection-heading">{{ section.label }}</div>
-              <Button v-for="item in section.items" :key="item.id" text severity="secondary"
-                class="palette-node" draggable="true"
-                @dragstart="dragNode($event, item)" @click="addDefinition(item)">
-                <template #default><span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
-                <span class="palette-node-label">{{ item.name }}</span></template>
-              </Button>
+          <section v-for="source in paletteGroups" :key="source.id" class="palette-source-group">
+            <header class="palette-source-heading">
+              <strong>{{ source.label }}</strong><span>{{ source.count }}</span>
+            </header>
+            <section v-for="group in source.sections" :key="group.label" class="palette-section">
+              <div class="palette-section-heading"><span>{{ group.label }}</span><span class="palette-section-rule"></span></div>
+              <div v-for="section in group.sections" :key="section.label" class="palette-subsection">
+                <div class="palette-subsection-heading">{{ section.label }}</div>
+                <Button v-for="item in section.items" :key="item.id" text severity="secondary"
+                  class="palette-node" draggable="true"
+                  @dragstart="dragNode($event, item)" @click="addDefinition(item)">
+                  <template #default><span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
+                  <span class="palette-node-label">{{ item.name }}</span></template>
+                </Button>
+              </div>
+            </section>
+            <div v-if="!source.count" class="palette-source-empty">
+              {{ source.id === "python" ? "No auto-discovered Python/library nodes yet" : "No matching nodes" }}
             </div>
           </section>
         </div>
-        <div v-if="!activePaletteItems.length" class="palette-empty">
+        <div v-if="!paletteItemCount" class="palette-empty">
           <ProgressSpinner v-if="!catalog.length && !errors.length" style="width:20px;height:20px" stroke-width="4" />
           <span v-else-if="!runtime.isReady">Waiting for Python runtime…</span>
-          <span v-else-if="!sourceItems.length">No auto-derived Python or library nodes are available</span>
           <span v-else>{{ errors.length ? "Python runtime failed" : "No matching nodes" }}</span>
         </div>
       </div>

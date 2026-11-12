@@ -504,3 +504,11 @@
   .palette-node-list{max-height:52vh}
   .context-results{max-height:50vh}
 }
+
+/* Palette source groups and their functional categories share one browsable list. */
+.palette-source-group{margin:0 0 12px;padding:0 0 8px;border-bottom:1px solid var(--tikal-border)}
+.palette-source-heading{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 6px;background:var(--tikal-surface);color:var(--tikal-primary);font-size:12px}
+.palette-source-heading strong{font-size:12px;font-weight:700}
+.palette-source-heading>span{color:var(--tikal-muted);font:10px ui-monospace,monospace}
+.palette-source-empty{padding:5px 7px 8px;color:var(--tikal-muted);font-size:10px;font-style:italic}
+.palette-open.p-button{gap:7px}

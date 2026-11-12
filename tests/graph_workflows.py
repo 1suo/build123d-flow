@@ -396,7 +396,7 @@ def run_graph_plan_validation_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_duplicate_input_validation_tests(), run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

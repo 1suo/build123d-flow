@@ -1535,21 +1535,87 @@ def _inspect_value(value, depth=0):
     return {"type": value_type, "repr": repr(value)[:2000], "attributes": attributes}
 
 
-def _map_item_inputs(params, access, invoke, matching="longest", path=()):
-    """Map item-access inputs recursively, preserving nested list structure."""
-    sequences = {
-        name: list(value) if access.get(name, "item") == "item" and isinstance(value, (list, tuple))
-        else None
-        for name, value in params.items()
-    }
-    sequences = {name: value for name, value in sequences.items() if value is not None}
+def _socket_data_structure(socket):
+    """Return the declared collection shape of a socket, never its runtime value shape."""
+    structure = socket.get("data_structure", "item")
+    if structure != "item":
+        return structure
+    return {
+        "List": "list", "Tuple": "tuple", "Set": "set", "Dict": "dict",
+    }.get(socket.get("type"), "item")
+
+
+def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None, visiting=None):
+    """Resolve output collection shape through item-consuming connections.
+
+    This mirrors the editor's graph type propagation. A node that consumes a
+    stream item-wise produces a stream of its own output; structure-consuming
+    inputs do not propagate collection shape.
+    """
+    memo = memo if memo is not None else {}
+    visiting = visiting if visiting is not None else set()
+    key = (node_id, output_name)
+    if key in memo:
+        return memo[key]
+    if key in visiting:
+        return "item"
+    node = nodes.get(node_id)
+    if node is None:
+        return "item"
+    definition = node.get("data", {}).get("definition", {})
+    output = next((item for item in definition.get("outputs", [])
+                   if item.get("name") == output_name), None)
+    if output is None:
+        return "item"
+    declared = _socket_data_structure(output)
+    if declared != "item":
+        memo[key] = declared
+        return declared
+
+    visiting.add(key)
+    inferred = "item"
+    for input_name, (source_id, source_output) in incoming.get(node_id, {}).items():
+        input_socket = next((item for item in definition.get("inputs", [])
+                             if item.get("name") == input_name), None)
+        if input_socket is None:
+            continue
+        access = input_socket.get("data_access")
+        if access is None:
+            access = "structure" if _socket_data_structure(input_socket) != "item" else "item"
+        if access != "item":
+            continue
+        upstream = _effective_output_structure(
+            source_id, source_output, nodes, incoming, memo, visiting
+        )
+        if upstream == "tree":
+            inferred = "tree"
+            break
+        if upstream in ("list", "tuple"):
+            inferred = "list"
+    visiting.remove(key)
+    memo[key] = inferred
+    return inferred
+
+
+def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(), depth=0):
+    """Map only inputs explicitly identified as graph streams.
+
+    Python lists and tuples are ordinary values unless graph metadata says that
+    a connected output carries a stream. A list-valued Vector, tuple argument,
+    or collection passed to a structure-consuming API therefore stays intact.
+    """
+    sequences = {}
+    for name, shape in stream_shapes.items():
+        value = params.get(name)
+        if shape in ("list", "tree") and isinstance(value, (list, tuple)):
+            sequences[name] = list(value)
     if not sequences:
         try:
             return invoke(params)
         except Exception as exc:
             location = "".join("[{}]".format(index) for index in path)
             raise RuntimeError("Data mapping at {}: {}".format(location or "<root>", exc)) from exc
-    if any(len(value) == 0 for value in sequences.values()):
+    if any(not value for value in sequences.values()):
         return []
     names = list(sequences)
     if matching == "cross":
@@ -1565,9 +1631,14 @@ def _map_item_inputs(params, access, invoke, matching="longest", path=()):
     results = []
     for index, row in enumerate(rows):
         child = dict(params)
+        child_shapes = dict(stream_shapes)
         for name, value in zip(names, row):
             child[name] = value
-        results.append(_map_item_inputs(child, access, invoke, matching, path + (index,)))
+            if stream_shapes[name] == "list" or not isinstance(value, (list, tuple)):
+                child_shapes.pop(name, None)
+        results.append(_map_item_inputs(
+            child, child_shapes, invoke, matching, path + (index,), depth + 1
+        ))
     return results
 
 
@@ -1671,21 +1742,30 @@ def evaluate_graph_json(payload):
             callable_obj = _resolve_callable(definition_id)
             signature = _CATALOG_SIGNATURES.get(definition_id)
             hint_target = _CATALOG_HINT_TARGETS.get(definition_id)
-            params = _coerce_literal_inputs(
-                params, signature, hint_target,
-                set(params) - set(incoming.get(node_id, {})),
-            )
             invoke = lambda mapped: _call_with_coercion(
                 callable_obj, mapped,
                 signature=signature,
                 hint_target=hint_target,
             )
-            input_access = {
-                socket["name"]: socket.get("data_access", "item")
-                for socket in definition.get("inputs", [])
-            }
+            stream_shapes = {}
+            shape_memo = {}
+            for input_name, (source_id, source_output) in incoming.get(node_id, {}).items():
+                input_socket = next((item for item in definition.get("inputs", [])
+                                     if item.get("name") == input_name), None)
+                if input_socket is None:
+                    continue
+                access = input_socket.get("data_access")
+                if access is None:
+                    access = "structure" if _socket_data_structure(input_socket) != "item" else "item"
+                if access != "item":
+                    continue
+                source_shape = _effective_output_structure(
+                    source_id, source_output, nodes, incoming, shape_memo
+                )
+                if source_shape in ("list", "tree"):
+                    stream_shapes[input_name] = source_shape
             result = _map_item_inputs(
-                params, input_access, invoke,
+                params, stream_shapes, invoke,
                 matching=definition.get("data_matching", "longest"),
             )
             values[node_id] = {"result": result}
@@ -1814,44 +1894,6 @@ def _coerce_annotation(value, annotation):
         if annotation is str:
             return str(value)
     return value
-
-
-def _coerce_literal_inputs(params, signature, hint_target, literal_names):
-    """Normalize serialized literal values before dataflow mapping.
-
-    Connected outputs are already runtime values. Unconnected editor parameters
-    are JSON values and must first be decoded according to their Python
-    annotations; otherwise coordinate/rotation arrays are mistaken for streams
-    and split into scalar invocations before coercion can run.
-    """
-    if hint_target is False:
-        target, hints = None, {}
-    else:
-        target = hint_target
-        try:
-            hints = typing.get_type_hints(target) if target is not None else {}
-        except Exception:
-            hints = {}
-    converted = dict(params)
-    for name in literal_names:
-        if name not in converted:
-            continue
-        parameter = signature.parameters.get(name) if signature else None
-        annotation = hints.get(name, parameter.annotation if parameter else None)
-        if isinstance(annotation, str) and target is not None:
-            try:
-                annotation = eval(annotation, getattr(target, "__globals__", {}))
-            except Exception:
-                pass
-        if annotation is None or annotation is inspect.Signature.empty:
-            continue
-        try:
-            converted[name] = _coerce_annotation(converted[name], annotation)
-        except (TypeError, ValueError, KeyError, OverflowError):
-            # A list supplied to a scalar socket can intentionally be a stream.
-            # Leave it intact for the declared data_access policy to handle.
-            continue
-    return converted
 
 
 def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):

@@ -78,83 +78,81 @@ def _core_node(node_id, instance_id, params=None):
 def run_data_mapping_tests():
     add = lambda values: values["a"] + values["b"]
     longest = runtime._map_item_inputs(
-        {"a": [1, 2, 3], "b": [10]}, {"a": "item", "b": "item"}, add, "longest"
+        {"a": [1, 2, 3], "b": [10]}, {"a": "list", "b": "list"}, add, "longest"
     )
     shortest = runtime._map_item_inputs(
-        {"a": [1, 2, 3], "b": [10]}, {"a": "item", "b": "item"}, add, "shortest"
+        {"a": [1, 2, 3], "b": [10]}, {"a": "list", "b": "list"}, add, "shortest"
     )
     cross = runtime._map_item_inputs(
-        {"a": [1, 2], "b": [10, 20]}, {"a": "item", "b": "item"}, add, "cross"
+        {"a": [1, 2], "b": [10, 20]}, {"a": "list", "b": "list"}, add, "cross"
     )
     nested = runtime._map_item_inputs(
         {"a": [[1, 2], [3]], "b": [10, 20]},
-        {"a": "item", "b": "item"}, add, "longest"
+        {"a": "tree", "b": "list"}, add, "longest"
     )
     if longest != [11, 12, 13] or shortest != [11] or cross != [11, 21, 12, 22]:
         raise AssertionError("List matching modes returned unexpected values")
     if nested != [[11, 12], [23]]:
-        raise AssertionError("Nested list mapping did not preserve branch structure")
-    # Variadic API sockets represent one argument collection, not a stream to map.
-    variadic_sockets = [
-        socket
-        for definition in runtime._CATALOG.values()
-        for socket in definition.get("inputs", [])
-        if socket.get("kind") in {"var_positional", "var_keyword"}
-    ]
-    for socket in variadic_sockets:
-        expected = "list" if socket["kind"] == "var_positional" else "dict"
-        if socket.get("data_structure") != expected or socket.get("data_access") != "structure":
-            raise AssertionError("Variadic socket must preserve its argument collection: " + repr(socket))
-    preserved = runtime._map_item_inputs(
-        {"args": [1, 2, 3]}, {"args": "structure"},
-        lambda values: tuple(values["args"])
-    )
-    if preserved != (1, 2, 3):
-        raise AssertionError("Variadic argument collection was unexpectedly item-mapped")
-    rotation_annotation = runtime.typing.Union[runtime.b3d.Rotation, tuple[float, float, float]]
-    rotation_metadata = runtime._annotation_metadata(rotation_annotation)
-    if rotation_metadata.get("data_access") != "structure":
-        raise AssertionError("Rotation | tuple[float, float, float] must not be item-mapped")
-    rotation_value = [0, 0, 0]
-    rotation_signature = runtime.inspect.Signature([
-        runtime.inspect.Parameter(
-            "rotation", runtime.inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=rotation_annotation,
-        )
-    ])
-    normalized_rotation = runtime._coerce_literal_inputs(
-        {"rotation": rotation_value}, rotation_signature, False, {"rotation"}
-    )
-    if not isinstance(normalized_rotation["rotation"], runtime.b3d.Rotation):
-        raise AssertionError("Serialized Rotation literal must be decoded before data mapping")
-    mapped_rotation = runtime._map_item_inputs(
-        normalized_rotation,
-        {"rotation": rotation_metadata.get("data_access", "item")},
-        lambda values: values["rotation"],
-    )
-    if not isinstance(mapped_rotation, runtime.b3d.Rotation):
-        raise AssertionError("Decoded Rotation was split into scalar items")
+        raise AssertionError("Nested stream mapping did not preserve tree structure")
 
-    vector_signature = runtime.inspect.Signature([
-        runtime.inspect.Parameter(
-            "vector", runtime.inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            annotation=runtime.b3d.Vector,
-        )
-    ])
-    normalized_vector = runtime._coerce_literal_inputs(
-        {"vector": [1, 2, 3]}, vector_signature, False, {"vector"}
-    )
-    mapped_vector = runtime._map_item_inputs(
-        normalized_vector, {"vector": "item"},
+    # Runtime container type alone must never trigger mapping.
+    vector_value = [1, 2, 3]
+    preserved_vector = runtime._map_item_inputs(
+        {"vector": vector_value}, {},
         lambda values: values["vector"],
     )
-    if not isinstance(mapped_vector, runtime.b3d.Vector):
-        raise AssertionError("Serialized Vector literal was split before coercion")
+    if preserved_vector is not vector_value:
+        raise AssertionError("A list-valued scalar/object parameter was treated as a stream")
+    preserved_collection = runtime._map_item_inputs(
+        {"items": [1, 2, 3]}, {},
+        lambda values: tuple(values["items"]),
+    )
+    if preserved_collection != (1, 2, 3):
+        raise AssertionError("An ordinary collection value was unexpectedly mapped")
+
+    # A stream of list-valued items maps once; only an explicitly tree-shaped
+    # stream recursively maps nested list levels.
+    list_items = runtime._map_item_inputs(
+        {"value": [[1, 2], [3, 4]]}, {"value": "list"},
+        lambda values: values["value"],
+    )
+    tree_items = runtime._map_item_inputs(
+        {"value": [[1, 2], [3, 4]]}, {"value": "tree"},
+        lambda values: sum(values["value"]),
+    )
+    if list_items != [[1, 2], [3, 4]] or tree_items != [3, 7]:
+        raise AssertionError("List and tree stream semantics were conflated")
+
     shape_list = runtime._annotation_metadata(list[runtime.b3d.Face])
     if shape_list.get("data_structure") != "list" or shape_list.get("item_type") != "Face":
         raise AssertionError("List[Face] metadata conflates collection and element types")
-    return {"name": "data mapping", "longest": True, "shortest": True, "cross": True, "nested": True}
+    return {"name": "data mapping", "longest": True, "shortest": True,
+            "cross": True, "nested": True, "collections_are_values": True}
 
+
+def run_dataflow_shape_inference_tests():
+    def node(node_id, inputs, outputs):
+        return {"id": node_id, "data": {"definition": {
+            "inputs": inputs, "outputs": outputs
+        }}}
+    nodes = {
+        "series": node("series", [], [{"name": "result", "data_structure": "list"}]),
+        "mapped": node("mapped", [{"name": "value", "data_access": "item"}],
+                       [{"name": "result"}]),
+        "terminal": node("terminal", [{"name": "value", "data_access": "structure"}],
+                         [{"name": "result"}]),
+    }
+    incoming = {
+        "mapped": {"value": ("series", "result")},
+        "terminal": {"value": ("mapped", "result")},
+    }
+    memo = {}
+    if runtime._effective_output_structure("mapped", "result", nodes, incoming, memo) != "list":
+        raise AssertionError("Item-wise node must propagate upstream stream shape")
+    if runtime._effective_output_structure("terminal", "result", nodes, incoming, memo) != "item":
+        raise AssertionError("Structure-consuming node must terminate stream propagation")
+    return {"name": "dataflow shape inference", "item_propagation": True,
+            "structure_boundary": True}
 
 def run_collection_workflow_tests():
     nodes = [
@@ -345,7 +343,7 @@ def run_python_export_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
+    results = [run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

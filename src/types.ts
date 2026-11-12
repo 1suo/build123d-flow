@@ -76,4 +76,5 @@ export interface EvaluationResult {
   errors: Record<string, string>;
   order: string[];
   socket_values?: Record<string, Record<string, unknown>>;
+  cache?: { hits: number; misses: number };
 }

@@ -35,8 +35,8 @@ function applyTheme() {
   scene.background = cssColor("--tikal-background", "#013220");
   if (gridHelper) {
     const materials = Array.isArray(gridHelper.material) ? gridHelper.material : [gridHelper.material];
-    materials[0]?.color.copy(cssColor("--tikal-selection", "#458b74"));
-    materials[1]?.color.copy(cssColor("--tikal-border", "#2f4f4f"));
+    (materials[0] as THREE.LineBasicMaterial | undefined)?.color.copy(cssColor("--tikal-selection", "#458b74"));
+    (materials[1] as THREE.LineBasicMaterial | undefined)?.color.copy(cssColor("--tikal-border", "#2f4f4f"));
   }
   if (modelGroup) {
     for (const child of modelGroup.children) {

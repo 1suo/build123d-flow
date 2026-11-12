@@ -177,8 +177,9 @@ const paletteSources = [
 type PaletteSource = typeof paletteSources[number]["id"];
 function paletteOrigin(item: NodeDefinition): PaletteSource {
   const id = item.id.toLowerCase();
-  if (id.startsWith("build123d.")) return "build123d";
-  if (id.startsWith("core.") || id.startsWith("build123d_flow.")) return "flow";
+  if (id.startsWith("core.python.")) return "python";
+  if (id.startsWith("build123d.") || id.startsWith("build123d_flow.")) return "build123d";
+  if (id.startsWith("core.")) return "flow";
   return "python";
 }
 const dockGroups = computed(() => paletteSources.map((source) => {

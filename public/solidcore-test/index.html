@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SolidCore backend smoke test</title>
+  <style>
+    body { margin: 2rem; background: #171411; color: #eee6d8; font: 15px/1.5 system-ui, sans-serif; }
+    main { max-width: 52rem; margin: auto; }
+    button { padding: .7rem 1rem; color: #171411; background: #d8c6a4; border: 0; cursor: pointer; }
+    pre { min-height: 8rem; padding: 1rem; overflow: auto; background: #25201b; border: 1px solid #57483a; }
+    #status { margin: 1rem 0; color: #d8c6a4; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>SolidCore backend smoke test</h1>
+    <p>Runs native SolidCore modelling operations and B-rep tessellation in WebAssembly. No SolidCraft command registry or document timeline is involved.</p>
+    <button id="run" disabled>Loading WebAssembly…</button>
+    <p id="status">Loading the SolidCore WASM module.</p>
+    <pre id="result">Waiting…</pre>
+  </main>
+  <script type="module">
+    import init, { smoke_test } from "./pkg/solidcore_spike.js";
+
+    const button = document.querySelector("#run");
+    const status = document.querySelector("#status");
+    const result = document.querySelector("#result");
+
+    try {
+      await init();
+      button.disabled = false;
+      button.textContent = "Run SolidCore smoke test";
+      status.textContent = "WASM loaded.";
+    } catch (error) {
+      status.textContent = "WASM load failed.";
+      result.textContent = String(error);
+    }
+
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      status.textContent = "Building two boxes, unioning them, converting the result to a B-rep record, and tessellating it…";
+      try {
+        result.textContent = JSON.stringify(JSON.parse(smoke_test()), null, 2);
+        status.textContent = "SolidCore operation and tessellation completed.";
+      } catch (error) {
+        status.textContent = "SolidCore smoke test failed.";
+        result.textContent = String(error);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1978,8 +1978,6 @@ def export_python_code(payload):
                         )
                     )
                 return None
-            if isinstance(value, str) and value.startswith("_node_"):
-                return value
             annotation = _python_node_annotation(definition, socket)
             return _python_code_literal(value, annotation)
 

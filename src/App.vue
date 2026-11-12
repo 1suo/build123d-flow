@@ -338,7 +338,7 @@ function onConnect(connection: Connection) {
     if (edge.target === connection.target && edge.targetHandle === connection.targetHandle) replaced.push(edge.id);
   }
   if (replaced.length) removeEdges(replaced);
-  addEdges([{ ...connection, id: `e${Date.now()}`, animated: false, updatable: true } as Edge]);
+  addEdges([{ ...connection, id: `e${crypto.randomUUID()}`, animated: false, updatable: true } as Edge]);
   scheduleEvaluation();
 }
 
@@ -398,6 +398,8 @@ async function evaluate() {
   const revision = ++evaluationRevision;
   const validation = validateGraph(graph.value);
   if (validation.length) {
+    previews.value = {};
+    socketValues.value = {};
     errors.value = validation;
     return;
   }
@@ -415,6 +417,9 @@ async function evaluate() {
     for (const node of nodes.value as any[]) node.data.error = result.errors[node.id] ?? "";
   } catch (error) {
     if (revision === evaluationRevision) {
+      previews.value = {};
+      socketValues.value = {};
+      for (const node of nodes.value as any[]) node.data.error = String(error);
       errors.value = [String(error)];
       logActivity(String(error), "error");
     }

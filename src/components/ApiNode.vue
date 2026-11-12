@@ -5,6 +5,7 @@ import Button from "primevue/button";
 import Card from "primevue/card";
 import Popover from "primevue/popover";
 import type { NodeDefinition } from "../types";
+import { isGeometrySocket, socketColor, socketTypeLabel } from "../runtime/socketPresentation";
 
 const props = defineProps<{
   id: string;
@@ -25,25 +26,7 @@ const props = defineProps<{
 const inputs = computed(() => props.data.definition.inputs);
 const outputs = computed(() => props.data.definition.outputs);
 const errorPopover = ref<any>();
-const canPreview = computed(() => outputs.value.some((output) =>
-  ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type) ||
-  ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.item_type || "")
-));
-function socketTypeLabel(socket: any): string {
-  const structure = socket.data_structure;
-  if (!structure || structure === "item") return socket.type;
-  if (structure === "dict") return `Dict[${socket.key_type || "Any"}, ${socket.value_type || "Any"}]`;
-  const itemType = socket.item_type || socket.type;
-  const label = structure === "tree" ? "Tree" : structure[0].toUpperCase() + structure.slice(1);
-  return `${label}[${itemType}]`;
-}
-function socketColor(socket: any): string {
-  const type = socket.item_type || socket.value_type || socket.type;
-  if (["Shape","Solid","Compound","Face","Edge","Wire","Shell","Part","Sketch"].includes(type)) return "var(--socket-geometry)";
-  if (["Number","Boolean","Vector2","Vector3","Rotation","Plane","Location","Axis","Color"].includes(type)) return "var(--socket-numeric)";
-  if (["String","Code","Enum"].includes(type)) return "var(--socket-text)";
-  return "var(--socket-generic)";
-}
+const canPreview = computed(() => outputs.value.some(isGeometrySocket));
 function socketTitle(socket: any, direction: string): string {
   return direction + ": " + socket.name + " · " + socketTypeLabel(socket) + (socket.annotation ? " | " + socket.annotation : "");
 }

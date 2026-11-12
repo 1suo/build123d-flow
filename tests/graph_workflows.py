@@ -390,8 +390,57 @@ def run_python_export_tests():
     return {"name": "Python export", "native_constructors": True, "native_operators": True}
 
 
+def run_graph_plan_validation_tests():
+    nodes = [
+        {"id": "left", "data": {}},
+        {"id": "right", "data": {}},
+        {"id": "target", "data": {}},
+    ]
+    edges = [
+        {"id": "first", "source": "left", "target": "target",
+         "sourceHandle": "result", "targetHandle": "value"},
+        {"id": "second", "source": "right", "target": "target",
+         "sourceHandle": "result", "targetHandle": "value"},
+    ]
+    graph = {"nodes": nodes, "edges": edges}
+
+    evaluated = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
+    if evaluated["errors"].get("graph") != "Input 'target.value' has multiple connections":
+        raise AssertionError("Evaluator did not reject duplicate input connections")
+
+    try:
+        runtime.export_python_code(graph)
+    except ValueError as exc:
+        if str(exc) != "Input 'target.value' has multiple connections":
+            raise
+    else:
+        raise AssertionError("Python exporter did not reject duplicate input connections")
+
+    cyclic_graph = {
+        "nodes": [{"id": "left", "data": {}}, {"id": "right", "data": {}}],
+        "edges": [
+            {"id": "left-right", "source": "left", "target": "right",
+             "sourceHandle": "result", "targetHandle": "value"},
+            {"id": "right-left", "source": "right", "target": "left",
+             "sourceHandle": "result", "targetHandle": "value"},
+        ],
+    }
+    cyclic_result = json.loads(runtime.evaluate_graph_json(json.dumps(cyclic_graph)))
+    if cyclic_result["errors"].get("graph") != "Graph contains a cycle":
+        raise AssertionError("Evaluator did not reject cyclic graphs")
+    try:
+        runtime.export_python_code(cyclic_graph)
+    except ValueError as exc:
+        if str(exc) != "Graph contains a cycle":
+            raise
+    else:
+        raise AssertionError("Python exporter did not reject cyclic graphs")
+
+    return {"name": "graph plan validation", "duplicate_inputs": True, "cycles": True}
+
+
 def run_graph_workflow_tests():
-    results = [run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

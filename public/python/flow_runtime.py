@@ -1677,34 +1677,52 @@ def _trim_cache(cache):
         cache.pop(next(iter(cache)))
 
 
-def evaluate_graph_json(payload):
-    global _LAST_SHAPE
-    _LAST_SHAPE = None
-    graph = json.loads(payload)
-    nodes = {node["id"]: node for node in graph.get("nodes", [])}
-    edges = graph.get("edges", [])
+def _graph_plan(nodes, edges):
+    """Validate graph input ownership and return one deterministic execution plan."""
     incoming = {}
     outgoing = {node_id: [] for node_id in nodes}
     indegree = {node_id: 0 for node_id in nodes}
     for edge in edges:
-        source, target = edge.get("source"), edge.get("target")
+        source, target = str(edge.get("source")), str(edge.get("target"))
         if source not in nodes or target not in nodes:
             continue
-        incoming.setdefault(target, {})[edge.get("targetHandle")] = (source, edge.get("sourceHandle"))
+        target_handle = edge.get("targetHandle")
+        target_inputs = incoming.setdefault(target, {})
+        if target_handle in target_inputs:
+            raise ValueError(
+                "Input '{}.{}' has multiple connections".format(target, target_handle)
+            )
+        target_inputs[target_handle] = (source, edge.get("sourceHandle"))
         outgoing[source].append(target)
         indegree[target] += 1
+
     queue = [node_id for node_id, degree in indegree.items() if degree == 0]
     order = []
-    while queue:
-        node_id = queue.pop(0)
+    queue_index = 0
+    while queue_index < len(queue):
+        node_id = queue[queue_index]
+        queue_index += 1
         order.append(node_id)
         for target in outgoing[node_id]:
             indegree[target] -= 1
             if indegree[target] == 0:
                 queue.append(target)
     if len(order) != len(nodes):
+        raise ValueError("Graph contains a cycle")
+    return incoming, outgoing, order
+
+
+def evaluate_graph_json(payload):
+    global _LAST_SHAPE
+    _LAST_SHAPE = None
+    graph = json.loads(payload)
+    nodes = {str(node["id"]): node for node in graph.get("nodes", [])}
+    edges = graph.get("edges", [])
+    try:
+        incoming, outgoing, order = _graph_plan(nodes, edges)
+    except ValueError as exc:
         return json.dumps({
-            "previews": {}, "errors": {"graph": "Graph contains a cycle"}, "order": order,
+            "previews": {}, "errors": {"graph": str(exc)}, "order": [],
             "cache": {"hits": 0, "misses": 0},
         })
 
@@ -2071,30 +2089,8 @@ def export_python_code(payload):
     if not nodes:
         raise ValueError("The canvas is empty")
 
-    incoming = {}
-    outgoing = {node_id: [] for node_id in nodes}
-    indegree = {node_id: 0 for node_id in nodes}
-    for edge in edges:
-        source, target = str(edge.get("source")), str(edge.get("target"))
-        if source not in nodes or target not in nodes:
-            continue
-        incoming.setdefault(target, {})[edge.get("targetHandle")] = (
-            source, edge.get("sourceHandle") or "result"
-        )
-        outgoing[source].append(target)
-        indegree[target] += 1
-
-    queue = [node_id for node_id, degree in indegree.items() if degree == 0]
-    order = []
-    while queue:
-        node_id = queue.pop(0)
-        order.append(node_id)
-        for target in outgoing[node_id]:
-            indegree[target] -= 1
-            if indegree[target] == 0:
-                queue.append(target)
-    if len(order) != len(nodes):
-        raise ValueError("Cannot export a graph containing a cycle")
+    # _graph_plan raises ValueError for duplicate inputs and cycles.
+    incoming, outgoing, order = _graph_plan(nodes, edges)
 
     imports = []
     statements = []

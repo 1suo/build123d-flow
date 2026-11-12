@@ -452,6 +452,30 @@ async function downloadStep() {
   }
   downloadStatusTimer = window.setTimeout(() => { downloadStatus.value = ""; }, 4500);
 }
+
+async function downloadPython() {
+  if (downloadStatusTimer) clearTimeout(downloadStatusTimer);
+  downloadStatus.value = "Generating build123d Python…";
+  logActivity("Generating build123d Python source");
+  try {
+    const source = await runtime.exportPython(graph.value);
+    const url = URL.createObjectURL(new Blob([source], { type: "text/x-python;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "model.py";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+    downloadStatus.value = "Python source download started · model.py";
+    logActivity("Python source exported · model.py", "success");
+    settingsPopover.value?.hide();
+  } catch (error) {
+    downloadStatus.value = "Python export failed";
+    logActivity("Python export failed · " + String(error), "error");
+  }
+  downloadStatusTimer = window.setTimeout(() => { downloadStatus.value = ""; }, 4500);
+}
 </script>
 
 <template>
@@ -501,17 +525,18 @@ async function downloadStep() {
           >
             <Background :pattern-color="'var(--tikal-border)'" :gap="22" />
           </VueFlow>
+          <div class="canvas-left-rail" role="toolbar" aria-label="Canvas sidebar">
+            <Button icon="pi pi-sidebar" text rounded severity="secondary"
+              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
+              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector"
+              @click="inspectorOpen = !inspectorOpen" />
+          </div>
           <div class="canvas-bottom-dock" role="toolbar" aria-label="Canvas tools">
             <Button icon="pi pi-expand" text rounded severity="secondary" aria-label="Fit graph" title="Fit graph" @click="fitView({ padding: 0.12 })" />
             <Button icon="pi pi-minus" text rounded severity="secondary" aria-label="Zoom out" title="Zoom out" @click="zoomOut()" />
             <Button icon="pi pi-plus" text rounded severity="secondary" aria-label="Zoom in" title="Zoom in" @click="zoomIn()" />
             <span class="bottom-dock-divider"></span>
-            <Button icon="pi pi-download" text rounded severity="secondary" aria-label="Export STEP" title="Export STEP" @click="downloadStep()" />
             <span class="bottom-dock-divider"></span>
-            <Button icon="pi pi-sliders-h" text rounded severity="secondary"
-              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
-              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector follows selected node"
-              @click="inspectorOpen = !inspectorOpen" />
             <Button icon="pi pi-trash" text rounded severity="secondary" class="delete-action"
               aria-label="Delete selected nodes or wires" title="Delete selected nodes or wires"
               :disabled="!nodes.some((node: any) => node.selected) && !edges.some((edge: any) => edge.selected)"
@@ -526,6 +551,12 @@ async function downloadStep() {
                   <option v-for="option in paletteOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </label>
+              <div class="settings-divider"></div>
+              <div class="settings-export-actions">
+                <span>Export</span>
+                <Button icon="pi pi-download" label="STEP model" text severity="secondary" @click="downloadStep(); settingsPopover?.hide()" />
+                <Button icon="pi pi-file-export" label="Python script" text severity="secondary" @click="downloadPython()" />
+              </div>
             </Popover>
           </div>
           <aside v-if="selectedNode && inspectorOpen" class="canvas-node-inspector">
@@ -573,17 +604,18 @@ async function downloadStep() {
           >
             <Background :pattern-color="'var(--tikal-border)'" :gap="22" />
           </VueFlow>
+          <div class="canvas-left-rail" role="toolbar" aria-label="Canvas sidebar">
+            <Button icon="pi pi-sidebar" text rounded severity="secondary"
+              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
+              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector"
+              @click="inspectorOpen = !inspectorOpen" />
+          </div>
           <div class="canvas-bottom-dock" role="toolbar" aria-label="Canvas tools">
             <Button icon="pi pi-expand" text rounded severity="secondary" aria-label="Fit graph" title="Fit graph" @click="fitView({ padding: 0.12 })" />
             <Button icon="pi pi-minus" text rounded severity="secondary" aria-label="Zoom out" title="Zoom out" @click="zoomOut()" />
             <Button icon="pi pi-plus" text rounded severity="secondary" aria-label="Zoom in" title="Zoom in" @click="zoomIn()" />
             <span class="bottom-dock-divider"></span>
-            <Button icon="pi pi-download" text rounded severity="secondary" aria-label="Export STEP" title="Export STEP" @click="downloadStep()" />
             <span class="bottom-dock-divider"></span>
-            <Button icon="pi pi-sliders-h" text rounded severity="secondary"
-              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
-              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector follows selected node"
-              @click="inspectorOpen = !inspectorOpen" />
             <Button icon="pi pi-trash" text rounded severity="secondary" class="delete-action"
               aria-label="Delete selected nodes or wires" title="Delete selected nodes or wires"
               :disabled="!nodes.some((node: any) => node.selected) && !edges.some((edge: any) => edge.selected)"
@@ -598,6 +630,12 @@ async function downloadStep() {
                   <option v-for="option in paletteOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
               </label>
+              <div class="settings-divider"></div>
+              <div class="settings-export-actions">
+                <span>Export</span>
+                <Button icon="pi pi-download" label="STEP model" text severity="secondary" @click="downloadStep(); settingsPopover?.hide()" />
+                <Button icon="pi pi-file-export" label="Python script" text severity="secondary" @click="downloadPython()" />
+              </div>
             </Popover>
           </div>
           <aside v-if="selectedNode && inspectorOpen" class="canvas-node-inspector">

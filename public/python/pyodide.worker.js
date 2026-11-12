@@ -1,4 +1,5 @@
-/* Pyodide runs in a dedicated classic worker; all runtime assets are same-origin. */
+/* Pyodide 314 requires an ES-module worker. Keep the loader same-origin. */
+import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
 const VERSION="314.0.7", MARKER=".build123d-flow-environment";
 let pyodide=null;
 const status=message=>self.postMessage({type:"status",message});
@@ -11,7 +12,6 @@ async function initialize(base){
  const key=VERSION+":"+await hash(setup);
  const indexURL=new URL(base+"pyodide/v"+VERSION+"/full/",self.location.href).href;
  status("Loading local Pyodide runtime…");
- try{importScripts(indexURL+"pyodide.js");}catch(e){throw Error("Could not load the self-hosted Pyodide loader at "+indexURL+"pyodide.js: "+String(e));}
  let persistent=false,restored=false;
  pyodide=await loadPyodide({indexURL,fsInit:async(FS,info)=>{
   try{if(!FS.filesystems?.IDBFS)throw Error("IDBFS unavailable");FS.mount(FS.filesystems.IDBFS,{},info.sitePackages);persistent=true;status("Checking saved Python environment…");await sync(FS,true);

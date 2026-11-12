@@ -1647,12 +1647,33 @@ def _trim_cache(cache):
         cache.pop(next(iter(cache)))
 
 
+def _duplicate_input_connection(edges, nodes):
+    """Return the first duplicate target socket connection, if any."""
+    occupied = set()
+    for edge in edges:
+        source, target = edge.get("source"), edge.get("target")
+        if source not in nodes or target not in nodes:
+            continue
+        handle = edge.get("targetHandle")
+        key = (target, handle)
+        if key in occupied:
+            return "Input '{}.{}' has multiple connections".format(target, handle)
+        occupied.add(key)
+    return None
+
+
 def evaluate_graph_json(payload):
     global _LAST_SHAPE
     _LAST_SHAPE = None
     graph = json.loads(payload)
     nodes = {node["id"]: node for node in graph.get("nodes", [])}
     edges = graph.get("edges", [])
+    duplicate_input = _duplicate_input_connection(edges, nodes)
+    if duplicate_input:
+        return json.dumps({
+            "previews": {}, "errors": {"graph": duplicate_input}, "order": [],
+            "cache": {"hits": 0, "misses": 0},
+        })
     incoming = {}
     outgoing = {node_id: [] for node_id in nodes}
     indegree = {node_id: 0 for node_id in nodes}
@@ -2043,6 +2064,9 @@ def export_python_code(payload):
     edges = graph.get("edges", [])
     if not nodes:
         raise ValueError("The canvas is empty")
+    duplicate_input = _duplicate_input_connection(edges, nodes)
+    if duplicate_input:
+        raise ValueError(duplicate_input)
 
     incoming = {}
     outgoing = {node_id: [] for node_id in nodes}

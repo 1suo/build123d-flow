@@ -1995,9 +1995,12 @@ def export_python_code(payload):
                 receiver_socket = definition["inputs"][0]
                 receiver = value_expression(receiver_socket)
                 expression = "{}.{}".format(receiver, member_name)
-            elif len(api_id.split(".")) >= 3 and api_id.split(".")[-2][:1].isupper():
-                owner_path, member_name = api_id.rsplit(".", 1)
-                owner_ref = _python_method_owner(owner_path, imports, "_api_owner_{}".format(len(imports)))
+            elif (
+                _CATALOG_SIGNATURES.get(definition["id"]) is not None
+                and next(iter(_CATALOG_SIGNATURES[definition["id"]].parameters.values()), None) is not None
+                and next(iter(_CATALOG_SIGNATURES[definition["id"]].parameters.values())).name in {"self", "cls"}
+            ):
+                member_name = api_id.rsplit(".", 1)[-1]
                 receiver_socket = next((item for item in definition["inputs"] if item["name"] in {"self", "cls"}), None)
                 if receiver_socket is None:
                     raise ValueError("Method node {} has no receiver input".format(definition["name"]))

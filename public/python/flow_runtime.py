@@ -283,7 +283,7 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
         output_type = inputs
         inputs = function
         function = category
-        category = node_id.split(".")[1].title() if len(node_id.split(".")) > 2 else "Core"
+        category = "Core"
     defaults = {"step": 1, "count": 10, "stop": 10, "index": 0, "start": 0, "default": None}
     found[node_id] = {
         "id": node_id,
@@ -823,21 +823,33 @@ def _palette_metadata(definition):
     if source == "python":
         return "Scripting", "Python"
     if source == "flow":
-        if api_category == "logic":
+        if api_category == "logic" or name in {
+            "equal", "not equal", "less than", "less or equal", "greater than",
+            "greater or equal", "and", "or", "not", "select",
+        }:
             return "Logic", "Logic"
-        if api_category == "math":
+        if api_category == "math" or name in {
+            "add", "subtract", "multiply", "divide", "floor divide", "modulo", "power",
+            "negate", "absolute", "square root", "sin", "cos", "tan", "asin", "acos",
+            "atan", "radians", "degrees", "exp", "log", "natural log", "floor", "ceil",
+            "round", "pi", "e", "tau", "minimum", "maximum", "clamp", "remap", "interpolate",
+        }:
             return "Math", "Arithmetic & trigonometry"
+        if api_category == "spatial" or name in {
+            "vector add", "vector subtract", "vector scale", "dot product", "cross product",
+            "vector length", "normalize", "xy grid", "polar points", "hex grid points",
+            "voronoi 2d", "distance 2d",
+        }:
+            return "Spatial", "Spatial operations"
         if api_category in {"collections", "series", "values", "constants", "strings"}:
             sections = {
                 "collections": "Collections", "series": "Series", "values": "Literal values",
                 "constants": "Constants", "strings": "Strings",
             }
             return "Data", sections[api_category]
-        if api_category == "spatial":
-            return "Spatial", "Spatial operations"
         if api_category == "utilities":
             return "Math", "Numeric utilities"
-        return "Flow", "Other"
+        return "Data", "Other data operations"
 
     if api_category == "boolean" or name in {"union", "difference", "intersection"}:
         return "Boolean", "Boolean operations"

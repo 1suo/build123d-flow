@@ -1868,12 +1868,6 @@ def _python_import_reference(obj, imports, alias):
     return alias
 
 
-def _python_method_owner(owner_path, imports, alias):
-    module_name, class_name = owner_path.rsplit(".", 1)
-    owner = getattr(importlib.import_module(module_name), class_name)
-    return _python_import_reference(owner, imports, alias)
-
-
 def export_python_code(payload):
     """Compile a graph to standalone build123d Python using native API calls."""
     graph = json.loads(payload) if isinstance(payload, str) else payload
@@ -1937,15 +1931,16 @@ def export_python_code(payload):
         params = dict(data.get("params", {}))
         for socket in definition.get("inputs", []):
             edge = incoming.get(node_id, {}).get(socket["name"])
-            if edge:
-                upstream, output_name = edge
-                params[socket["name"]] = variables[upstream] + (
-                    "" if output_name == "result" else "." + output_name
-                )
-            elif socket["name"] not in params and "default" in socket:
+            if not edge and socket["name"] not in params and "default" in socket:
                 params[socket["name"]] = socket["default"]
 
         def value_expression(socket):
+            edge = incoming.get(node_id, {}).get(socket["name"])
+            if edge:
+                upstream, output_name = edge
+                return variables[upstream] + (
+                    "" if output_name == "result" else "." + output_name
+                )
             value = params.get(socket["name"], _MISSING)
             if value is _MISSING:
                 if socket.get("required", False):
@@ -1965,10 +1960,9 @@ def export_python_code(payload):
             socket = definition.get("inputs", [{}])[0]
             expression = value_expression(socket)
         else:
-            api_id = re.sub(r"\.overload-\d+$", "", definition["id"])
+            api_id = definition["id"].split(".overload-", 1)[0]
             if ".operator." in api_id:
                 owner_path, method_name = api_id.split(".operator.", 1)
-                owner_ref = _python_method_owner(owner_path, imports, "_api_owner_{}".format(len(imports)))
                 sockets = definition.get("inputs", [])
                 receiver_socket = next((item for item in sockets if item["name"] in {"self", "cls"}), None)
                 if receiver_socket is None:
@@ -1991,7 +1985,7 @@ def export_python_code(payload):
                     expression = "({} {} {})".format(receiver, symbol, operands[0])
             elif ".property." in api_id or ".field." in api_id:
                 marker = ".property." if ".property." in api_id else ".field."
-                owner_path, member_name = api_id.split(marker, 1)
+                _, member_name = api_id.split(marker, 1)
                 receiver_socket = definition["inputs"][0]
                 receiver = value_expression(receiver_socket)
                 expression = "{}.{}".format(receiver, member_name)

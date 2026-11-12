@@ -1351,7 +1351,7 @@ def evaluate_graph_json(payload):
             errors[node_id] = "Unknown or unavailable API node: " + str(definition_id)
             continue
         params = dict(node.get("data", {}).get("params", {}))
-        upstream_keys, failed_dependency = {}, False
+        upstream_keys, failed_dependency, upstream_cacheable = {}, False, True
         for input_name, (source_id, output_name) in incoming.get(node_id, {}).items():
             if source_id in errors or source_id not in values:
                 errors[node_id] = "Input depends on a failed node: " + source_id
@@ -1362,12 +1362,12 @@ def evaluate_graph_json(payload):
             if source_key is not None:
                 upstream_keys[input_name] = source_key
             else:
-                failed_dependency = True
+                upstream_cacheable = False
         if failed_dependency:
             if node_id not in errors:
                 errors[node_id] = "Input depends on a non-cacheable or failed node"
             continue
-        can_cache = _cacheable(definition) and len(upstream_keys) == len(incoming.get(node_id, {}))
+        can_cache = _cacheable(definition) and upstream_cacheable
         try:
             key = _cache_key(definition_id, node.get("data", {}).get("params", {}), upstream_keys) if can_cache else None
             cached = _EVAL_CACHE.get(key) if key else None
@@ -1375,6 +1375,7 @@ def evaluate_graph_json(payload):
                 values[node_id] = {"result": cached}
                 node_keys[node_id] = key
                 cache_hits += 1
+                _EVAL_CACHE.pop(key, None)
                 _EVAL_CACHE[key] = cached
                 continue
             cache_misses += 1
@@ -1410,6 +1411,9 @@ def evaluate_graph_json(payload):
                 if preview is not None and key:
                     _PREVIEW_CACHE[key] = preview
                     _trim_cache(_PREVIEW_CACHE)
+            elif key:
+                _PREVIEW_CACHE.pop(key, None)
+                _PREVIEW_CACHE[key] = preview
             if preview is not None:
                 previews[node_id] = preview
                 _LAST_SHAPE = _as_export_shape(result)

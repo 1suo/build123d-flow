@@ -30,6 +30,14 @@ def _node(definition, node_id, params=None):
     }
 
 
+def _shape_operator(method_name):
+    shape_class = runtime.b3d.Shape
+    node_id = shape_class.__module__ + "." + shape_class.__name__ + ".operator." + method_name
+    if node_id not in runtime._CATALOG:
+        raise AssertionError("Missing native build123d operator: " + node_id)
+    return runtime._CATALOG[node_id]
+
+
 def _shape_input(definition):
     sockets = definition["inputs"]
     for socket in sockets:
@@ -131,7 +139,7 @@ def run_collection_workflow_tests():
 def run_shape_collection_workflow_test():
     box = _definition("Box")
     cylinder = _definition("Cylinder")
-    union = _definition("Union")
+    union = _shape_operator("__add__")
     append = runtime._CATALOG["core.list.append"]
     union_inputs = [socket["name"] for socket in union["inputs"]]
     nodes = [
@@ -146,8 +154,8 @@ def run_shape_collection_workflow_test():
         _edge("box_a", "list_a", "value"),
         _edge("list_a", "shape_list", "items"),
         _edge("box_b", "shape_list", "value"),
-        _edge("shape_list", "union", union_inputs[0]),
-        _edge("cylinder", "union", union_inputs[1]),
+        _edge("box_a", "union", union_inputs[0]),
+        _edge("shape_list", "union", union_inputs[1]),
     ]
     result = _run("List[Shape] → item-wise Union", nodes, edges, "union")
     return {"name": "shape collection", "preview": result["preview"], "step_bytes": result["step_bytes"]}
@@ -168,9 +176,6 @@ def run_catalog_metadata_tests():
         "core.value.string": "flow",
         "core.value.boolean": "flow",
         "core.python.function": "python",
-        "flow.boolean.union": "flow",
-        "flow.boolean.difference": "flow",
-        "flow.boolean.intersection": "flow",
     }
     for node_id, expected in expected_sources.items():
         actual = catalog[node_id]["source"]
@@ -185,10 +190,16 @@ def run_catalog_metadata_tests():
     if box["palette_category"] != "Create":
         raise AssertionError("Geometry constructors must use their declared API palette group")
 
-    for node_id in ("flow.boolean.union", "flow.boolean.difference", "flow.boolean.intersection"):
-        definition = catalog[node_id]
+    for method_name in ("__add__", "__sub__", "__and__"):
+        definition = _shape_operator(method_name)
+        if definition["source"] != "build123d":
+            raise AssertionError(method_name + " must retain native build123d provenance")
+        if definition.get("operator", {}).get("method") != method_name:
+            raise AssertionError(method_name + " is missing its native operator identity")
         if definition["palette_category"] != "Boolean":
-            raise AssertionError(node_id + " is missing its Boolean palette declaration")
+            raise AssertionError(method_name + " is missing its Boolean palette placement")
+    if any(node_id.startswith("flow.boolean.") for node_id in catalog):
+        raise AssertionError("Legacy app-authored Boolean wrappers remain in the catalog")
     return {"name": "catalog metadata", "explicit_provenance": True, "explicit_palette": True}
 
 
@@ -229,7 +240,7 @@ def run_graph_workflow_tests():
         "revolve",
     ))
 
-    union = _definition("Union")
+    union = _shape_operator("__add__")
     union_inputs = [socket["name"] for socket in union["inputs"]]
     if len(union_inputs) < 2:
         raise AssertionError("Union does not expose two inputs")
@@ -247,5 +258,24 @@ def run_graph_workflow_tests():
         ],
         "union",
     ))
+
+    # Exercise the three native Shape algebra operators, not app adapters.
+    for method_name in ("__sub__", "__and__"):
+        operation = _shape_operator(method_name)
+        operation_inputs = [socket["name"] for socket in operation["inputs"]]
+        operation_nodes = [
+            _node(box, "base", {"length": 12, "width": 12, "height": 12}),
+            _node(cylinder, "tool", {"radius": 5, "height": 16}),
+            _node(operation, "operation"),
+        ]
+        results.append(_run(
+            "Box " + operation["operator"]["symbol"] + " Cylinder (native)",
+            operation_nodes,
+            [
+                _edge("base", "operation", operation_inputs[0]),
+                _edge("tool", "operation", operation_inputs[1]),
+            ],
+            "operation",
+        ))
 
     return results

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, markRaw, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import ApiNode from "./components/ApiNode.vue";

@@ -86,6 +86,7 @@ await micropip.install([
     "typing_extensions>=4.16,<5",
     "numpy>=2,<3",
     "svgpathtools>=1.5.1,<2",
+    "svgwrite",
     "anytree>=2.8,<3",
     "ezdxf>=1.1,<2",
     "pyparsing>=3.1,<4",
@@ -102,6 +103,10 @@ await micropip.install([
     "bd_materials>=0.2,<0.3",
     "threejs-materials>=1.2.1,<1.3",
 ])
+
+# svgpathtools is imported by build123d.exporters at package import time.
+# Its svgwrite dependency is not reliably pulled in by micropip metadata.
+import svgpathtools
 
 try:
     build123d_installed = importlib.metadata.version("build123d") == "0.13.0"

@@ -1245,6 +1245,18 @@ def discover(include_full=True):
     # Finalize required palette metadata after overrides, before publishing catalog.
     for definition in found.values():
         definition["palette_category"], definition["palette_section"] = _palette_metadata(definition)
+        if definition.get("source") not in {"build123d", "python", "flow"}:
+            raise RuntimeError("Node has invalid source metadata: " + definition.get("id", "<unknown>"))
+        if not definition["palette_category"].strip() or not definition["palette_section"].strip():
+            raise RuntimeError("Node has incomplete palette metadata: " + definition.get("id", "<unknown>"))
+
+    report["palette_source_counts"] = {}
+    report["palette_category_counts"] = {}
+    for definition in found.values():
+        source = definition["source"]
+        category = definition["palette_category"]
+        report["palette_source_counts"][source] = report["palette_source_counts"].get(source, 0) + 1
+        report["palette_category_counts"][source + "/" + category] = report["palette_category_counts"].get(source + "/" + category, 0) + 1
 
     report["node_count"] = len(found)
     report["kind_counts"] = {}

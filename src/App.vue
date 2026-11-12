@@ -17,6 +17,26 @@ import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
 
 const runtime = new PythonRuntime();
+const activePalette = ref("tikal");
+const paletteOptions = [
+  { value: "alexandria", label: "Alexandria" },
+  { value: "alexandria-swapped", label: "Alexandria · swapped" },
+  { value: "babylon", label: "Babylon" },
+  { value: "babylon-swapped", label: "Babylon · swapped" },
+  { value: "knossos", label: "Knossos" },
+  { value: "knossos-swapped", label: "Knossos · swapped" },
+  { value: "petra", label: "Petra" },
+  { value: "petra-swapped", label: "Petra · swapped" },
+  { value: "tikal", label: "Tikal" },
+  { value: "tikal-swapped", label: "Tikal · swapped" },
+  { value: "troy", label: "Troy" },
+  { value: "troy-swapped", label: "Troy · swapped" },
+];
+function persistPalette() {
+  const value = activePalette.value;
+  document.documentElement.dataset.findspotTheme = value;
+  try { localStorage.setItem("findspot-palette", value); } catch { /* Storage may be unavailable. */ }
+}
 const status = ref("Loading Python runtime…");
 const runtimeError = ref("");
 const catalog = ref<NodeDefinition[]>([]);
@@ -235,6 +255,11 @@ function nodeIcon(item: NodeDefinition): string {
       : item.kind === "operation" ? "/icons/cad/node.svg" : "/icons/cad/shape.svg");
 }
 onMounted(() => {
+  try {
+    const saved = localStorage.getItem("findspot-palette");
+    if (saved && paletteOptions.some((option) => option.value === saved)) activePalette.value = saved;
+  } catch { /* Use Tikal when storage is unavailable. */ }
+  persistPalette();
   window.addEventListener("keydown", onGlobalKeydown, true);
   mobileMediaQuery = window.matchMedia("(max-width: 760px)");
   updateMobileLayout();
@@ -500,7 +525,7 @@ async function downloadStep() {
 </script>
 
 <template>
-  <main class="app-shell">
+  <main class="app-shell" :data-theme="activePalette">
     <Message v-if="runtimeError" severity="error" :closable="false" class="runtime-error">{{ runtimeError }}</Message>
     <Splitter class="workspace" :layout="isMobile ? 'vertical' : 'horizontal'" :gutter-size="4">
       <SplitterPanel :size="isMobile ? 58 : 68" :min-size="isMobile ? 40 : 35" class="graph-panel">
@@ -515,6 +540,12 @@ async function downloadStep() {
               </span>
               <span v-if="!runtime.isReady" class="category-loading">Loading runtime…</span>
             </nav>
+            <label class="theme-switcher">
+              <span>Palette</span>
+              <select v-model="activePalette" aria-label="Findspot palette" @change="persistPalette">
+                <option v-for="option in paletteOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
           </div>
           <div v-if="runtime.isReady && !nodes.length" class="canvas-empty-state">
             <strong>Empty canvas</strong>

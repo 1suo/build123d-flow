@@ -199,6 +199,14 @@ def run_catalog_metadata_tests():
             raise AssertionError(method_name + " must retain native build123d provenance")
         if definition.get("operator", {}).get("method") != method_name:
             raise AssertionError(method_name + " is missing its native operator identity")
+        if definition.get("operator", {}).get("family") not in {"arithmetic", "bitwise"}:
+            raise AssertionError(method_name + " is missing generic Python operator metadata")
+        expected_symbol = {"__add__": "+", "__sub__": "−", "__and__": "&"}[method_name]
+        if definition["operator"].get("symbol") != expected_symbol:
+            raise AssertionError(method_name + " has an incorrect Python operator symbol")
+        native_method = getattr(runtime.b3d.Shape, method_name)
+        if runtime._CATALOG_CALLABLES.get(definition["id"]) is not native_method:
+            raise AssertionError(method_name + " is not backed by the native Shape method")
         if definition["palette_category"] != "Boolean":
             raise AssertionError(method_name + " is missing its Boolean palette placement")
         if method_name == "__add__":

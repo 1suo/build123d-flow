@@ -195,7 +195,7 @@ onMounted(() => {
   updateMobileLayout();
   mobileMediaQuery.addEventListener("change", updateMobileLayout);
   void runtime.initialize(updateRuntimeStatus).then(() => {
-    const discovered = runtime.getCatalog();
+    const discovered = await runtime.getCatalog();
     const byName = new Map(discovered.map((item) => [item.name, item]));
     catalog.value = discovered;
     for (const node of nodes.value as any[]) {
@@ -241,7 +241,7 @@ async function ensureFullCatalog() {
       node.data.icon = nodeIcon(node.data.definition);
     }
     fullCatalogLoaded = true;
-    const report = runtime.getDiscoveryReport();
+    const report = await runtime.getDiscoveryReport();
     const moduleCount = Array.isArray(report.modules_visited) ? report.modules_visited.length : 0;
     logActivity(`API discovery complete · ${discovered.length} nodes · ${moduleCount} modules`, "success");
   }).catch((error) => logActivity("Full API discovery failed · " + String(error), "warning"))
@@ -430,7 +430,7 @@ async function downloadStep() {
   logActivity("Preparing STEP export");
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   try {
-    const bytes = runtime.exportStep();
+    const bytes = await runtime.exportStep();
     if (!bytes) {
       downloadStatus.value = "Nothing to export";
       logActivity("STEP export skipped · no evaluated solid", "warning");

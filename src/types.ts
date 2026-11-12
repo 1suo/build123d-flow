@@ -12,9 +12,14 @@ export interface SocketDefinition {
   default?: unknown;
   default_repr?: string;
   options?: string[];
+  /** Semantic type of an individual value; independent of its container shape. */
   item_type?: SocketType;
   key_type?: SocketType;
   value_type?: SocketType;
+  /** Shape of the data carried by this socket, not its semantic value type. */
+  data_structure?: "item" | "list" | "tree" | "tuple" | "set" | "dict";
+  /** How an input consumes incoming data: one item at a time or as a whole structure. */
+  data_access?: "item" | "structure" | "tree";
   variants?: SocketType[];
 }
 
@@ -26,6 +31,8 @@ export interface NodeDefinition {
   description: string;
   inputs: SocketDefinition[];
   outputs: SocketDefinition[];
+  /** How multiple item-access inputs are aligned during evaluation. */
+  data_matching?: "longest" | "shortest" | "cross";
 }
 
 export interface GraphNode {

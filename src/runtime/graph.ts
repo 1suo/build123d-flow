@@ -27,7 +27,34 @@ function compatibleTypes(source: string, target: string): boolean {
   return false;
 }
 
+function structureOf(socket: SocketDefinition): NonNullable<SocketDefinition["data_structure"]> {
+  if (socket.data_structure) return socket.data_structure;
+  if (["List", "Tuple", "Set", "Dict"].includes(socket.type)) {
+    return socket.type.toLowerCase() as "list" | "tuple" | "set" | "dict";
+  }
+  return "item";
+}
+
 function compatible(source: SocketDefinition, target: SocketDefinition): boolean {
+  const sourceStructure = structureOf(source);
+  const targetAccess = target.data_access ?? (
+    ["List", "Tuple", "Set", "Dict"].includes(target.type) ? "structure" : "item"
+  );
+  if (sourceStructure !== "item" && targetAccess === "item") {
+    if (sourceStructure === "set" || sourceStructure === "dict") return false;
+    const sourceItemType = source.item_type ?? (["List", "Tuple", "Set", "Dict"].includes(source.type) ? "Any" : source.type);
+    const targetTypes = target.variants?.length ? target.variants : [target.type];
+    return targetTypes.some((targetType) => compatibleTypes(sourceItemType, targetType));
+  }
+  if (sourceStructure !== "item" && targetAccess !== "item") {
+    const targetStructure = structureOf(target);
+    if (targetStructure !== "item" && targetStructure !== sourceStructure &&
+        !(targetStructure === "tree" && sourceStructure === "list")) return false;
+    const sourceItemType = source.item_type ?? (["List", "Tuple", "Set", "Dict"].includes(source.type) ? "Any" : source.type);
+    const targetItemType = target.item_type ?? target.type;
+    return compatibleTypes(sourceItemType, targetItemType);
+  }
+  if (sourceStructure === "item" && targetAccess !== "item") return false;
   const sourceTypes = source.variants?.length ? source.variants : [source.type];
   const targetTypes = target.variants?.length ? target.variants : [target.type];
   return sourceTypes.some((sourceType) => targetTypes.some((targetType) => compatibleTypes(sourceType, targetType)));

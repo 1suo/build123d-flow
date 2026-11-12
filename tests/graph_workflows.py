@@ -71,6 +71,8 @@ def run_collection_workflow_tests():
     nodes = [
         _core_node("core.series.range", "range", {"start": 0, "stop": 5, "step": 1}),
         _core_node("core.list.map", "mapped", {"expression": "x * 2"}),
+        _core_node("core.series.range", "sqrt_range", {"start": 1, "stop": 10, "step": 1}),
+        _core_node("core.math.sqrt", "sqrt_each"),
         _core_node("core.dict.construct", "dictionary", {"keys": ["a", "b"], "values": [2, 4]}),
         _core_node("core.convert.to_set", "set_a", {"value": [1, 2, 2, 3]}),
         _core_node("core.convert.to_set", "set_b", {"value": [3, 4]}),
@@ -78,6 +80,7 @@ def run_collection_workflow_tests():
     ]
     edges = [
         _edge("range", "mapped", "items"),
+        _edge("sqrt_range", "sqrt_each", "value"),
         _edge("set_a", "set_union", "a"),
         _edge("set_b", "set_union", "b"),
     ]
@@ -87,6 +90,10 @@ def run_collection_workflow_tests():
     mapped = result["socket_values"]["mapped"]["result"]
     if [item["value"] for item in mapped["items"]] != [0, 2, 4, 6, 8]:
         raise AssertionError("List Map returned unexpected values: " + json.dumps(mapped))
+    sqrt_values = result["socket_values"]["sqrt_each"]["result"]
+    expected_sqrt = [1.0, 1.41421, 1.73205, 2.0, 2.23607, 2.44949, 2.64575, 2.82843, 3.0]
+    if [round(item["value"], 5) for item in sqrt_values["items"]] != expected_sqrt:
+        raise AssertionError("Scalar node did not map over list input: " + json.dumps(sqrt_values))
     dictionary = result["socket_values"]["dictionary"]["result"]
     if dictionary["items"]["a"]["value"] != 2 or dictionary["items"]["b"]["value"] != 4:
         raise AssertionError("Dictionary construction returned unexpected values")

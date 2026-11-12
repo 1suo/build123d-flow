@@ -28,17 +28,15 @@ def _type_name(annotation):
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
         names = {_type_name(arg) for arg in args if arg is not type(None)}
-        if names in ({"Rotation", "List"}, {"Rotation", "Tuple"}):
+        if "Rotation" in names and any(typing.get_origin(arg) is tuple for arg in args):
             return "Rotation"
         return names.pop() if len(names) == 1 else "Any"
-    if origin is tuple:
-        return "Tuple"
-    if origin in (set, frozenset, collections.abc.Set, collections.abc.MutableSet):
-        return "Set"
-    if origin in (list, collections.abc.Sequence, collections.abc.MutableSequence, collections.abc.Iterable, collections.abc.Collection):
-        return "List"
-    if origin in (dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping):
-        return "Dict"
+    if origin in (tuple, set, frozenset, list, dict, typing.Dict,
+                  collections.abc.Set, collections.abc.MutableSet,
+                  collections.abc.Sequence, collections.abc.MutableSequence,
+                  collections.abc.Iterable, collections.abc.Collection,
+                  collections.abc.Mapping, collections.abc.MutableMapping):
+        return "Any"
     if origin is typing.Literal:
         return "Enum"
     if origin is typing.Annotated:
@@ -84,15 +82,21 @@ def _annotation_metadata(annotation):
     mapping_origins = {
         dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping,
     }
-    if origin in collection_origins and args:
-        metadata["item_type"] = _type_name(args[0])
-    elif origin is tuple and args:
-        # tuple[T, ...] and fixed tuples both expose useful element information.
+    if origin in collection_origins:
+        metadata["data_structure"] = "set" if origin in (
+            set, frozenset, collections.abc.Set, collections.abc.MutableSet
+        ) else "list"
+        metadata["item_type"] = _type_name(args[0]) if args else "Any"
+    elif origin is tuple:
+        metadata["data_structure"] = "tuple"
         element_args = [arg for arg in args if arg is not Ellipsis]
         if element_args:
             types_found = sorted({_type_name(arg) for arg in element_args})
             metadata["item_type"] = types_found[0] if len(types_found) == 1 else "Any"
+        else:
+            metadata["item_type"] = "Any"
     if origin in mapping_origins:
+        metadata["data_structure"] = "dict"
         metadata["key_type"] = _type_name(args[0]) if args else "String"
         metadata["value_type"] = _type_name(args[1]) if len(args) > 1 else "Any"
     if origin in (typing.Union, types.UnionType):
@@ -156,6 +160,14 @@ def _populate_editor_default(socket):
     if "default" in socket or not socket.get("required"):
         return
     socket_type = socket["type"]
+    if socket.get("data_structure") in ("list", "tree", "tuple", "set"):
+        socket["default"] = []
+        socket["default_source"] = "editor"
+        return
+    if socket.get("data_structure") == "dict":
+        socket["default"] = {}
+        socket["default_source"] = "editor"
+        return
     defaults = {
         "Number": 1.0, "Boolean": False, "String": "",
         "Code": "", "Vector2": [0.0, 0.0], "Vector3": [0.0, 0.0, 0.0],
@@ -265,10 +277,12 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
         "description": description,
         "inputs": [
             {
-                "name": key, "type": socket_type, "annotation": socket_type,
+                "name": key, "type": "Any" if socket_type in {"List", "Tuple", "Set", "Dict"} else socket_type, "annotation": socket_type,
                 "required": socket_type not in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"} and key != "default",
-                **({"item_type": "Any"} if socket_type in {"List", "Tuple", "Set"} else {}),
-                **({"key_type": "Any", "value_type": "Any"} if socket_type == "Dict" else {}),
+                **({"data_structure": {"List": "list", "Tuple": "tuple", "Set": "set"}[socket_type],
+                    "data_access": "structure", "item_type": "Any"} if socket_type in {"List", "Tuple", "Set"} else {}),
+                **({"data_structure": "dict", "data_access": "structure", "key_type": "Any", "value_type": "Any"} if socket_type == "Dict" else {}),
+                **({"data_access": "item"} if socket_type not in {"List", "Tuple", "Set", "Dict"} else {}),
                 **({"default": defaults.get(key, {"Number": 0.0, "Boolean": False, "String": "", "List": [], "Tuple": [], "Set": [], "Dict": {}}[socket_type])}
                    if socket_type in {"Number", "Boolean", "String", "List", "Tuple", "Set", "Dict"} else
                    ({"default": None} if key == "default" else {})),
@@ -276,9 +290,12 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
             for key, socket_type in inputs
         ],
         "outputs": [{
-            "name": "result", "type": output_type, "annotation": output_type,
-            **({"item_type": "Any"} if output_type in {"List", "Tuple", "Set"} else {}),
-            **({"key_type": "Any", "value_type": "Any"} if output_type == "Dict" else {}),
+            "name": "result",
+            "type": "Any" if output_type in {"List", "Tuple", "Set", "Dict"} else output_type,
+            "annotation": output_type,
+            **({"data_structure": {"List": "list", "Tuple": "tuple", "Set": "set"}[output_type],
+                "item_type": "Any"} if output_type in {"List", "Tuple", "Set"} else {}),
+            **({"data_structure": "dict", "key_type": "Any", "value_type": "Any"} if output_type == "Dict" else {}),
         }],
     }
     callables[node_id] = function
@@ -875,6 +892,7 @@ def discover(include_full=True):
                     if typing.get_origin(annotation) is typing.Literal:
                         socket["options"] = list(typing.get_args(annotation))
                     socket.update(_annotation_metadata(annotation))
+                    socket["data_access"] = "structure" if socket.get("data_structure") else "item"
                     _populate_editor_default(socket)
                     inputs.append(socket)
 
@@ -914,6 +932,7 @@ def discover(include_full=True):
                     "inputs": inputs,
                     "outputs": [{
                         "name": "result", "type": output_type, "annotation": "",
+                        **_annotation_metadata(hints.get("return", signature.return_annotation)),
                         **({"variants": sorted({_type_name(arg) for arg in typing.get_args(hints.get("return", signature.return_annotation)) if arg is not type(None)})}
                            if typing.get_origin(hints.get("return", signature.return_annotation)) in (typing.Union, types.UnionType) else {}),
                     }],
@@ -965,12 +984,12 @@ def discover(include_full=True):
                         **_annotation_metadata(return_annotation),
                     }
                     found[property_id] = {
-                        "id": property_id, "kind": "operation", "name": member_name,
+                        "id": property_id, "kind": "operation", "name": owner.__name__ + "." + member_name,
                         "category": owner.__name__ + " Properties",
                         "description": (inspect.getdoc(getter_fn) or "").split("\n")[0][:180],
                         "inputs": [{
                             "name": "self", "label": "object", "type": receiver_type,
-                            "annotation": str(owner), "required": True,
+                            "annotation": str(owner), "required": True, "data_access": "item",
                         }],
                         "outputs": [property_socket],
                     }
@@ -996,7 +1015,7 @@ def discover(include_full=True):
                     hints = {}
                 inputs = [{
                     "name": parameters[0].name, "label": "object", "type": receiver_type,
-                    "annotation": str(owner), "required": True,
+                    "annotation": str(owner), "required": True, "data_access": "item",
                 }]
                 for parameter in parameters[1:]:
                     annotation = hints.get(parameter.name, parameter.annotation)
@@ -1026,6 +1045,8 @@ def discover(include_full=True):
                     if typing.get_origin(annotation) is typing.Literal:
                         socket["options"] = list(typing.get_args(annotation))
                     socket.update(_annotation_metadata(annotation))
+                    socket["data_access"] = "structure" if socket.get("data_structure") else "item"
+                    _populate_editor_default(socket)
                     inputs.append(socket)
 
                 method_id = node_prefix + "." + member_name
@@ -1038,9 +1059,9 @@ def discover(include_full=True):
                     **_annotation_metadata(return_annotation),
                 }
                 found[method_id] = {
-                    "id": method_id, "kind": "operation", "name": member_name,
+                    "id": method_id, "kind": "operation", "name": owner.__name__ + "." + member_name,
                     "category": owner.__name__ + " Methods",
-                    "description": (inspect.getdoc(raw_member) or "").split("\\n")[0][:180],
+                    "description": (inspect.getdoc(raw_member) or "").split("\n")[0][:180],
                     "inputs": inputs, "outputs": [output_socket],
                 }
                 callables[method_id] = raw_member
@@ -1210,6 +1231,46 @@ def _inspect_value(value, depth=0):
     return {"type": value_type, "repr": repr(value)[:2000], "attributes": attributes}
 
 
+def _map_item_inputs(params, access, invoke, matching="longest", path=()):
+    """Map item-access inputs recursively, preserving nested list structure.
+
+    Scalars broadcast. Longest matching repeats the last item; shortest truncates.
+    Cross matching forms a Cartesian product at each nested level.
+    """
+    sequences = {
+        name: list(value) if access.get(name, "item") == "item" and isinstance(value, (list, tuple))
+        else None
+        for name, value in params.items()
+    }
+    sequences = {name: value for name, value in sequences.items() if value is not None}
+    if not sequences:
+        try:
+            return invoke(params)
+        except Exception as exc:
+            location = "".join("[{}]".format(index) for index in path)
+            raise RuntimeError("Data mapping at {}: {}".format(location or "<root>", exc)) from exc
+    if any(len(value) == 0 for value in sequences.values()):
+        return []
+    names = list(sequences)
+    if matching == "cross":
+        rows = list(__import__("itertools").product(*(sequences[name] for name in names)))
+    else:
+        lengths = [len(value) for value in sequences.values()]
+        count = min(lengths) if matching == "shortest" else max(lengths)
+        rows = [
+            tuple(sequence[index if index < len(sequence) else len(sequence) - 1]
+                  for sequence in sequences.values())
+            for index in range(count)
+        ]
+    results = []
+    for index, row in enumerate(rows):
+        child = dict(params)
+        for name, value in zip(names, row):
+            child[name] = value
+        results.append(_map_item_inputs(child, access, invoke, matching, path + (index,)))
+    return results
+
+
 def evaluate_graph_json(payload):
     global _LAST_VALUES, _LAST_SHAPE
     _LAST_SHAPE = None
@@ -1267,20 +1328,24 @@ def evaluate_graph_json(payload):
             source_node = nodes[source_id]
             source_definition = source_node.get("data", {}).get("definition", {})
             target_definition = node.get("data", {}).get("definition", {})
-            source_socket = next((item for item in source_definition.get("outputs", [])
-                                  if item.get("name") == output_name), {})
-            target_socket = next((item for item in target_definition.get("inputs", [])
-                                  if item.get("name") == input_name), {})
             params[input_name] = source_value
         if failed_dependency:
             continue
 
         try:
             callable_obj = _resolve_callable(definition_id)
-            result = _call_with_coercion(
-                callable_obj, params,
+            invoke = lambda mapped: _call_with_coercion(
+                callable_obj, mapped,
                 signature=_CATALOG_SIGNATURES.get(definition_id),
                 hint_target=_CATALOG_HINT_TARGETS.get(definition_id),
+            )
+            input_access = {
+                socket["name"]: socket.get("data_access", "item")
+                for socket in definition.get("inputs", [])
+            }
+            result = _map_item_inputs(
+                params, input_access, invoke,
+                matching=definition.get("data_matching", "longest"),
             )
             values[node_id] = {"result": result}
         except Exception as exc:

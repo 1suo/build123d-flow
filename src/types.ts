@@ -39,6 +39,8 @@ export interface NodeDefinition {
   outputs: SocketDefinition[];
   /** How multiple item-access inputs are aligned during evaluation. */
   data_matching?: "longest" | "shortest" | "cross";
+  /** Native Python special-method identity for discovered operator nodes. */
+  operator?: { method: string; symbol: string };
 }
 
 export interface GraphNode {

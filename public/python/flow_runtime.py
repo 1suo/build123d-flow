@@ -36,6 +36,22 @@ def _type_name(annotation):
         names = {_type_name(arg) for arg in args if arg is not type(None)}
         if "Rotation" in names and any(typing.get_origin(arg) is tuple for arg in args):
             return "Rotation"
+        collection_origins = {
+            list, set, frozenset, collections.abc.Sequence, collections.abc.MutableSequence,
+            collections.abc.Iterable, collections.abc.Collection, collections.abc.Set,
+            collections.abc.MutableSet,
+        }
+        scalar_names = {
+            _type_name(arg) for arg in args
+            if arg is not type(None) and typing.get_origin(arg) not in collection_origins
+        }
+        collection_item_names = {
+            _type_name(typing.get_args(arg)[0])
+            for arg in args
+            if typing.get_origin(arg) in collection_origins and typing.get_args(arg)
+        }
+        if len(scalar_names) == 1 and collection_item_names == scalar_names:
+            return scalar_names.pop()
         return names.pop() if len(names) == 1 else "Any"
     if origin in (tuple, set, frozenset, list, dict, typing.Dict,
                   collections.abc.Set, collections.abc.MutableSet,
@@ -72,6 +88,69 @@ def _type_name(annotation):
         "sketch": "Sketch", "code": "Code", "callable": "Code",
     }
     return mapping.get(name, "Any")
+
+
+def _union_annotations(annotations):
+    """Combine overload annotations without losing union or collection types."""
+    flattened = []
+    for annotation in annotations:
+        if annotation is inspect.Signature.empty:
+            continue
+        values = typing.get_args(annotation) if typing.get_origin(annotation) in (typing.Union, types.UnionType) else (annotation,)
+        for value in values:
+            if value not in flattened:
+                flattened.append(value)
+    if not flattened:
+        return inspect.Signature.empty
+    if len(flattened) == 1:
+        return flattened[0]
+    return typing.Union[tuple(flattened)]
+
+
+def _method_signature(function):
+    """Return an implementation signature enriched with its declared overload contract."""
+    signature = inspect.signature(function)
+    overloads = typing.get_overloads(function)
+    if not overloads:
+        try:
+            hints = typing.get_type_hints(function)
+        except Exception:
+            hints = {}
+        return signature, hints, function
+
+    overload_data = []
+    for overload in overloads:
+        overload_signature = inspect.signature(overload)
+        try:
+            overload_hints = typing.get_type_hints(overload)
+        except Exception:
+            overload_hints = {}
+        overload_data.append((overload_signature, overload_hints))
+
+    merged_parameters = []
+    for parameter in signature.parameters.values():
+        annotations = []
+        for overload_signature, overload_hints in overload_data:
+            overload_parameter = overload_signature.parameters.get(parameter.name)
+            if overload_parameter is not None:
+                annotations.append(overload_hints.get(parameter.name, overload_parameter.annotation))
+        merged_annotation = _union_annotations(annotations)
+        merged_parameters.append(
+            parameter.replace(annotation=merged_annotation)
+            if merged_annotation is not inspect.Signature.empty else parameter
+        )
+    return_annotations = [
+        overload_hints.get("return", overload_signature.return_annotation)
+        for overload_signature, overload_hints in overload_data
+    ]
+    merged_return = _union_annotations(return_annotations)
+    merged_signature = signature.replace(
+        parameters=merged_parameters,
+        return_annotation=merged_return,
+    )
+    # False tells the evaluator to use the merged annotations on this signature,
+    # rather than re-reading the implementation's less-specific annotations.
+    return merged_signature, {}, False
 
 
 def _resolve_self_annotation(annotation, owner):
@@ -1113,16 +1192,12 @@ def discover(include_full=True):
                         or inspect.isbuiltin(raw_member)):
                     continue
                 try:
-                    signature = inspect.signature(raw_member)
+                    signature, hints, hint_target = _method_signature(raw_member)
                 except (TypeError, ValueError):
                     continue
                 parameters = list(signature.parameters.values())
                 if not parameters or parameters[0].name not in ("self", "cls"):
                     continue
-                try:
-                    hints = typing.get_type_hints(raw_member)
-                except Exception:
-                    hints = {}
                 inputs = [{
                     "name": parameters[0].name, "label": "object", "type": receiver_type,
                     "annotation": str(owner), "required": True, "data_access": "item",
@@ -1207,6 +1282,8 @@ def discover(include_full=True):
                     **({"operator": {"method": member_name, "symbol": symbol}} if operator_spec else {}),
                 }
                 callables[method_id] = raw_member
+                signatures[method_id] = signature
+                hint_targets[method_id] = hint_target
 
             # Dataclass/typed fields are discoverable from annotations without
             # touching instances. Properties above take precedence.
@@ -1659,11 +1736,14 @@ def _coerce_annotation(value, annotation):
 
 
 def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
-    target = hint_target or (callable_obj.__init__ if inspect.isclass(callable_obj) else callable_obj)
-    try:
-        hints = typing.get_type_hints(target)
-    except Exception:
-        hints = {}
+    if hint_target is False:
+        target, hints = callable_obj, {}
+    else:
+        target = hint_target or (callable_obj.__init__ if inspect.isclass(callable_obj) else callable_obj)
+        try:
+            hints = typing.get_type_hints(target)
+        except Exception:
+            hints = {}
     if signature is None:
         try:
             signature = _api_signature(callable_obj)

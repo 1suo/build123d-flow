@@ -1813,6 +1813,253 @@ def _resolve_callable(path):
     return getattr(module, attr_name)
 
 
+def _python_code_literal(value, annotation=None):
+    """Render a JSON graph value as a Python expression, preserving build123d enums."""
+    if annotation is not None:
+        try:
+            if inspect.isclass(annotation) and issubclass(annotation, enum.Enum):
+                member = annotation[value] if isinstance(value, str) else annotation(value)
+                return "b3d.{}.{}".format(annotation.__name__, member.name)
+        except (TypeError, KeyError, ValueError):
+            pass
+    if isinstance(value, enum.Enum):
+        return "b3d.{}.{}".format(type(value).__name__, value.name)
+    if isinstance(value, list):
+        return "[" + ", ".join(_python_code_literal(item) for item in value) + "]"
+    if isinstance(value, tuple):
+        body = ", ".join(_python_code_literal(item) for item in value)
+        return "(" + body + ("," if len(value) == 1 else "") + ")"
+    if isinstance(value, dict):
+        return "{" + ", ".join(
+            _python_code_literal(key) + ": " + _python_code_literal(item)
+            for key, item in value.items()
+        ) + "}"
+    return repr(value)
+
+
+def _python_node_annotation(definition, socket):
+    node_id = definition["id"]
+    target = _CATALOG_HINT_TARGETS.get(node_id)
+    if target is False:
+        target = None
+    if target is None:
+        callable_obj = _CATALOG_CALLABLES.get(node_id)
+        target = callable_obj.__init__ if inspect.isclass(callable_obj) else callable_obj
+    try:
+        hints = typing.get_type_hints(target) if target is not None else {}
+    except Exception:
+        hints = {}
+    annotation = hints.get(socket["name"])
+    if annotation is not None:
+        return annotation
+    signature = _CATALOG_SIGNATURES.get(node_id)
+    parameter = signature.parameters.get(socket["name"]) if signature else None
+    return parameter.annotation if parameter else None
+
+
+def _python_import_reference(obj, imports, alias):
+    name = getattr(obj, "__name__", None)
+    if name and getattr(b3d, name, None) is obj:
+        return "b3d." + name
+    module_name = getattr(obj, "__module__", None)
+    if not name or not module_name:
+        raise ValueError("Cannot generate a stable import for " + repr(obj))
+    imports.append("from {} import {} as {}".format(module_name, name, alias))
+    return alias
+
+
+def _python_method_owner(owner_path, imports, alias):
+    module_name, class_name = owner_path.rsplit(".", 1)
+    owner = getattr(importlib.import_module(module_name), class_name)
+    return _python_import_reference(owner, imports, alias)
+
+
+def export_python_code(payload):
+    """Compile a graph to standalone build123d Python using native API calls."""
+    graph = json.loads(payload) if isinstance(payload, str) else payload
+    nodes = {str(node["id"]): node for node in graph.get("nodes", [])}
+    edges = graph.get("edges", [])
+    if not nodes:
+        raise ValueError("The canvas is empty")
+
+    incoming = {}
+    outgoing = {node_id: [] for node_id in nodes}
+    indegree = {node_id: 0 for node_id in nodes}
+    for edge in edges:
+        source, target = str(edge.get("source")), str(edge.get("target"))
+        if source not in nodes or target not in nodes:
+            continue
+        incoming.setdefault(target, {})[edge.get("targetHandle")] = (
+            source, edge.get("sourceHandle") or "result"
+        )
+        outgoing[source].append(target)
+        indegree[target] += 1
+
+    queue = [node_id for node_id, degree in indegree.items() if degree == 0]
+    order = []
+    while queue:
+        node_id = queue.pop(0)
+        order.append(node_id)
+        for target in outgoing[node_id]:
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target)
+    if len(order) != len(nodes):
+        raise ValueError("Cannot export a graph containing a cycle")
+
+    imports = []
+    statements = []
+    variables = {node_id: "_node_{}".format(index + 1) for index, node_id in enumerate(order)}
+    unsupported = []
+    operator_symbols = {
+        "__add__": "+", "__sub__": "-", "__mul__": "*", "__truediv__": "/",
+        "__floordiv__": "//", "__mod__": "%", "__pow__": "**", "__matmul__": "@",
+        "__and__": "&", "__or__": "|", "__xor__": "^", "__lshift__": "<<",
+        "__rshift__": ">>", "__neg__": "-", "__pos__": "+", "__invert__": "~",
+    }
+
+    for node_id in order:
+        node = nodes[node_id]
+        data = node.get("data", {})
+        definition = _CATALOG.get(data.get("definition", {}).get("id"))
+        if definition is None:
+            raise ValueError("Node {} refers to an unknown API definition".format(node_id))
+        source = definition.get("source")
+        if source not in {"build123d", "flow"}:
+            unsupported.append(definition["name"] + " (" + source + ")")
+            continue
+        if source == "flow" and definition.get("kind") == "value":
+            pass
+        elif source != "build123d":
+            unsupported.append(definition["name"] + " (Flow utility)")
+            continue
+
+        params = dict(data.get("params", {}))
+        for socket in definition.get("inputs", []):
+            edge = incoming.get(node_id, {}).get(socket["name"])
+            if edge:
+                upstream, output_name = edge
+                params[socket["name"]] = variables[upstream] + (
+                    "" if output_name == "result" else "." + output_name
+                )
+            elif socket["name"] not in params and "default" in socket:
+                params[socket["name"]] = socket["default"]
+
+        def value_expression(socket):
+            value = params.get(socket["name"], _MISSING)
+            if value is _MISSING:
+                if socket.get("required", False):
+                    raise ValueError(
+                        "Node {} is missing required input '{}'".format(
+                            definition["name"], socket["name"]
+                        )
+                    )
+                return None
+            if isinstance(value, str) and value.startswith("_node_"):
+                return value
+            annotation = _python_node_annotation(definition, socket)
+            return _python_code_literal(value, annotation)
+
+        # Literal value nodes are graph constants, not calls into the Flow runtime.
+        if source == "flow" and definition.get("kind") == "value":
+            socket = definition.get("inputs", [{}])[0]
+            expression = value_expression(socket)
+        else:
+            api_id = re.sub(r"\.overload-\d+$", "", definition["id"])
+            if ".operator." in api_id:
+                owner_path, method_name = api_id.split(".operator.", 1)
+                owner_ref = _python_method_owner(owner_path, imports, "_api_owner_{}".format(len(imports)))
+                sockets = definition.get("inputs", [])
+                receiver_socket = next((item for item in sockets if item["name"] in {"self", "cls"}), None)
+                if receiver_socket is None:
+                    raise ValueError("Operator node {} has no receiver input".format(definition["name"]))
+                receiver = value_expression(receiver_socket)
+                args = [item for item in sockets if item is not receiver_socket]
+                operands = [value_expression(item) for item in args]
+                symbol = operator_symbols.get(method_name)
+                if symbol is None:
+                    raise ValueError("Unsupported native operator: " + method_name)
+                if method_name in {"__neg__", "__pos__", "__invert__"}:
+                    expression = "({}{})".format(symbol, receiver)
+                elif method_name == "__rsub__":
+                    expression = "({} - {})".format(operands[0], receiver)
+                elif method_name == "__rmul__":
+                    expression = "({} * {})".format(operands[0], receiver)
+                else:
+                    if not operands or operands[0] is None:
+                        raise ValueError("Operator {} is missing its operand".format(method_name))
+                    expression = "({} {} {})".format(receiver, symbol, operands[0])
+            elif ".property." in api_id or ".field." in api_id:
+                marker = ".property." if ".property." in api_id else ".field."
+                owner_path, member_name = api_id.split(marker, 1)
+                receiver_socket = definition["inputs"][0]
+                receiver = value_expression(receiver_socket)
+                expression = "{}.{}".format(receiver, member_name)
+            elif len(api_id.split(".")) >= 3 and api_id.split(".")[-2][:1].isupper():
+                owner_path, member_name = api_id.rsplit(".", 1)
+                owner_ref = _python_method_owner(owner_path, imports, "_api_owner_{}".format(len(imports)))
+                receiver_socket = next((item for item in definition["inputs"] if item["name"] in {"self", "cls"}), None)
+                if receiver_socket is None:
+                    raise ValueError("Method node {} has no receiver input".format(definition["name"]))
+                receiver = value_expression(receiver_socket)
+                arguments = []
+                for socket in definition["inputs"]:
+                    if socket is receiver_socket:
+                        continue
+                    expression_value = value_expression(socket)
+                    if expression_value is None:
+                        continue
+                    kind = socket.get("kind")
+                    if kind == "var_positional":
+                        arguments.append("*" + expression_value)
+                    elif kind == "var_keyword":
+                        arguments.append("**" + expression_value)
+                    else:
+                        arguments.append("{}={}".format(socket["name"], expression_value))
+                expression = "{}.{}({})".format(receiver, member_name, ", ".join(arguments))
+            else:
+                callable_obj = _CATALOG_CALLABLES.get(definition["id"])
+                if callable_obj is None:
+                    raise ValueError("No native callable registered for " + definition["id"])
+                callable_ref = _python_import_reference(
+                    callable_obj, imports, "_api_callable_{}".format(len(imports))
+                )
+                arguments = []
+                for socket in definition.get("inputs", []):
+                    expression_value = value_expression(socket)
+                    if expression_value is None:
+                        continue
+                    kind = socket.get("kind")
+                    if kind == "var_positional":
+                        arguments.append("*" + expression_value)
+                    elif kind == "var_keyword":
+                        arguments.append("**" + expression_value)
+                    else:
+                        arguments.append("{}={}".format(socket["name"], expression_value))
+                expression = "{}({})".format(callable_ref, ", ".join(arguments))
+
+        statements.append("{} = {}".format(variables[node_id], expression))
+        statements.append("")
+
+    if unsupported:
+        raise ValueError(
+            "Python export currently requires build123d API nodes and literal value nodes. "
+            "Unsupported nodes: " + ", ".join(sorted(set(unsupported)))
+        )
+
+    terminal_nodes = [node_id for node_id in order if not outgoing[node_id]]
+    if terminal_nodes:
+        statements.append("result = " + variables[terminal_nodes[-1]])
+    header = [
+        '"""Generated by build123d-flow."""',
+        "import build123d as b3d",
+    ]
+    return "\n".join(header + imports + ([""] if imports else []) + statements).rstrip() + "\n"
+
+
+_MISSING = object()
+
+
 def export_step_bytes():
     if _LAST_SHAPE is None:
         return None

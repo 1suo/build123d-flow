@@ -153,8 +153,48 @@ def run_shape_collection_workflow_test():
     return {"name": "shape collection", "preview": result["preview"], "step_bytes": result["step_bytes"]}
 
 
+
+def run_catalog_metadata_tests():
+    """Prove catalog ownership and palette placement are declared, never guessed."""
+    catalog = runtime._CATALOG
+    for node in catalog.values():
+        if node.get("source") not in {"build123d", "python", "flow"}:
+            raise AssertionError("Missing/invalid provenance: " + node.get("id", "<unknown>"))
+        if not node.get("palette_category") or not node.get("palette_section"):
+            raise AssertionError("Missing palette metadata: " + node.get("id", "<unknown>"))
+
+    expected_sources = {
+        "core.value.number": "flow",
+        "core.value.string": "flow",
+        "core.value.boolean": "flow",
+        "core.python.function": "python",
+        "build123d_flow.union": "flow",
+        "build123d_flow.difference": "flow",
+        "build123d_flow.intersection": "flow",
+    }
+    for node_id, expected in expected_sources.items():
+        actual = catalog[node_id]["source"]
+        if actual != expected:
+            raise AssertionError(
+                node_id + " is registered as " + actual + "; expected " + expected
+            )
+
+    box = _definition("Box")
+    if box["source"] != "build123d":
+        raise AssertionError("Box must originate from build123d API discovery")
+    if box["palette_category"] != "Create":
+        raise AssertionError("Geometry constructors must use their declared API palette group")
+
+    for node_id in ("build123d_flow.union", "build123d_flow.difference", "build123d_flow.intersection"):
+        definition = catalog[node_id]
+        if definition["palette_category"] != "Boolean":
+            raise AssertionError(node_id + " is missing its Boolean palette declaration")
+    return {"name": "catalog metadata", "explicit_provenance": True, "explicit_palette": True}
+
+
+
 def run_graph_workflow_tests():
-    results = [run_collection_workflow_tests(), run_data_mapping_tests(), run_shape_collection_workflow_test()]
+    results = [run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_shape_collection_workflow_test()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

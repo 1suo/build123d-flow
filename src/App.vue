@@ -528,6 +528,85 @@ async function downloadStep() {
   <main class="app-shell" :data-theme="activePalette">
     <Message v-if="runtimeError" severity="error" :closable="false" class="runtime-error">{{ runtimeError }}</Message>
     <Splitter class="workspace" :layout="isMobile ? 'vertical' : 'horizontal'" :gutter-size="4">
+      <template v-if="isMobile">
+      <SplitterPanel :size="isMobile ? 42 : 32" :min-size="isMobile ? 25 : 20" class="preview-panel">
+        <GeometryViewport
+          :previews="previews"
+          :running="running"
+          :runtime-status="status"
+          :download-status="downloadStatus"
+          :errors="errors"
+          :logs="activityLogs"
+        />
+      </SplitterPanel>
+
+      <SplitterPanel :size="isMobile ? 58 : 68" :min-size="isMobile ? 40 : 35" class="graph-panel">
+        <div ref="canvasSurface" class="canvas-surface" @drop="onDrop" @dragover.prevent @contextmenu.prevent="openContextMenu">
+          <div class="canvas-topbar">
+            <nav class="category-strip" aria-label="Node palette">
+              <span v-for="source in dockGroups" :key="source.id" class="dock-source-group">
+                <span class="dock-source-label">{{ source.label }}</span>
+                <Button v-for="category in source.categories" :key="category.label" text severity="secondary"
+                  class="category-chip" :class="{ 'is-active': activeSource === source.id && activeCategory === category.label }"
+                  :label="category.label" @click="openCategory(source.id, category.label, $event)" />
+              </span>
+              <span v-if="!runtime.isReady" class="category-loading">Loading runtime…</span>
+            </nav>
+            <label class="theme-switcher">
+              <span>Palette</span>
+              <select v-model="activePalette" aria-label="Findspot palette" @change="persistPalette">
+                <option v-for="option in paletteOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
+          </div>
+          <div v-if="runtime.isReady && !nodes.length" class="canvas-empty-state">
+            <strong>Empty canvas</strong>
+            <span>Select a category in the dock or right-click to add a node</span>
+          </div>
+          <VueFlow
+            v-model:nodes="nodes"
+            v-model:edges="edges"
+            :node-types="nodeTypes"
+            :is-valid-connection="isValidConnection"
+            fit-view-on-init
+            :delete-key-code="null"
+            :edges-updatable="true"
+            :default-viewport="{ zoom: 0.85, x: 60, y: 60 }"
+            @connect="onConnect"
+            @edge-update="onEdgeUpdate"
+          >
+            <Background :pattern-color="'var(--tikal-border)'" :gap="22" />
+          </VueFlow>
+          <div class="canvas-bottom-dock" role="toolbar" aria-label="Canvas tools">
+            <Button icon="pi pi-expand" text rounded severity="secondary" aria-label="Fit graph" title="Fit graph" @click="fitView({ padding: 0.12 })" />
+            <Button icon="pi pi-minus" text rounded severity="secondary" aria-label="Zoom out" title="Zoom out" @click="zoomOut()" />
+            <Button icon="pi pi-plus" text rounded severity="secondary" aria-label="Zoom in" title="Zoom in" @click="zoomIn()" />
+            <span class="bottom-dock-divider"></span>
+            <Button icon="pi pi-download" text rounded severity="secondary" aria-label="Export STEP" title="Export STEP" @click="downloadStep()" />
+            <span class="bottom-dock-divider"></span>
+            <Button icon="pi pi-sliders-h" text rounded severity="secondary"
+              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
+              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector follows selected node"
+              @click="inspectorOpen = !inspectorOpen" />
+            <Button icon="pi pi-trash" text rounded severity="secondary" class="delete-action"
+              aria-label="Delete selected nodes or wires" title="Delete selected nodes or wires"
+              :disabled="!nodes.some((node: any) => node.selected) && !edges.some((edge: any) => edge.selected)"
+              @click="deleteSelectedFromDock" />
+          </div>
+          <aside v-if="selectedNode && inspectorOpen" class="canvas-node-inspector">
+            <NodeInspector
+              :node="selectedNode"
+              :inputs="selectedNodeInputs"
+              :outputs="selectedNodeOutputs"
+              :on-parameter="onParameter"
+              @close="inspectorOpen = false"
+            />
+          </aside>
+          
+        </div>
+      </SplitterPanel>
+      </template>
+      <template v-else>
       <SplitterPanel :size="isMobile ? 58 : 68" :min-size="isMobile ? 40 : 35" class="graph-panel">
         <div ref="canvasSurface" class="canvas-surface" @drop="onDrop" @dragover.prevent @contextmenu.prevent="openContextMenu">
           <div class="canvas-topbar">
@@ -604,6 +683,7 @@ async function downloadStep() {
           :logs="activityLogs"
         />
       </SplitterPanel>
+      </template>
     </Splitter>
 
     <Popover ref="palettePopover" appendTo="self" class="palette-popover">

@@ -10,7 +10,6 @@ import ProgressSpinner from "primevue/progressspinner";
 import InputText from "primevue/inputtext";
 import Popover from "primevue/popover";
 import Message from "primevue/message";
-import Select from "primevue/select";
 import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
@@ -22,7 +21,7 @@ const status = ref("Loading Python runtime…");
 const runtimeError = ref("");
 const catalog = ref<NodeDefinition[]>([]);
 const paletteSearch = ref("");
-const activeCategory = ref("Create");
+const activeSource = ref<PaletteSource>("flow");
 const contextSearch = ref("");
 const errors = ref<string[]>([]);
 const downloadStatus = ref("");
@@ -66,6 +65,9 @@ const edges = ref<Edge[]>([]);
 const nodeTypes = { api: markRaw(ApiNode) } as any;
 const canvasSurface = ref<HTMLElement | null>(null);
 const palettePopover = ref<any>();
+const isMobile = ref(false);
+let mobileMediaQuery: MediaQueryList | undefined;
+function updateMobileLayout() { isMobile.value = Boolean(mobileMediaQuery?.matches); }
 const contextPopover = ref<any>();
 const contextPosition = ref<{ x: number; y: number } | undefined>();
 const { addNodes, addEdges, removeEdges, updateEdge, updateNodeInternals, screenToFlowCoordinate, fitView, zoomIn, zoomOut } = useVueFlow();
@@ -143,41 +145,38 @@ function paletteSection(item: NodeDefinition): string {
   return parts.length > 2 ? parts.slice(1, -1).join(" · ").replace(/_/g, " ") : "Other API";
 }
 
-const categories = computed(() => {
-  const groups = new Set(catalog.value.map(paletteGroup));
-  const order = ["Create", "Model", "Transform", "Reference", "Inspect", "Spatial", "Data", "Math", "Scripting", "API"];
-  return order.filter((group) => groups.has(group)).concat([...groups].filter((group) => !order.includes(group)).sort());
-});
-const categoryItems = computed(() => categories.value);
-const exampleOptions = computed(() => {
-  const names = new Set(catalog.value.map((item) => item.name.toLowerCase()));
-  const ids = new Set(catalog.value.map((item) => item.id));
-  const options: Array<{ label: string; value: string }> = [];
-  if (ids.has("core.spatial.xy_grid") && ids.has("core.spatial.voronoi_2d")) {
-    options.push({ label: "Voronoi panel field", value: "voronoi" });
-  }
-  if (names.has("rectangle") && names.has("extrude")) {
-    options.push({ label: "Profile extrusion", value: "extrude" });
-  }
-  if (names.has("box") && names.has("cylinder") &&
-      ids.has("build123d_flow.union") && ids.has("build123d_flow.difference")) {
-    options.push({ label: "Boolean assembly", value: "boolean" });
-  }
-  return options;
-});
-const selectedExample = ref<string | null>(null);
-const activePaletteItems = computed(() => catalog.value.filter((item) =>
-  paletteGroup(item) === activeCategory.value &&
-  (item.name + " " + item.id + " " + item.description + " " + paletteSection(item)).toLowerCase().includes(paletteSearch.value.toLowerCase())
-).sort((a, b) => paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name)));
+const paletteSources = [
+  { id: "build123d", label: "build123d" },
+  { id: "python", label: "Python & libraries" },
+  { id: "flow", label: "Flow nodes" },
+] as const;
+type PaletteSource = typeof paletteSources[number]["id"];
+function paletteOrigin(item: NodeDefinition): PaletteSource {
+  const id = item.id.toLowerCase();
+  if (id.startsWith("build123d.")) return "build123d";
+  if (id.startsWith("core.") || id.startsWith("build123d_flow.")) return "flow";
+  return "python";
+}
+const sourceItems = computed(() => catalog.value.filter((item) => paletteOrigin(item) === activeSource.value));
+const activePaletteItems = computed(() => sourceItems.value.filter((item) =>
+  (item.name + " " + item.id + " " + item.description + " " + paletteGroup(item) + " " + paletteSection(item)).toLowerCase().includes(paletteSearch.value.toLowerCase())
+).sort((a, b) => paletteGroup(a).localeCompare(paletteGroup(b)) || paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name)));
 const activePaletteSections = computed(() => {
   const groups = new Map<string, NodeDefinition[]>();
   for (const item of activePaletteItems.value) {
-    const section = paletteSection(item);
-    if (!groups.has(section)) groups.set(section, []);
-    groups.get(section)!.push(item);
+    const group = paletteGroup(item);
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group)!.push(item);
   }
-  return [...groups].map(([label, items]) => ({ label, items }));
+  return [...groups].map(([label, items]) => {
+    const sections = new Map<string, NodeDefinition[]>();
+    for (const item of items.sort((a, b) => paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name))) {
+      const section = paletteSection(item);
+      if (!sections.has(section)) sections.set(section, []);
+      sections.get(section)!.push(item);
+    }
+    return { label, sections: [...sections].map(([section, sectionItems]) => ({ label: section, items: sectionItems })) };
+  });
 });
 const contextResults = computed(() => catalog.value.filter((item) =>
   (item.name + " " + item.category + " " + item.id).toLowerCase().includes(contextSearch.value.toLowerCase())
@@ -234,6 +233,9 @@ function nodeIcon(item: NodeDefinition): string {
 }
 onMounted(() => {
   window.addEventListener("keydown", onGlobalKeydown, true);
+  mobileMediaQuery = window.matchMedia("(max-width: 760px)");
+  updateMobileLayout();
+  mobileMediaQuery.addEventListener("change", updateMobileLayout);
   void runtime.initialize(updateRuntimeStatus).then(() => {
     const discovered = runtime.getCatalog();
     const byName = new Map(discovered.map((item) => [item.name, item]));
@@ -254,131 +256,6 @@ onMounted(() => {
 });
 
 
-function clearCanvas() {
-  nodes.value = [];
-  edges.value = [];
-  previews.value = {};
-  socketValues.value = {};
-  selectedExample.value = null;
-}
-
-async function loadExample() {
-  const example = selectedExample.value;
-  if (!example) return;
-
-  const byId = (id: string): NodeDefinition => {
-    const definition = catalog.value.find((item) => item.id === id);
-    if (!definition) throw new Error("This example requires unavailable node: " + id);
-    return definition;
-  };
-  const byName = (name: string): NodeDefinition => {
-    const matches = catalog.value.filter((item) => item.name.toLowerCase() === name.toLowerCase());
-    const definition = matches.find((item) => item.kind === "geometry") ?? matches[0];
-    if (!definition) throw new Error("This example requires unavailable node: " + name);
-    return definition;
-  };
-  const make = (definition: NodeDefinition, id: string, position: { x: number; y: number }, params: Record<string, unknown> = {}) => {
-    const node = createGraphNode(definition, id, position);
-    node.data.params = { ...node.data.params, ...params };
-    node.data.visible = false;
-    node.data.icon = nodeIcon(definition);
-    node.data.onParameter = onParameter;
-    node.data.onVisibility = onVisibility;
-    node.data.onCollapse = onCollapse;
-    node.data.onInspect = onInspect;
-    return node;
-  };
-
-  const candidate: GraphDocument = { nodes: [], edges: [] };
-  const add = (definition: NodeDefinition, id: string, position: { x: number; y: number }, params: Record<string, unknown> = {}) => {
-    const node = make(definition, id, position, params);
-    candidate.nodes.push(node);
-    return node;
-  };
-  const connect = (source: ReturnType<typeof make>, target: ReturnType<typeof make>, requestedInput?: string) => {
-    const occupied = new Set(candidate.edges.filter((edge) => edge.target === target.id).map((edge) => edge.targetHandle));
-    const pairs = source.data.definition.outputs.flatMap((output) =>
-      target.data.definition.inputs
-        .filter((input) => (!requestedInput || input.name === requestedInput) && !occupied.has(input.name))
-        .map((input) => ({ output, input })),
-    );
-    const pair = pairs.find(({ output, input }) => canConnect(candidate, {
-      source: source.id, sourceHandle: output.name, target: target.id, targetHandle: input.name,
-    }));
-    if (!pair) {
-      throw new Error(
-        "No compatible socket connection: " + source.data.definition.name + " → " +
-        target.data.definition.name + (requestedInput ? "." + requestedInput : ""),
-      );
-    }
-    candidate.edges.push({
-      id: "e" + (candidate.edges.length + 1),
-      source: source.id, sourceHandle: pair.output.name,
-      target: target.id, targetHandle: pair.input.name,
-    });
-  };
-
-  try {
-    if (example === "voronoi") {
-      const grid = add(byId("core.spatial.xy_grid"), "n1", { x: 360, y: 180 }, {
-        x_count: 7, y_count: 5, spacing_x: 18, spacing_y: 18, origin_x: 10, origin_y: 10,
-      });
-      const cells = add(byId("core.spatial.voronoi_2d"), "n2", { x: 850, y: 210 }, {
-        width: 140, height: 100,
-      });
-      connect(grid, cells, "points");
-      cells.data.visible = true;
-    } else if (example === "extrude") {
-      const profile = add(byName("Rectangle"), "n1", { x: 160, y: 220 }, {
-        width: 48, height: 30,
-      });
-      const extrusion = add(byName("extrude"), "n2", { x: 680, y: 220 }, {
-        amount: 18,
-      });
-      connect(profile, extrusion);
-      extrusion.data.visible = true;
-    } else if (example === "boolean") {
-      const base = add(byName("Box"), "n1", { x: 80, y: 130 }, {
-        length: 70, width: 55, height: 24,
-      });
-      const second = add(byName("Box"), "n2", { x: 80, y: 420 }, {
-        length: 42, width: 36, height: 32,
-      });
-      const union = add(byId("build123d_flow.union"), "n3", { x: 490, y: 250 });
-      const cutter = add(byName("Cylinder"), "n4", { x: 490, y: 550 }, {
-        radius: 11, height: 48,
-      });
-      const difference = add(byId("build123d_flow.difference"), "n5", { x: 900, y: 320 });
-      connect(base, union);
-      connect(second, union);
-      connect(union, difference);
-      connect(cutter, difference);
-      difference.data.visible = true;
-    } else {
-      throw new Error("Unknown example: " + example);
-    }
-
-    const validation = validateGraph(candidate);
-    if (validation.length) throw new Error("Invalid example graph: " + validation.join("; "));
-    if (!candidate.nodes.length || !candidate.edges.length) throw new Error("Example graph must contain connected nodes");
-
-    // Evaluate before replacing the current canvas. A bad example never leaves
-    // the user with a graph that only looks connected.
-    const result = await runtime.evaluate(candidate);
-    const evaluationErrors = Object.entries(result.errors).map(([id, message]) => id + ": " + message);
-    if (evaluationErrors.length) throw new Error("Example evaluation failed: " + evaluationErrors.join("; "));
-    nodes.value = candidate.nodes as unknown as Node[];
-    edges.value = candidate.edges as unknown as Edge[];
-    nextId = candidate.nodes.length + 1;
-    errors.value = [];
-    previews.value = result.previews;
-    socketValues.value = result.socket_values ?? {};
-    logActivity("Loaded and evaluated " + example + " example · " + candidate.nodes.length + " nodes · " + candidate.edges.length + " wires", "success");
-    void nextTick(() => fitView({ padding: 0.2 }));
-  } catch (error) {
-    logActivity("Example not loaded: " + String(error), "error");
-  }
-}
 function addDefinition(definition: NodeDefinition, position?: { x: number; y: number }) {
   const id = `n${nextId++}`;
   const rect = canvasSurface.value?.getBoundingClientRect();
@@ -395,9 +272,9 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
   scheduleEvaluation();
 }
 
-function openPalette(category: string, event: MouseEvent) {
+function openPalette(source: PaletteSource, event: MouseEvent) {
   paletteSearch.value = "";
-  activeCategory.value = category;
+  activeSource.value = source;
   palettePopover.value?.show(event);
 }
 
@@ -564,7 +441,10 @@ async function evaluate() {
   }
 }
 
-onBeforeUnmount(() => window.removeEventListener("keydown", onGlobalKeydown, true));
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onGlobalKeydown, true);
+  mobileMediaQuery?.removeEventListener("change", updateMobileLayout);
+});
 
 async function downloadStep() {
   if (downloadStatusTimer) clearTimeout(downloadStatusTimer);
@@ -599,26 +479,20 @@ async function downloadStep() {
 <template>
   <main class="app-shell">
     <Message v-if="runtimeError" severity="error" :closable="false" class="runtime-error">{{ runtimeError }}</Message>
-    <Splitter class="workspace" :gutter-size="4">
-      <SplitterPanel :size="68" :min-size="35" class="graph-panel">
+    <Splitter class="workspace" :layout="isMobile ? 'vertical' : 'horizontal'" :gutter-size="4">
+      <SplitterPanel :size="isMobile ? 58 : 68" :min-size="isMobile ? 40 : 35" class="graph-panel">
         <div ref="canvasSurface" class="canvas-surface" @drop="onDrop" @dragover.prevent @contextmenu.prevent="openContextMenu">
           <div class="canvas-topbar">
-            <Select v-model="selectedExample" :options="exampleOptions" option-label="label" option-value="value"
-              placeholder="Examples" class="examples-select" :disabled="!runtime.isReady" @change="loadExample" />
-            <span class="topbar-divider"></span>
-            <nav class="category-strip" aria-label="Node categories">
-              <Button v-for="category in categoryItems" :key="category" text severity="secondary"
-                class="category-chip" :label="category" @click="openPalette(category, $event)" />
-              <span v-if="!categoryItems.length" class="category-loading">Loading node catalog…</span>
+            <nav class="category-strip" aria-label="Node sources">
+              <Button v-for="source in paletteSources" :key="source.id" text severity="secondary"
+                class="category-chip" :class="{ 'is-active': activeSource === source.id }"
+                :label="source.label" @click="openPalette(source.id, $event)" />
+              <span v-if="!runtime.isReady" class="category-loading">Loading node catalog…</span>
             </nav>
-            <Button icon="pi pi-sliders-h" text rounded severity="secondary"
-              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
-              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector follows selected node"
-              @click="inspectorOpen = !inspectorOpen" />
           </div>
           <div v-if="runtime.isReady && !nodes.length" class="canvas-empty-state">
             <strong>Empty canvas</strong>
-            <span>Choose an example, open a category, or right-click to add a node</span>
+            <span>Open a node source or right-click to add a node</span>
           </div>
           <VueFlow
             v-model:nodes="nodes"
@@ -640,6 +514,11 @@ async function downloadStep() {
             <Button icon="pi pi-plus" text rounded severity="secondary" aria-label="Zoom in" title="Zoom in" @click="zoomIn()" />
             <span class="bottom-dock-divider"></span>
             <Button icon="pi pi-download" text rounded severity="secondary" aria-label="Export STEP" title="Export STEP" @click="downloadStep()" />
+            <span class="bottom-dock-divider"></span>
+            <Button icon="pi pi-sliders-h" text rounded severity="secondary"
+              class="inspector-toggle" :class="{ 'is-active': inspectorOpen }"
+              :aria-pressed="inspectorOpen" aria-label="Toggle inspector" title="Inspector follows selected node"
+              @click="inspectorOpen = !inspectorOpen" />
             <Button icon="pi pi-trash" text rounded severity="secondary" class="delete-action"
               aria-label="Delete selected nodes or wires" title="Delete selected nodes or wires"
               :disabled="!nodes.some((node: any) => node.selected) && !edges.some((edge: any) => edge.selected)"
@@ -658,7 +537,7 @@ async function downloadStep() {
         </div>
       </SplitterPanel>
 
-      <SplitterPanel :size="32" :min-size="20" class="preview-panel">
+      <SplitterPanel :size="isMobile ? 42 : 32" :min-size="isMobile ? 25 : 20" class="preview-panel">
         <GeometryViewport
           :previews="previews"
           :running="running"
@@ -673,24 +552,28 @@ async function downloadStep() {
     <Popover ref="palettePopover" appendTo="self" class="palette-popover">
       <div class="palette-content">
         <div class="palette-heading">
-          <span>{{ activeCategory }}</span>
+          <span>{{ paletteSources.find((source) => source.id === activeSource)?.label }}</span>
           <span class="palette-group-count">{{ activePaletteItems.length }}</span>
         </div>
         <InputText v-model="paletteSearch" placeholder="Search nodes…" class="palette-search" />
         <div class="palette-node-list">
-          <section v-for="section in activePaletteSections" :key="section.label" class="palette-section">
-            <div class="palette-section-heading"><span>{{ section.label }}</span><span class="palette-section-rule"></span></div>
-            <Button v-for="item in section.items" :key="item.id" text severity="secondary"
-              class="palette-node" draggable="true"
-              @dragstart="dragNode($event, item)" @click="addDefinition(item)">
-              <template #default><span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
-              <span class="palette-node-label">{{ item.name }}</span></template>
-            </Button>
+          <section v-for="group in activePaletteSections" :key="group.label" class="palette-section">
+            <div class="palette-section-heading"><span>{{ group.label }}</span><span class="palette-section-rule"></span></div>
+            <div v-for="section in group.sections" :key="section.label" class="palette-subsection">
+              <div class="palette-subsection-heading">{{ section.label }}</div>
+              <Button v-for="item in section.items" :key="item.id" text severity="secondary"
+                class="palette-node" draggable="true"
+                @dragstart="dragNode($event, item)" @click="addDefinition(item)">
+                <template #default><span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
+                <span class="palette-node-label">{{ item.name }}</span></template>
+              </Button>
+            </div>
           </section>
         </div>
         <div v-if="!activePaletteItems.length" class="palette-empty">
           <ProgressSpinner v-if="!catalog.length && !errors.length" style="width:20px;height:20px" stroke-width="4" />
           <span v-else-if="!runtime.isReady">Waiting for Python runtime…</span>
+          <span v-else-if="!sourceItems.length">No auto-derived Python or library nodes are available</span>
           <span v-else>{{ errors.length ? "Python runtime failed" : "No matching nodes" }}</span>
         </div>
       </div>

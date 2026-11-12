@@ -121,7 +121,7 @@ export class PythonRuntime {
         },
       });
 
-      await this.pyodide.loadPackage(["micropip"]);
+      if (!this.restoredEnvironment) await this.pyodide.loadPackage(["micropip"]);
       onStatus(this.restoredEnvironment ? "Verifying saved Python packages…" : "Installing Python dependencies…");
       await this.pyodide.runPythonAsync(setup);
 

@@ -1819,13 +1819,19 @@ def _python_code_literal(value, annotation=None):
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
         candidates = [item for item in args if item is not type(None)]
+        selected = None
         for candidate in candidates:
+            candidate_origin = typing.get_origin(candidate)
             try:
-                if inspect.isclass(candidate) and issubclass(candidate, enum.Enum):
-                    return _python_code_literal(value, candidate)
+                if inspect.isclass(candidate) and issubclass(candidate, enum.Enum) and isinstance(value, str):
+                    selected = candidate
+                    break
             except TypeError:
-                continue
-        annotation = candidates[0] if candidates else None
+                pass
+            if candidate_origin in (list, tuple, set, frozenset) and isinstance(value, (list, tuple, set)):
+                selected = candidate
+                break
+        annotation = selected or (candidates[0] if candidates else None)
         origin = typing.get_origin(annotation)
         args = typing.get_args(annotation)
     if annotation is not None:

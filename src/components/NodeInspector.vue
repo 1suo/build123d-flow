@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { ref } from "vue";
 import InputNumber from "primevue/inputnumber";
 import InputText from "primevue/inputtext";
 import Checkbox from "primevue/checkbox";
@@ -16,7 +16,6 @@ const props = defineProps<{
   onParameter: (nodeId: string, name: string, value: unknown) => void;
 }>();
 const emit = defineEmits<{ close: [] }>();
-const drafts = reactive<Record<string, string>>({});
 const activeName = ref("");
 const editorOpen = ref(false);
 

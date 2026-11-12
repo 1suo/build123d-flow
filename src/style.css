@@ -120,7 +120,6 @@
 .inspector-socket small{color:var(--tikal-muted);font-size:9px}
 .inspector-socket pre{max-height:130px;margin:6px 0 0;overflow:auto;color:var(--tikal-foreground);font:10px/1.45 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 
-.inspector-code-editor{display:block;width:100%;min-height:260px;resize:vertical;color:var(--tikal-foreground);background:var(--tikal-surface);border-color:var(--tikal-border);font:12px/1.5 ui-monospace,monospace}
 .p-dialog .p-dialog-content{background:var(--tikal-surface);color:var(--tikal-foreground)}
 .p-dialog .p-dialog-header{background:var(--tikal-surface);color:var(--tikal-foreground);border-bottom:1px solid var(--tikal-border)}
 
@@ -540,3 +539,5 @@
 .settings-export-actions .p-button{justify-content:flex-start;min-height:32px;padding:6px 8px;color:var(--tikal-foreground);font-size:11px}
 .settings-export-actions .p-button:hover{background:color-mix(in srgb,var(--tikal-selection) 25%,transparent)}
 @media(max-width:900px){.canvas-node-inspector{left:46px;right:auto;width:min(310px,calc(100% - 54px));min-width:0}}
+
+.inspector-multiline-input{display:block;width:100%;min-height:54px;max-height:180px;resize:vertical;overflow:auto;color:var(--tikal-foreground);background:var(--tikal-background);border-color:var(--tikal-border);font:11px/1.45 ui-monospace,monospace}

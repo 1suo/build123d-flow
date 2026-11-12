@@ -858,9 +858,9 @@ def _register_python_nodes(found, callables):
 def _register_flow_boolean_nodes(found, callables):
     """Register convenience CSG operators implemented by Flow over Shape operators."""
     for node_id, name, function in [
-        ("build123d_flow.union", "Union", _boolean_union),
-        ("build123d_flow.difference", "Difference", _boolean_difference),
-        ("build123d_flow.intersection", "Intersection", _boolean_intersection),
+        ("flow.boolean.union", "Union", _boolean_union),
+        ("flow.boolean.difference", "Difference", _boolean_difference),
+        ("flow.boolean.intersection", "Intersection", _boolean_intersection),
     ]:
         found[node_id] = {
             "id": node_id,

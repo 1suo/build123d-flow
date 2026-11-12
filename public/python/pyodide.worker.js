@@ -32,7 +32,7 @@ async function invoke(method,payload){
  if(method==="getDiscoveryReport")return JSON.parse(pyodide.runPython("flow_runtime.discovery_report_json()"));
  if(method==="evaluate"){const fn=pyodide.runPython("flow_runtime.evaluate_graph_json");try{const r=await fn(JSON.stringify(payload)),s=typeof r==="string"?r:r.toJs();if(typeof r!=="string")r.destroy();return JSON.parse(s);}finally{fn.destroy();}}
  if(method==="exportStep"){const r=pyodide.runPython("flow_runtime.export_step_bytes()");if(r===null)return null;try{return r.toJs();}finally{r.destroy();}}
- if(method==="exportPython"){const fn=pyodide.runPython("flow_runtime.export_python_code");try{const r=await fn(JSON.stringify(payload));return typeof r==="string"?r:r.toJs();}finally{fn.destroy();}}
+ if(method==="exportPython"){const fn=pyodide.runPython("flow_runtime.export_python_code");try{const r=await fn(JSON.stringify(payload));if(typeof r==="string")return r;try{return r.toJs();}finally{r.destroy();}}finally{fn.destroy();}}
  throw Error("Unknown runtime method: "+method);
 }
 self.onmessage=async({data})=>{try{if(data.type==="initialize")await initialize(data.baseUrl);else if(data.type==="call"){const value=await invoke(data.method,data.payload);if(value instanceof Uint8Array)self.postMessage({type:"result",id:data.id,value},[value.buffer]);else self.postMessage({type:"result",id:data.id,value});}}catch(e){self.postMessage({type:"error",id:data.id,message:String(e),stack:e?.stack});}};

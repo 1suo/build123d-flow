@@ -114,24 +114,45 @@ def _union_annotations(annotations):
     return typing.Union[tuple(flattened)]
 
 
+def _hint_namespace(target):
+    """Build a fallback namespace for annotations whose names live elsewhere.
+
+    Overloads often reference sibling classes (e.g. shape_core's Shape.__add__
+    returns 'Self | Compound' while Compound lives in topology.composite), so
+    module globals alone raise NameError inside typing.get_type_hints.
+    """
+    names = dict(vars(typing))
+    names.update(vars(b3d))
+    module = inspect.getmodule(target)
+    if module is not None:
+        names.update(vars(module))
+    return names
+
+
+def _resolve_hints(target):
+    """Resolve type hints, tolerating cross-module ForwardRef annotations."""
+    try:
+        return typing.get_type_hints(target)
+    except Exception:
+        pass
+    try:
+        return typing.get_type_hints(target, _hint_namespace(target))
+    except Exception:
+        return {}
+
+
 def _method_signature(function):
     """Return an implementation signature enriched with its declared overload contract."""
     signature = inspect.signature(function)
     overloads = typing.get_overloads(function)
     if not overloads:
-        try:
-            hints = typing.get_type_hints(function)
-        except Exception:
-            hints = {}
+        hints = _resolve_hints(function)
         return signature, hints, function
 
     overload_data = []
     for overload in overloads:
         overload_signature = inspect.signature(overload)
-        try:
-            overload_hints = typing.get_type_hints(overload)
-        except Exception:
-            overload_hints = {}
+        overload_hints = _resolve_hints(overload)
         overload_data.append((overload_signature, overload_hints))
 
     merged_parameters = []
@@ -184,6 +205,11 @@ def _annotation_metadata(annotation):
     mapping_origins = {
         dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping,
     }
+    # A bare collection ABC (e.g. Pos's v: Iterable) is a structural contract
+    # too: get_origin returns None for the unsubscripted class itself.
+    if origin is None and annotation in collection_origins:
+        origin = annotation
+        args = args or (typing.Any,)
     if origin in collection_origins:
         item_annotation = args[0] if args else typing.Any
         item_metadata = _annotation_metadata(item_annotation) if item_annotation is not typing.Any else {}
@@ -213,7 +239,8 @@ def _annotation_metadata(annotation):
         # rotation object is expected.
         collection_args = [
             arg for arg in args
-            if typing.get_origin(arg) in collection_origins or typing.get_origin(arg) is tuple
+            if typing.get_origin(arg) in collection_origins or arg in collection_origins
+            or typing.get_origin(arg) is tuple
         ]
         scalar_args = [arg for arg in args if arg is not type(None) and arg not in collection_args]
         variants = sorted({_type_name(arg) for arg in scalar_args})
@@ -1062,7 +1089,7 @@ def discover(include_full=True):
             for overload_index, (signature, hint_target) in enumerate(constructor_signatures, start=1):
                 inputs = []
                 try:
-                    hints = typing.get_type_hints(hint_target)
+                    hints = _resolve_hints(hint_target)
                 except Exception:
                     hints = {}
 
@@ -1187,7 +1214,7 @@ def discover(include_full=True):
                     if getter_signature is None:
                         continue
                     try:
-                        getter_hints = typing.get_type_hints(getter_fn)
+                        getter_hints = _resolve_hints(getter_fn)
                     except Exception:
                         getter_hints = {}
                     return_annotation = getter_hints.get("return", getter_signature.return_annotation)
@@ -1267,7 +1294,10 @@ def discover(include_full=True):
                         socket.update({"data_structure": "list", "item_type": _type_name(annotation)})
                     elif parameter.kind == parameter.VAR_KEYWORD:
                         socket.update({"data_structure": "dict", "key_type": "String", "value_type": "Any"})
-                    socket["data_access"] = "structure" if socket.get("data_structure") else "item"
+                    # A union such as Shape | Iterable[Shape] declares data_access
+                    # without a data_structure; don't clobber that mixed contract.
+                    socket.setdefault("data_access",
+                                      "structure" if socket.get("data_structure") else "item")
                     _populate_editor_default(socket)
                     inputs.append(socket)
 
@@ -1883,10 +1913,7 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
         target, hints = callable_obj, {}
     else:
         target = hint_target or (callable_obj.__init__ if inspect.isclass(callable_obj) else callable_obj)
-        try:
-            hints = typing.get_type_hints(target)
-        except Exception:
-            hints = {}
+        hints = _resolve_hints(target)
     if signature is None:
         try:
             signature = _api_signature(callable_obj)
@@ -2008,7 +2035,7 @@ def _python_node_annotation(definition, socket):
         callable_obj = _CATALOG_CALLABLES.get(node_id)
         target = callable_obj.__init__ if inspect.isclass(callable_obj) else callable_obj
     try:
-        hints = typing.get_type_hints(target) if target is not None else {}
+        hints = _resolve_hints(target) if target is not None else {}
     except Exception:
         hints = {}
     annotation = hints.get(socket["name"])

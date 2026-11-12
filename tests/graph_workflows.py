@@ -134,6 +134,50 @@ def run_data_mapping_tests():
             "cross": True, "nested": True, "collections_are_values": True}
 
 
+def run_annotation_resolution_tests():
+    """Cross-module ForwardRefs and bare collection ABCs must stay structural."""
+    import typing
+    import collections.abc
+    union = _shape_operator("__add__")
+    other = next(socket for socket in union["inputs"] if socket["name"] != "self")
+    if other.get("data_access") != "structure" or other.get("item_type") != "Shape":
+        raise AssertionError(
+            "Shape + lost its Shape | Iterable[Shape] contract: " + json.dumps(other)
+        )
+    if "ForwardRef" in other.get("annotation", ""):
+        raise AssertionError("Shape + input annotation was not resolved: " + other["annotation"])
+    output = union["outputs"][0]
+    if not {"Shape", "Compound"}.issubset(set(output.get("variants", []))):
+        raise AssertionError("Shape + return union was not resolved: " + json.dumps(output))
+
+    # get_type_hints fails on Shape.__add__'s 'Self | Compound' return because
+    # Compound lives in topology.composite, not shape_core. The runtime must
+    # still resolve it through a merged namespace.
+    for overload in typing.get_overloads(runtime.b3d.Shape.__add__):
+        if "Compound" in str(overload.__annotations__.get("return", "")):
+            if not runtime._resolve_hints(overload):
+                raise AssertionError("Cross-module ForwardRef hints were not resolved")
+            break
+
+    # A bare Iterable ABC (Pos's v parameter) is a structural contract as well.
+    bare_iterable = runtime._annotation_metadata(collections.abc.Iterable)
+    if bare_iterable.get("data_structure") != "list" or bare_iterable.get("data_access") is not None:
+        raise AssertionError("Bare Iterable lost its collection structure: " + json.dumps(bare_iterable))
+    pos = runtime._CATALOG.get("build123d.geometry.Pos.overload-2")
+    if pos is not None:
+        socket = next(item for item in pos["inputs"] if item["name"] == "v")
+        if socket.get("data_access") != "structure":
+            raise AssertionError("Pos(v: Iterable) input must consume the collection whole")
+        range_node = _core_node("core.series.range", "rng", {"start": 0, "stop": 3, "step": 1})
+        pos_node = _node(pos, "pos")
+        result = json.loads(runtime.evaluate_graph_json(json.dumps({
+            "nodes": [range_node, pos_node], "edges": [_edge("rng", "pos", "v")],
+        })))
+        if result["errors"]:
+            raise AssertionError("Pos(v=list) failed: " + json.dumps(result["errors"]))
+    return {"name": "annotation resolution", "forward_refs": True, "bare_collections": True}
+
+
 def run_dataflow_shape_inference_tests():
     def node(node_id, inputs, outputs):
         return {"id": node_id, "data": {"definition": {
@@ -347,7 +391,7 @@ def run_python_export_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_catalog_metadata_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
+    results = [run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

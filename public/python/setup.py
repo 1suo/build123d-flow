@@ -40,15 +40,6 @@ micropip.add_mock_package("pillow", "12.2.0", modules={
 micropip.add_mock_package("cadquery-ocp-novtk", OCP_VERSION, modules={})
 micropip.add_mock_package("cadquery-ocp", OCP_VERSION, modules={})
 
-if not restored_environment:
-    try:
-        ocp_installed = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm") == OCP_VERSION
-    except importlib.metadata.PackageNotFoundError:
-        ocp_installed = False
-    if not ocp_installed:
-        print("Downloading OCP.wasm…")
-        await micropip.install([f"cadquery-ocp-novtk-OCP.wasm=={OCP_VERSION}"])
-
     # build123d imports Mesher at package import time; 3MF is unused here, so
     # register the same import-only stub each session and install it only once.
     micropip.add_mock_package("lib3mf", "2.4.1", modules={
@@ -68,6 +59,16 @@ if not restored_environment:
             "    Position = _Unavailable\n    Triangle = _Unavailable\n    Color = _Unavailable\n"
         ),
     })
+
+if not restored_environment:
+    try:
+        ocp_installed = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm") == OCP_VERSION
+    except importlib.metadata.PackageNotFoundError:
+        ocp_installed = False
+    if not ocp_installed:
+        print("Downloading OCP.wasm…")
+        await micropip.install([f"cadquery-ocp-novtk-OCP.wasm=={OCP_VERSION}"])
+
     try:
         lib3mf_installed = importlib.metadata.version("lib3mf") == "2.4.1"
     except importlib.metadata.PackageNotFoundError:

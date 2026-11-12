@@ -17,10 +17,34 @@ import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
 
 const runtime = new PythonRuntime();
+const activePalette = ref("tikal");
+const paletteOptions = [
+  { value: "alexandria", label: "Alexandria" },
+  { value: "alexandria-swapped", label: "Alexandria · swapped" },
+  { value: "babylon", label: "Babylon" },
+  { value: "babylon-swapped", label: "Babylon · swapped" },
+  { value: "knossos", label: "Knossos" },
+  { value: "knossos-swapped", label: "Knossos · swapped" },
+  { value: "petra", label: "Petra" },
+  { value: "petra-swapped", label: "Petra · swapped" },
+  { value: "tikal", label: "Tikal" },
+  { value: "tikal-swapped", label: "Tikal · swapped" },
+  { value: "troy", label: "Troy" },
+  { value: "troy-swapped", label: "Troy · swapped" },
+];
+function persistPalette() {
+  const value = activePalette.value;
+  document.documentElement.dataset.findspotTheme = value;
+  try { localStorage.setItem("findspot-palette", value); } catch { /* Storage may be unavailable. */ }
+}
 const status = ref("Loading Python runtime…");
 const runtimeError = ref("");
 const catalog = ref<NodeDefinition[]>([]);
 const paletteSearch = ref("");
+const activeCategory = ref<string | null>(null);
+const activeSource = ref<PaletteSource | null>(null);
+let fullCatalogLoaded = false;
+let discoveryPromise: Promise<void> | null = null;
 const contextSearch = ref("");
 const errors = ref<string[]>([]);
 const downloadStatus = ref("");
@@ -156,32 +180,27 @@ function paletteOrigin(item: NodeDefinition): PaletteSource {
   if (id.startsWith("core.") || id.startsWith("build123d_flow.")) return "flow";
   return "python";
 }
-const paletteGroups = computed(() => {
-  const matchingItems = catalog.value.filter((item) =>
-    (item.name + " " + item.id + " " + item.description + " " + paletteGroup(item) + " " + paletteSection(item))
-      .toLowerCase().includes(paletteSearch.value.toLowerCase())
-  );
-  return paletteSources.map((source) => {
-    const sourceItems = matchingItems.filter((item) => paletteOrigin(item) === source.id);
-    const groups = new Map<string, NodeDefinition[]>();
-    for (const item of sourceItems) {
-      const group = paletteGroup(item);
-      if (!groups.has(group)) groups.set(group, []);
-      groups.get(group)!.push(item);
-    }
-    const sections = [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([label, items]) => {
-      const subsections = new Map<string, NodeDefinition[]>();
-      for (const item of items.sort((a, b) => paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name))) {
-        const section = paletteSection(item);
-        if (!subsections.has(section)) subsections.set(section, []);
-        subsections.get(section)!.push(item);
-      }
-      return { label, sections: [...subsections].map(([section, sectionItems]) => ({ label: section, items: sectionItems })) };
-    });
-    return { ...source, count: sourceItems.length, sections };
-  });
+const dockGroups = computed(() => paletteSources.map((source) => {
+  const sourceItems = catalog.value.filter((item) => paletteOrigin(item) === source.id);
+  const categories = [...new Set(sourceItems.map(paletteGroup))].sort((a, b) => a.localeCompare(b));
+  return { ...source, categories: categories.map((label) => ({
+    label, count: sourceItems.filter((item) => paletteGroup(item) === label).length,
+  })) };
+}));
+const activePaletteItems = computed(() => catalog.value.filter((item) => {
+  const query = paletteSearch.value.trim().toLowerCase();
+  if (query) return (item.name + " " + item.id + " " + item.description + " " + paletteGroup(item) + " " + paletteSection(item)).toLowerCase().includes(query);
+  return activeCategory.value !== null && paletteOrigin(item) === activeSource.value && paletteGroup(item) === activeCategory.value;
+}).sort((a, b) => paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name)));
+const activePaletteSections = computed(() => {
+  const sections = new Map<string, NodeDefinition[]>();
+  for (const item of activePaletteItems.value) {
+    const section = paletteSection(item);
+    if (!sections.has(section)) sections.set(section, []);
+    sections.get(section)!.push(item);
+  }
+  return [...sections].map(([label, items]) => ({ label, items }));
 });
-const paletteItemCount = computed(() => paletteGroups.value.reduce((total, group) => total + group.count, 0));
 const contextResults = computed(() => catalog.value.filter((item) =>
   (item.name + " " + item.category + " " + item.id).toLowerCase().includes(contextSearch.value.toLowerCase())
 ).sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name)).slice(0, 60));
@@ -236,6 +255,11 @@ function nodeIcon(item: NodeDefinition): string {
       : item.kind === "operation" ? "/icons/cad/node.svg" : "/icons/cad/shape.svg");
 }
 onMounted(() => {
+  try {
+    const saved = localStorage.getItem("findspot-palette");
+    if (saved && paletteOptions.some((option) => option.value === saved)) activePalette.value = saved;
+  } catch { /* Use Tikal when storage is unavailable. */ }
+  persistPalette();
   window.addEventListener("keydown", onGlobalKeydown, true);
   mobileMediaQuery = window.matchMedia("(max-width: 760px)");
   updateMobileLayout();
@@ -276,9 +300,30 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
   scheduleEvaluation();
 }
 
-function openPalette(event: MouseEvent) {
+async function ensureFullCatalog() {
+  if (fullCatalogLoaded || discoveryPromise || !runtime.isReady) return discoveryPromise;
+  discoveryPromise = runtime.discoverCatalog().then((discovered) => {
+    const byId = new Map(discovered.map((item) => [item.id, item]));
+    catalog.value = discovered;
+    for (const node of nodes.value as any[]) {
+      const resolved = byId.get(node.data.definition.id) ?? discovered.find((item) => item.name === node.data.definition.name);
+      if (resolved) node.data.definition = resolved;
+      node.data.icon = nodeIcon(node.data.definition);
+    }
+    fullCatalogLoaded = true;
+    const report = runtime.getDiscoveryReport();
+    const moduleCount = Array.isArray(report.modules_visited) ? report.modules_visited.length : 0;
+    logActivity(`API discovery complete · ${discovered.length} nodes · ${moduleCount} modules`, "success");
+  }).catch((error) => logActivity("Full API discovery failed · " + String(error), "warning"))
+    .finally(() => { discoveryPromise = null; });
+  return discoveryPromise;
+}
+function openCategory(source: PaletteSource, category: string, event: MouseEvent) {
+  activeSource.value = source;
+  activeCategory.value = category;
   paletteSearch.value = "";
   palettePopover.value?.show(event);
+  void ensureFullCatalog();
 }
 
 function openContextMenu(event: MouseEvent) {
@@ -432,7 +477,7 @@ async function evaluate() {
     socketValues.value = result.socket_values ?? {};
     errors.value = Object.entries(result.errors).map(([id, error]) => `${id}: ${error}`);
     if (errors.value.length) errors.value.forEach((error) => logActivity(error, "error"));
-    else logActivity(`Evaluation complete · ${Object.keys(result.previews).length} visible geometry`, "success");
+    else logActivity("Evaluation complete · " + Object.keys(result.previews).length + " visible geometry · cache " + (result.cache?.hits ?? 0) + " hits", "success");
     for (const node of nodes.value as any[]) node.data.error = result.errors[node.id] ?? "";
   } catch (error) {
     if (revision === evaluationRevision) {
@@ -480,21 +525,31 @@ async function downloadStep() {
 </script>
 
 <template>
-  <main class="app-shell">
+  <main class="app-shell" :data-theme="activePalette">
     <Message v-if="runtimeError" severity="error" :closable="false" class="runtime-error">{{ runtimeError }}</Message>
     <Splitter class="workspace" :layout="isMobile ? 'vertical' : 'horizontal'" :gutter-size="4">
       <SplitterPanel :size="isMobile ? 58 : 68" :min-size="isMobile ? 40 : 35" class="graph-panel">
         <div ref="canvasSurface" class="canvas-surface" @drop="onDrop" @dragover.prevent @contextmenu.prevent="openContextMenu">
           <div class="canvas-topbar">
             <nav class="category-strip" aria-label="Node palette">
-              <Button text severity="secondary" class="category-chip palette-open"
-                icon="pi pi-th-large" label="Nodes" @click="openPalette($event)" />
-              <span v-if="!runtime.isReady" class="category-loading">Loading node catalog…</span>
+              <span v-for="source in dockGroups" :key="source.id" class="dock-source-group">
+                <span class="dock-source-label">{{ source.label }}</span>
+                <Button v-for="category in source.categories" :key="category.label" text severity="secondary"
+                  class="category-chip" :class="{ 'is-active': activeSource === source.id && activeCategory === category.label }"
+                  :label="category.label" @click="openCategory(source.id, category.label, $event)" />
+              </span>
+              <span v-if="!runtime.isReady" class="category-loading">Loading runtime…</span>
             </nav>
+            <label class="theme-switcher">
+              <span>Palette</span>
+              <select v-model="activePalette" aria-label="Findspot palette" @change="persistPalette">
+                <option v-for="option in paletteOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
           </div>
           <div v-if="runtime.isReady && !nodes.length" class="canvas-empty-state">
             <strong>Empty canvas</strong>
-            <span>Open a node source or right-click to add a node</span>
+            <span>Select a category in the dock or right-click to add a node</span>
           </div>
           <VueFlow
             v-model:nodes="nodes"
@@ -508,7 +563,7 @@ async function downloadStep() {
             @connect="onConnect"
             @edge-update="onEdgeUpdate"
           >
-            <Background pattern-color="#39352e" :gap="22" />
+            <Background :pattern-color="'var(--tikal-border)'" :gap="22" />
           </VueFlow>
           <div class="canvas-bottom-dock" role="toolbar" aria-label="Canvas tools">
             <Button icon="pi pi-expand" text rounded severity="secondary" aria-label="Fit graph" title="Fit graph" @click="fitView({ padding: 0.12 })" />
@@ -554,33 +609,22 @@ async function downloadStep() {
     <Popover ref="palettePopover" appendTo="self" class="palette-popover">
       <div class="palette-content">
         <div class="palette-heading">
-          <span>Node palette</span>
-          <span class="palette-group-count">{{ paletteItemCount }}</span>
+          <span>{{ paletteSearch.trim() ? "Search results" : activeCategory }}</span>
+          <span class="palette-group-count">{{ activePaletteItems.length }}</span>
         </div>
         <InputText v-model="paletteSearch" placeholder="Search nodes…" class="palette-search" />
         <div class="palette-node-list">
-          <section v-for="source in paletteGroups" :key="source.id" class="palette-source-group">
-            <header class="palette-source-heading">
-              <strong>{{ source.label }}</strong><span>{{ source.count }}</span>
-            </header>
-            <section v-for="group in source.sections" :key="group.label" class="palette-section">
-              <div class="palette-section-heading"><span>{{ group.label }}</span><span class="palette-section-rule"></span></div>
-              <div v-for="section in group.sections" :key="section.label" class="palette-subsection">
-                <div class="palette-subsection-heading">{{ section.label }}</div>
-                <Button v-for="item in section.items" :key="item.id" text severity="secondary"
-                  class="palette-node" draggable="true"
-                  @dragstart="dragNode($event, item)" @click="addDefinition(item)">
-                  <template #default><span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
-                  <span class="palette-node-label">{{ item.name }}</span></template>
-                </Button>
-              </div>
-            </section>
-            <div v-if="!source.count" class="palette-source-empty">
-              {{ source.id === "python" ? "No auto-discovered Python/library nodes yet" : "No matching nodes" }}
-            </div>
+          <section v-for="section in activePaletteSections" :key="section.label" class="palette-section">
+            <div class="palette-section-heading"><span>{{ section.label }}</span><span class="palette-section-rule"></span></div>
+            <Button v-for="item in section.items" :key="item.id" text severity="secondary"
+              class="palette-node" draggable="true"
+              @dragstart="dragNode($event, item)" @click="addDefinition(item)">
+              <template #default><span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
+              <span class="palette-node-label">{{ item.name }}</span></template>
+            </Button>
           </section>
         </div>
-        <div v-if="!paletteItemCount" class="palette-empty">
+        <div v-if="!activePaletteItems.length" class="palette-empty">
           <ProgressSpinner v-if="!catalog.length && !errors.length" style="width:20px;height:20px" stroke-width="4" />
           <span v-else-if="!runtime.isReady">Waiting for Python runtime…</span>
           <span v-else>{{ errors.length ? "Python runtime failed" : "No matching nodes" }}</span>

@@ -9,6 +9,7 @@ import pkgutil
 import typing
 import types
 import collections.abc
+import hashlib
 
 import build123d as b3d
 
@@ -19,6 +20,11 @@ _CATALOG_HINT_TARGETS = {}
 _LAST_VALUES = {}
 _LAST_SHAPE = None
 _DISCOVERY_REPORT = {}
+_EVAL_CACHE = {}
+_PREVIEW_CACHE = {}
+_CACHE_LIMIT = 128
+# Optional curated presentation/eligibility overrides keyed by canonical node id.
+_NODE_METADATA_OVERRIDES = {}
 
 
 def _type_name(annotation):
@@ -216,6 +222,12 @@ def _candidate_rejection(obj):
         return "not defined in build123d"
     if getattr(obj, "__name__", "").startswith("_"):
         return "private name"
+    if inspect.isclass(obj):
+        # Builder/context-manager lifecycles cannot be represented by a stateless node call.
+        for owner in getattr(obj, "__mro__", (obj,)):
+            members = vars(owner)
+            if "__enter__" in members and "__exit__" in members:
+                return "stateful context-manager class"
     try:
         _api_signature(obj)
     except (TypeError, ValueError) as exc:
@@ -802,7 +814,7 @@ def _python_function(code, a=None, b=None, c=None):
 
 
 def discover(include_full=True):
-    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS
+    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
     found = {}
     callables = {}
     signatures = {}
@@ -951,6 +963,11 @@ def discover(include_full=True):
     # Only members declared by build123d classes are exposed; external OCP and
     # Python implementation details stay out of the graph catalog.
     for cls in api_classes:
+        # Instance methods are useful as nodes on shapes and value-like geometry objects.
+        if cls not in shape_classes and cls.__name__ not in {
+            "Vector", "Vector2D", "Plane", "Location", "Rotation", "Axis", "Color",
+        }:
+            continue
         seen_members = set()
         for owner in getattr(cls, "__mro__", (cls,)):
             if getattr(owner, "__module__", "").split(".")[0] != "build123d":
@@ -1141,6 +1158,20 @@ def discover(include_full=True):
         }
         callables[node_id] = function
 
+    # Keep curated presentation/eligibility policy separate from introspection.
+    for node_id, override in _NODE_METADATA_OVERRIDES.items():
+        if node_id not in found:
+            continue
+        if override.get("hidden"):
+            found.pop(node_id, None)
+            callables.pop(node_id, None)
+            signatures.pop(node_id, None)
+            hint_targets.pop(node_id, None)
+            continue
+        for field in ("name", "category", "description"):
+            if field in override:
+                found[node_id][field] = override[field]
+
     report["node_count"] = len(found)
     report["kind_counts"] = {}
     report["category_counts"] = {}
@@ -1160,6 +1191,9 @@ def discover(include_full=True):
     }
     global _DISCOVERY_REPORT
     _DISCOVERY_REPORT = report
+    # Catalog replacement can change a node callable or signature; discard old values.
+    _EVAL_CACHE.clear()
+    _PREVIEW_CACHE.clear()
     _CATALOG = found
     _CATALOG_CALLABLES = callables
     _CATALOG_SIGNATURES = signatures
@@ -1255,11 +1289,7 @@ def _inspect_value(value, depth=0):
 
 
 def _map_item_inputs(params, access, invoke, matching="longest", path=()):
-    """Map item-access inputs recursively, preserving nested list structure.
-
-    Scalars broadcast. Longest matching repeats the last item; shortest truncates.
-    Cross matching forms a Cartesian product at each nested level.
-    """
+    """Map item-access inputs recursively, preserving nested list structure."""
     sequences = {
         name: list(value) if access.get(name, "item") == "item" and isinstance(value, (list, tuple))
         else None
@@ -1294,6 +1324,28 @@ def _map_item_inputs(params, access, invoke, matching="longest", path=()):
     return results
 
 
+def _cache_key(definition_id, params, upstream_keys):
+    payload = json.dumps([definition_id, params, sorted(upstream_keys.items())],
+                         sort_keys=True, separators=(",", ":"), default=repr, allow_nan=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _cacheable(definition):
+    node_id = definition.get("id", "")
+    name = definition.get("name", "")
+    category = definition.get("category", "")
+    if node_id.startswith("core.python.") or category.endswith((" Methods", " Properties")):
+        return False
+    if name in {"BuildPart", "BuildSketch", "BuildLine", "Build123d", "BuildSheet"}:
+        return False
+    return True
+
+
+def _trim_cache(cache):
+    while len(cache) > _CACHE_LIMIT:
+        cache.pop(next(iter(cache)))
+
+
 def evaluate_graph_json(payload):
     global _LAST_VALUES, _LAST_SHAPE
     _LAST_SHAPE = None
@@ -1303,16 +1355,13 @@ def evaluate_graph_json(payload):
     incoming = {}
     outgoing = {node_id: [] for node_id in nodes}
     indegree = {node_id: 0 for node_id in nodes}
-
     for edge in edges:
         source, target = edge.get("source"), edge.get("target")
-        source_handle, target_handle = edge.get("sourceHandle"), edge.get("targetHandle")
         if source not in nodes or target not in nodes:
             continue
-        incoming.setdefault(target, {})[target_handle] = (source, source_handle)
+        incoming.setdefault(target, {})[edge.get("targetHandle")] = (source, edge.get("sourceHandle"))
         outgoing[source].append(target)
         indegree[target] += 1
-
     queue = [node_id for node_id, degree in indegree.items() if degree == 0]
     order = []
     while queue:
@@ -1322,15 +1371,14 @@ def evaluate_graph_json(payload):
             indegree[target] -= 1
             if indegree[target] == 0:
                 queue.append(target)
-
     if len(order) != len(nodes):
         return json.dumps({
-            "previews": {}, "errors": {"graph": "Graph contains a cycle"}, "order": order
+            "previews": {}, "errors": {"graph": "Graph contains a cycle"}, "order": order,
+            "cache": {"hits": 0, "misses": 0},
         })
 
-    values = {}
-    previews = {}
-    errors = {}
+    values, previews, errors, node_keys = {}, {}, {}, {}
+    cache_hits = cache_misses = 0
     for node_id in order:
         node = nodes[node_id]
         definition_id = node.get("data", {}).get("definition", {}).get("id")
@@ -1338,24 +1386,39 @@ def evaluate_graph_json(payload):
         if definition is None:
             errors[node_id] = "Unknown or unavailable API node: " + str(definition_id)
             continue
-
         params = dict(node.get("data", {}).get("params", {}))
+        upstream_keys = {}
         failed_dependency = False
-        for input_name, source_ref in incoming.get(node_id, {}).items():
-            source_id, output_name = source_ref
+        upstream_cacheable = True
+        for input_name, (source_id, output_name) in incoming.get(node_id, {}).items():
             if source_id in errors or source_id not in values:
                 errors[node_id] = "Input depends on a failed node: " + source_id
                 failed_dependency = True
                 break
-            source_value = values[source_id].get(output_name)
-            source_node = nodes[source_id]
-            source_definition = source_node.get("data", {}).get("definition", {})
-            target_definition = node.get("data", {}).get("definition", {})
-            params[input_name] = source_value
+            params[input_name] = values[source_id].get(output_name)
+            source_key = node_keys.get(source_id)
+            if source_key is not None:
+                upstream_keys[input_name] = source_key
+            else:
+                upstream_cacheable = False
         if failed_dependency:
             continue
 
+        can_cache = _cacheable(definition) and upstream_cacheable
         try:
+            key = _cache_key(
+                definition_id, node.get("data", {}).get("params", {}), upstream_keys
+            ) if can_cache else None
+            cached = _EVAL_CACHE.get(key) if key else None
+            if cached is not None:
+                values[node_id] = {"result": cached}
+                node_keys[node_id] = key
+                cache_hits += 1
+                _EVAL_CACHE.pop(key, None)
+                _EVAL_CACHE[key] = cached
+                continue
+
+            cache_misses += 1
             callable_obj = _resolve_callable(definition_id)
             invoke = lambda mapped: _call_with_coercion(
                 callable_obj, mapped,
@@ -1371,11 +1434,13 @@ def evaluate_graph_json(payload):
                 matching=definition.get("data_matching", "longest"),
             )
             values[node_id] = {"result": result}
+            if key:
+                _EVAL_CACHE[key] = result
+                _trim_cache(_EVAL_CACHE)
+                node_keys[node_id] = key
         except Exception as exc:
             errors[node_id] = type(exc).__name__ + ": " + str(exc)
 
-    # Explicitly visible geometry nodes are previewed even when they feed other nodes.
-    # Older graph documents without a visibility flag retain terminal-output behavior.
     source_nodes = {edge.get("source") for edge in edges}
     for node_id in order:
         if node_id not in values:
@@ -1384,8 +1449,17 @@ def evaluate_graph_json(payload):
         if visible is False or (visible is not True and node_id in source_nodes):
             continue
         result = values[node_id].get("result")
+        key = node_keys.get(node_id)
         try:
-            preview = _mesh_preview(result)
+            preview = _PREVIEW_CACHE.get(key) if key else None
+            if preview is None:
+                preview = _mesh_preview(result)
+                if preview is not None and key:
+                    _PREVIEW_CACHE[key] = preview
+                    _trim_cache(_PREVIEW_CACHE)
+            elif key:
+                _PREVIEW_CACHE.pop(key, None)
+                _PREVIEW_CACHE[key] = preview
             if preview is not None:
                 previews[node_id] = preview
                 _LAST_SHAPE = _as_export_shape(result)
@@ -1393,7 +1467,14 @@ def evaluate_graph_json(payload):
             errors[node_id] = "Preview: " + str(exc)
 
     _LAST_VALUES = values
-    return json.dumps(_json_clean({"previews": previews, "errors": errors, "order": order, "socket_values": {node_id: {name: _inspect_value(value) for name, value in outputs.items()} for node_id, outputs in values.items()}}), allow_nan=False)
+    return json.dumps(_json_clean({
+        "previews": previews, "errors": errors, "order": order,
+        "cache": {"hits": cache_hits, "misses": cache_misses},
+        "socket_values": {
+            node_id: {name: _inspect_value(value) for name, value in outputs.items()}
+            for node_id, outputs in values.items()
+        },
+    }), allow_nan=False)
 
 
 

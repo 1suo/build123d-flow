@@ -24,15 +24,25 @@ jobs:
         with:
           node-version: 22
       - name: Cache staged Pyodide runtime
-        id: pyodide-cache
+        id: pyodide-staged-cache
         uses: actions/cache@v4
         with:
           path: public/pyodide/v314.0.7/full
-          key: pyodide-314.0.7-${{ hashFiles('scripts/prepare-pyodide.py', 'public/python/setup.py') }}
-      - name: Download and stage self-hosted Pyodide runtime
-        if: steps.pyodide-cache.outputs.cache-hit != 'true'
+          key: pyodide-staged-314.0.7-${{ hashFiles('scripts/prepare-pyodide.py', 'public/python/setup.py') }}
+      - name: Cache Pyodide source archive
+        id: pyodide-archive-cache
+        if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: /tmp/pyodide-314.0.7.tar.bz2
+          key: pyodide-archive-314.0.7-192b5864e6e6d30ab074861af800cb8b4acb0998ef0f9342c3367448aeb86645
+      - name: Download Pyodide source archive
+        if: steps.pyodide-staged-cache.outputs.cache-hit != 'true' && steps.pyodide-archive-cache.outputs.cache-hit != 'true'
         run: |
           curl --fail --location --retry 3 --output /tmp/pyodide-314.0.7.tar.bz2 https://github.com/pyodide/pyodide/releases/download/314.0.7/pyodide-314.0.7.tar.bz2
+      - name: Verify and stage self-hosted Pyodide runtime
+        if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'
+        run: |
           echo "192b5864e6e6d30ab074861af800cb8b4acb0998ef0f9342c3367448aeb86645  /tmp/pyodide-314.0.7.tar.bz2" | sha256sum --check
           python scripts/prepare-pyodide.py /tmp/pyodide-314.0.7.tar.bz2 public/pyodide/v314.0.7/full public/python/setup.py
       - run: npm install

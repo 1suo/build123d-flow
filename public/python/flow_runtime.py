@@ -373,27 +373,40 @@ def _discover_modules(report=None):
 
 
 
-# Explicit Python operator protocol: only meaningful algebra/transform operators
-# are surfaced. Other dunder implementation details remain private.
+# Python's operator protocol is discovered from class members, not from
+# build123d-specific wrapper functions. This registry only supplies the
+# language-level symbol and default palette semantics for recognized operators.
+# Domain-specific presentation belongs in _NODE_METADATA_OVERRIDES below.
 _PYTHON_OPERATOR_SPECS = {
-    "__add__": ("+", "addition"),
-    "__sub__": ("−", "subtraction"),
-    "__mul__": ("×", "multiplication"),
-    "__rmul__": ("×", "reverse multiplication"),
-    "__truediv__": ("÷", "division"),
-    "__floordiv__": ("//", "floor division"),
-    "__mod__": ("%", "modulo"),
-    "__pow__": ("**", "power"),
-    "__matmul__": ("@", "matrix multiplication"),
-    "__and__": ("&", "intersection / and"),
-    "__or__": ("|", "union / or"),
-    "__xor__": ("^", "exclusive or"),
-    "__lshift__": ("<<", "left shift"),
-    "__rshift__": (">>", "right shift"),
-    "__neg__": ("−", "negation"),
-    "__pos__": ("+", "positive"),
-    "__invert__": ("~", "invert"),
+    "__add__": {"symbol": "+", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__sub__": {"symbol": "−", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__mul__": {"symbol": "×", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__rmul__": {"symbol": "×", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__truediv__": {"symbol": "÷", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__floordiv__": {"symbol": "//", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__mod__": {"symbol": "%", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__pow__": {"symbol": "**", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__matmul__": {"symbol": "@", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__and__": {"symbol": "&", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__or__": {"symbol": "|", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__xor__": {"symbol": "^", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__lshift__": {"symbol": "<<", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__rshift__": {"symbol": ">>", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__neg__": {"symbol": "−", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
+    "__pos__": {"symbol": "+", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
+    "__invert__": {"symbol": "~", "family": "unary", "palette_category": "Logic", "palette_section": "Bitwise operators"},
 }
+
+# Native Shape algebra keeps its actual Python method identity and signature.
+# These are presentation overrides only: they do not register nodes or callables.
+for _shape_method, _shape_presentation in {
+    "__add__": {"name": "Shape + (Union)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+    "__sub__": {"name": "Shape − (Difference)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+    "__and__": {"name": "Shape & (Intersection)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+}.items():
+    _NODE_METADATA_OVERRIDES[
+        b3d.Shape.__module__ + "." + b3d.Shape.__name__ + ".operator." + _shape_method
+    ] = _shape_presentation
 
 
 _FLOW_PALETTE = {
@@ -1245,27 +1258,11 @@ def discover(include_full=True):
                     inputs.append(socket)
 
                 if operator_spec:
-                    symbol, operator_label = operator_spec
-                    is_shape_operator = False
-                    try:
-                        is_shape_operator = issubclass(owner, b3d.Shape)
-                    except TypeError:
-                        pass
-                    if is_shape_operator and member_name in {"__add__", "__sub__", "__and__"}:
-                        semantic = {
-                            "__add__": ("Boolean", "Boolean", "Boolean operations", "union / fuse"),
-                            "__sub__": ("Boolean", "Boolean", "Boolean operations", "difference / cut"),
-                            "__and__": ("Boolean", "Boolean", "Boolean operations", "intersection"),
-                        }[member_name]
-                        category, palette_category, palette_section, operator_label = semantic
-                    else:
-                        category, palette_category, palette_section = (
-                            owner.__name__ + " Operators", "API", "Discovered operators"
-                        )
+                    category = owner.__name__ + " Operators"
+                    palette_category = operator_spec["palette_category"]
+                    palette_section = operator_spec["palette_section"]
                     method_id = node_prefix + ".operator." + member_name
-                    display_name = owner.__name__ + " " + symbol
-                    if is_shape_operator and member_name in {"__add__", "__sub__", "__and__"}:
-                        display_name += " (" + operator_label + ")"
+                    display_name = owner.__name__ + " " + operator_spec["symbol"]
                 else:
                     method_id = node_prefix + "." + member_name
                     category = owner.__name__ + " Methods"
@@ -1287,7 +1284,11 @@ def discover(include_full=True):
                     "palette_category": palette_category, "palette_section": palette_section,
                     "description": (inspect.getdoc(raw_member) or "").split("\n")[0][:180],
                     "inputs": inputs, "outputs": [output_socket],
-                    **({"operator": {"method": member_name, "symbol": symbol}} if operator_spec else {}),
+                    **({"operator": {
+                        "method": member_name,
+                        "symbol": operator_spec["symbol"],
+                        "family": operator_spec["family"],
+                    }} if operator_spec else {}),
                 }
                 callables[method_id] = raw_member
                 signatures[method_id] = signature

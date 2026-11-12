@@ -41,7 +41,7 @@ The GitHub Actions workflow typechecks and builds the static client, then deploy
 
 ## Browser-side runtime persistence
 
-The app registers a small service worker in production. It caches versioned app assets, the Python bootstrap files, and the pinned Pyodide CDN assets; the cache is replaced when the service-worker cache version changes. The browser's HTTP cache and micropip's browser wheel cache remain additional cache layers.
+The app registers a small service worker in production. It caches versioned app assets, the Python bootstrap files and the self-hosted Pyodide runtime; the cache is replaced when the service-worker cache version changes. Pyodide core files and the micropip dependency wheels are staged from the checksum-pinned official release during the GitHub Actions build, so the runtime loader and its package manager do not depend on a third-party CDN. Additional Python wheels are installed from PyPI by micropip. The browser's HTTP cache and micropip's browser wheel cache remain additional cache layers.
 
 The installed Python environment is mounted from IndexedDB through Pyodide's `fsInit` hook. Its marker includes the Pyodide version and a SHA-256 fingerprint of `public/python/setup.py`; a mismatch clears the old site-packages directory before reinstalling. If IndexedDB is unavailable, blocked, or full, the runtime falls back to an in-memory environment and remains usable. Browser storage can still be cleared or evicted by the user or browser. This stores installed packages, not graph results or live Python/B-rep objects.
 

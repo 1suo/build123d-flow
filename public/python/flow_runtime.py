@@ -1607,7 +1607,7 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
     sequences = {}
     for name, shape in stream_shapes.items():
         value = params.get(name)
-        if shape in ("list", "tree") and isinstance(value, (list, tuple)):
+        if shape in ("list", "tuple", "tree") and isinstance(value, (list, tuple)):
             sequences[name] = list(value)
     if not sequences:
         try:
@@ -1762,8 +1762,8 @@ def evaluate_graph_json(payload):
                 source_shape = _effective_output_structure(
                     source_id, source_output, nodes, incoming, shape_memo
                 )
-                if source_shape in ("list", "tree"):
-                    stream_shapes[input_name] = source_shape
+                if source_shape in ("list", "tuple", "tree"):
+                    stream_shapes[input_name] = "list" if source_shape == "tuple" else source_shape
             result = _map_item_inputs(
                 params, stream_shapes, invoke,
                 matching=definition.get("data_matching", "longest"),

@@ -86,11 +86,15 @@ def run_data_mapping_tests():
     cross = runtime._map_item_inputs(
         {"a": [1, 2], "b": [10, 20]}, {"a": "list", "b": "list"}, add, "cross"
     )
+    tuple_stream = runtime._map_item_inputs(
+        {"a": (1, 2, 3)}, {"a": "tuple"},
+        lambda values: values["a"] * 2,
+    )
     nested = runtime._map_item_inputs(
         {"a": [[1, 2], [3]], "b": [10, 20]},
         {"a": "tree", "b": "list"}, add, "longest"
     )
-    if longest != [11, 12, 13] or shortest != [11] or cross != [11, 21, 12, 22]:
+    if longest != [11, 12, 13] or shortest != [11] or cross != [11, 21, 12, 22] or tuple_stream != [2, 4, 6]:
         raise AssertionError("List matching modes returned unexpected values")
     if nested != [[11, 12], [23]]:
         raise AssertionError("Nested stream mapping did not preserve tree structure")

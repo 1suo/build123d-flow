@@ -8,6 +8,7 @@ import Select from "primevue/select";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import DataValue from "./DataValue.vue";
+import { socketTypeLabel } from "../runtime/socketPresentation";
 
 const props = defineProps<{
   node: any;
@@ -20,14 +21,6 @@ const drafts = reactive<Record<string, string>>({});
 const activeName = ref("");
 const editorOpen = ref(false);
 
-function socketTypeLabel(socket: any): string {
-  const structure = socket.data_structure;
-  if (!structure || structure === "item") return socket.type;
-  if (structure === "dict") return `Dict[${socket.key_type || "Any"}, ${socket.value_type || "Any"}]`;
-  const itemType = socket.item_type || socket.type;
-  const label = structure === "tree" ? "Tree" : structure[0].toUpperCase() + structure.slice(1);
-  return `${label}[${itemType}]`;
-}
 function currentValue(socket: any): unknown {
   return props.node.data.params[socket.name] ?? socket.default ?? null;
 }

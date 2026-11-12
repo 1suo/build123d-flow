@@ -11,7 +11,7 @@ The project combines Vue Flow with the browser-side Python/OCCT runtime demonstr
 - **CAD iconography** — vendored FreeCAD Part/Draft SVGs for modeling, sketch and transform operations, plus a small in-house glyph set for dataflow concepts. See `public/icons/cad/README.md` for attribution and licenses.
 - **Pyodide** — Python runtime in the browser.
 - **build123d + OCP.wasm** — exact B-rep/NURBS geometry, running in WebAssembly.
-- **Python introspection** — the core catalog is registered during runtime bootstrap; the full build123d API is discovered only when the user opens the palette, keeping reflection off the first-geometry path.
+- **Python introspection** — the core catalog is registered during runtime bootstrap; the full build123d API is discovered lazily on first category selection. Discovery records constructors, functions, shape methods and properties with signatures, annotations, defaults and docstrings. Provenance groups in the dock are labels only; functional categories are the selectable controls.
 - **Graph evaluator** — validates dependencies, evaluates nodes in topological order and reports node-scoped errors.
 - **Three.js viewport** — renders tessellated previews produced inside Pyodide; exact OCCT shapes remain in the Python runtime for downstream operations and STEP export.
 
@@ -30,14 +30,14 @@ npm install
 npm run dev
 ```
 
-The GitHub Actions workflow typechecks and builds the static client, then deploys it to GitHub Pages on pushes to `main`. The empty workspace and core node catalog render synchronously. Example graphs are loaded explicitly from the canvas dropdown. Pyodide is downloaded only after the app mounts; OCP.wasm and build123d are installed in the background. Full API introspection is deferred until the palette is opened. Repeat-visit caching and worker isolation remain future optimizations.
+The GitHub Actions workflow typechecks and builds the static client, then deploys it to GitHub Pages on pushes to `main`. The empty workspace and core node catalog render synchronously. Example graphs are loaded explicitly from the canvas dropdown. Pyodide is downloaded only after the app mounts; OCP.wasm and build123d are installed in the background. Full API introspection is deferred until the palette is opened. Repeat-visit caching is implemented for deterministic graph nodes and their mesh previews; worker isolation remains a future optimization.
 
 ## Current limitations
 
-- Each graph evaluation currently recomputes the full graph in topological order; incremental caching is not implemented yet.
+- Graph evaluation remains topological, but deterministic nodes reuse cached Python results and tessellated previews. Cache keys include the node definition, literal parameters and upstream dependency keys. Stateful builder nodes, Python Function nodes, and discovered instance methods/properties bypass caching; their downstream dependents also bypass it. The in-memory cache is bounded to 128 entries and scoped to the current Pyodide session.
 - Socket inference is annotation-driven. Unsupported or ambiguous Python types appear as `Any` and are not directly editable. The core dataflow catalog currently includes editable Number/String/Boolean literals, scalar arithmetic, math functions/constants, comparisons, boolean logic, string operations, conversions, build123d Vector operations, and a Python Function node. Common solid and 2D profile constructors are explicitly registered so they remain available even when generic reflection cannot infer a usable signature. The rest of the installed build123d API is discovered from Python modules and signatures; callables that expose only variadic parameters or positional-only signatures are still omitted; variadic parameters are ignored when named parameters can be represented, and ambiguous annotations appear as Any. The Python Function node receives optional `a`, `b`, and `c` inputs, has access to `math`, `operator`, `b3d`, and `Vector`, and must assign its output to `result`.
 - The first preview path tessellates explicitly visible geometry-node outputs into triangle meshes; per-node eye controls toggle viewer visibility. The authoritative B-rep stays inside Pyodide. Viewer camera framing is initialized once and is preserved across subsequent evaluations. The browser bootstrap installs OCP.wasm and build123d; it deliberately omits `lib3mf`, `ocp_vscode` and `ocp-tessellate`, because the app exports STEP and has its own Three.js mesh viewer. Python bootstrap output is surfaced in the runtime status. The curated node layer includes spatial distributions (XY grid, polar points, clipped 2D Voronoi), numeric remapping/interpolation, and Grasshopper-style list operations (partition, repeat, cull pattern, shift and weave). The discovered build123d API remains available alongside these higher-level nodes.
-- Graph persistence, incremental evaluation caching, and multi-output nodes are not implemented yet.
+- Graph persistence and multi-output nodes are not implemented yet. The cache is session-local and does not serialize B-rep objects to browser storage.
 
 ## Design principles
 
@@ -53,3 +53,12 @@ The GitHub Actions workflow typechecks and builds the static client, then deploy
 ## License
 
 Apache-2.0.
+
+
+## Discovery and evaluation
+
+The dock separates API provenance (build123d, Python/libraries, Flow) from functional categories. Provenance headings are non-interactive; each functional category is an individual selector. Selecting a category opens its node list. Search inside the list spans the complete discovered catalog.
+
+Full API discovery is deferred until the first category is opened. It walks build123d modules, then inspects public classes/functions and public shape-class properties/methods without evaluating descriptors. The discovery report records visited modules, import failures, accepted/rejected candidates and inferred socket types. Discovery is not a promise that every callable is a safe or useful node: variadic signatures, unsupported annotations, stateful builder APIs and ambiguous callables require conservative handling. New API coverage should be added through explicit eligibility/metadata policy rather than exposing every public name.
+
+Evaluation cache entries retain Python objects inside Pyodide (including exact B-rep values); only JSON-safe graph parameters and dependency keys participate in hashing. Mesh previews are cached separately. No Python object is serialized into the graph document or browser storage.

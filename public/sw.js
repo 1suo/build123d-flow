@@ -1,4 +1,4 @@
-const CACHE_NAME = "build123d-flow-static-v314.0.7-v6";
+const CACHE_NAME = "build123d-flow-static-v314.0.7-v7";
 const PYODIDE_PREFIX = "/pyodide/v314.0.7/full/";
 
 self.addEventListener("install", (event) => {

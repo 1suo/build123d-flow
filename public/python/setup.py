@@ -61,62 +61,61 @@ micropip.add_mock_package("lib3mf", "2.4.1", modules={
 })
 
 if not restored_environment:
-    try:
-        ocp_installed = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm") == OCP_VERSION
-    except importlib.metadata.PackageNotFoundError:
-        ocp_installed = False
-    if not ocp_installed:
-        print("Downloading OCP.wasm…")
-        await micropip.install([f"cadquery-ocp-novtk-OCP.wasm=={OCP_VERSION}"])
+try:
+    ocp_installed = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm") == OCP_VERSION
+except importlib.metadata.PackageNotFoundError:
+    ocp_installed = False
+if not ocp_installed:
+    print("Downloading OCP.wasm…")
+    await micropip.install([f"cadquery-ocp-novtk-OCP.wasm=={OCP_VERSION}"])
 
-    try:
-        lib3mf_installed = importlib.metadata.version("lib3mf") == "2.4.1"
-    except importlib.metadata.PackageNotFoundError:
-        lib3mf_installed = False
-    if not lib3mf_installed:
-        await micropip.install(["lib3mf==2.4.1"])
+try:
+    lib3mf_installed = importlib.metadata.version("lib3mf") == "2.4.1"
+except importlib.metadata.PackageNotFoundError:
+    lib3mf_installed = False
+if not lib3mf_installed:
+    await micropip.install(["lib3mf==2.4.1"])
 
-    # Reconcile dependencies on every startup, including restored environments.
-    # A build123d metadata entry alone does not prove its dependencies are present.
-    print("Checking build123d dependencies…")
-    await micropip.install([
-        "webcolors==24.8.0",
-        "typing_extensions>=4.16,<5",
-        "numpy>=2,<3",
-        "svgpathtools>=1.5.1,<2",
-        "anytree>=2.8,<3",
-        "ezdxf>=1.1,<2",
-        "pyparsing>=3.1,<4",
-        "fonttools>=4.39,<5",
-        "ipython>=8,<10",
-        "ocpsvg>=0.7,<0.8",
-        "ocp_gordon>=0.3.1,<0.4",
-        "trianglesolver",
-        "sympy",
-        "scipy",
-        "scikit-learn>=1.5,<2",
-        "webcolors~=24.8.0",
-        "requests>=2.32,<3",
-        "bd_materials>=0.2,<0.3",
-        "threejs-materials>=1.2.1,<1.3",
-    ])
 
-    try:
-        build123d_installed = importlib.metadata.version("build123d") == "0.13.0"
-    except importlib.metadata.PackageNotFoundError:
-        build123d_installed = False
-
-    if not build123d_installed:
-        print("Installing build123d…")
-        # Install build123d without its upstream dependency resolver: its platform marker
-        # selects lib3mf on Pyodide/WASM even though this app never uses 3MF.
-        await micropip.install(["build123d==0.13.0"], deps=False)
-    else:
-        print("Using restored build123d package")
 
 else:
-    print("Using verified persistent Python environment")
+    print("Restored Python environment; verifying required packages…")
 
-print("Importing build123d…")
-import build123d
-print("build123d runtime initialized")
+# Reconcile dependencies on every startup, including restored environments.
+# A build123d metadata entry alone does not prove its dependencies are present.
+print("Checking build123d dependencies…")
+await micropip.install([
+    "webcolors==24.8.0",
+    "typing_extensions>=4.16,<5",
+    "numpy>=2,<3",
+    "svgpathtools>=1.5.1,<2",
+    "anytree>=2.8,<3",
+    "ezdxf>=1.1,<2",
+    "pyparsing>=3.1,<4",
+    "fonttools>=4.39,<5",
+    "ipython>=8,<10",
+    "ocpsvg>=0.7,<0.8",
+    "ocp_gordon>=0.3.1,<0.4",
+    "trianglesolver",
+    "sympy",
+    "scipy",
+    "scikit-learn>=1.5,<2",
+    "webcolors~=24.8.0",
+    "requests>=2.32,<3",
+    "bd_materials>=0.2,<0.3",
+    "threejs-materials>=1.2.1,<1.3",
+])
+
+try:
+    build123d_installed = importlib.metadata.version("build123d") == "0.13.0"
+except importlib.metadata.PackageNotFoundError:
+    build123d_installed = False
+
+if not build123d_installed:
+    print("Installing build123d…")
+    # Install build123d without its upstream dependency resolver: its platform marker
+    # selects lib3mf on Pyodide/WASM even though this app never uses 3MF.
+    await micropip.install(["build123d==0.13.0"], deps=False)
+else:
+    print("Using restored build123d package")
+

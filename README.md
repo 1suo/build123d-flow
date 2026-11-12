@@ -71,7 +71,7 @@ The runtime assembles the catalog from three explicit providers:
 - `_register_flow_boolean_nodes()` registers the Union/Difference/Intersection convenience nodes. They call overloaded `Shape` operators, but the nodes themselves are app-authored adapters and therefore have `source="flow"`.
 - `_register_python_nodes()` registers the Python Function node with `source="python"`.
 
-Each provider also supplies `palette_category` and `palette_section`. The old name-substring taxonomy and the default-to-build123d provenance fallback have been removed. Catalog construction rejects entries that omit either field. The three Boolean node IDs retain their historical `build123d_flow.*` spelling for graph compatibility; the explicit `source` field is authoritative.
+Each provider also supplies `palette_category` and `palette_section`. The old name-substring taxonomy and the default-to-build123d provenance fallback have been removed. Catalog construction rejects entries that omit either field. Boolean utility node IDs use the `flow.boolean.*` namespace; their ownership is explicit in both identity and metadata.
 
 ## Discovery and evaluation
 

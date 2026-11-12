@@ -283,6 +283,7 @@ _FLOW_PALETTE = {
     "Collections": ("Data", "Collections"),
     "Series": ("Data", "Series"),
     "Strings": ("Data", "Strings"),
+    "Conversions": ("Data", "Conversions"),
     "Spatial": ("Spatial", "Spatial operations"),
     "Utilities": ("Math", "Numeric utilities"),
     "Constants": ("Math", "Constants"),
@@ -532,21 +533,21 @@ def _register_flow_nodes(found, callables):
               [("condition", "Boolean"), ("if_true", "Any"), ("if_false", "Any")], "Any")
 
     # String construction and common operations.
-    _add_node(found, callables, "core.string.join", "Join", lambda a, b, separator: str(a) + separator + str(b),
+    _add_node(found, callables, "core.string.join", "Join", "Strings", lambda a, b, separator: str(a) + separator + str(b),
               [("a", "String"), ("b", "String"), ("separator", "String")], "String")
-    _add_node(found, callables, "core.string.format", "Format", lambda template, value: template.format(value),
+    _add_node(found, callables, "core.string.format", "Format", "Strings", lambda template, value: template.format(value),
               [("template", "String"), ("value", "Any")], "String")
-    _add_node(found, callables, "core.string.replace", "Replace", lambda value, old, new: value.replace(old, new),
+    _add_node(found, callables, "core.string.replace", "Replace", "Strings", lambda value, old, new: value.replace(old, new),
               [("value", "String"), ("old", "String"), ("new", "String")], "String")
-    _add_node(found, callables, "core.string.length", "String Length", lambda value: len(value),
+    _add_node(found, callables, "core.string.length", "String Length", "Strings", lambda value: len(value),
               [("value", "String")], "Number")
-    _add_node(found, callables, "core.string.upper", "Uppercase", lambda value: value.upper(),
+    _add_node(found, callables, "core.string.upper", "Uppercase", "Strings", lambda value: value.upper(),
               [("value", "String")], "String")
-    _add_node(found, callables, "core.string.lower", "Lowercase", lambda value: value.lower(),
+    _add_node(found, callables, "core.string.lower", "Lowercase", "Strings", lambda value: value.lower(),
               [("value", "String")], "String")
-    _add_node(found, callables, "core.convert.to_number", "To Number", lambda value: float(value),
+    _add_node(found, callables, "core.convert.to_number", "To Number", "Conversions", lambda value: float(value),
               [("value", "Any")], "Number")
-    _add_node(found, callables, "core.convert.to_string", "To String", lambda value: str(value),
+    _add_node(found, callables, "core.convert.to_string", "To String", "Conversions", lambda value: str(value),
               [("value", "Any")], "String")
 
     # Vector operations use build123d's native Vector type.

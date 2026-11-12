@@ -1272,6 +1272,10 @@ def discover(include_full=True):
                     if typing.get_origin(annotation) is typing.Literal:
                         socket["options"] = list(typing.get_args(annotation))
                     socket.update(_annotation_metadata(annotation))
+                    if parameter.kind == parameter.VAR_POSITIONAL:
+                        socket.update({"data_structure": "list", "item_type": _type_name(annotation)})
+                    elif parameter.kind == parameter.VAR_KEYWORD:
+                        socket.update({"data_structure": "dict", "key_type": "String", "value_type": "Any"})
                     socket["data_access"] = "structure" if socket.get("data_structure") else "item"
                     _populate_editor_default(socket)
                     inputs.append(socket)

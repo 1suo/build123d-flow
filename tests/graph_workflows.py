@@ -94,6 +94,23 @@ def run_data_mapping_tests():
         raise AssertionError("List matching modes returned unexpected values")
     if nested != [[11, 12], [23]]:
         raise AssertionError("Nested list mapping did not preserve branch structure")
+    # Variadic API sockets represent one argument collection, not a stream to map.
+    variadic_sockets = [
+        socket
+        for definition in runtime._CATALOG.values()
+        for socket in definition.get("inputs", [])
+        if socket.get("kind") in {"var_positional", "var_keyword"}
+    ]
+    for socket in variadic_sockets:
+        expected = "list" if socket["kind"] == "var_positional" else "dict"
+        if socket.get("data_structure") != expected or socket.get("data_access") != "structure":
+            raise AssertionError("Variadic socket must preserve its argument collection: " + repr(socket))
+    preserved = runtime._map_item_inputs(
+        {"args": [1, 2, 3]}, {"args": "structure"},
+        lambda values: tuple(values["args"])
+    )
+    if preserved != (1, 2, 3):
+        raise AssertionError("Variadic argument collection was unexpectedly item-mapped")
     shape_list = runtime._annotation_metadata(list[runtime.b3d.Face])
     if shape_list.get("data_structure") != "list" or shape_list.get("item_type") != "Face":
         raise AssertionError("List[Face] metadata conflates collection and element types")

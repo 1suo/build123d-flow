@@ -20,8 +20,38 @@ let camera: THREE.PerspectiveCamera;
 let controls: OrbitControls;
 let resizeObserver: ResizeObserver | undefined;
 let modelGroup: THREE.Group;
+let gridHelper: THREE.GridHelper | undefined;
+let themeObserver: MutationObserver | undefined;
 let animationFrame = 0;
 let hasInitialFit = false;
+
+function cssColor(token: string, fallback: string): THREE.Color {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  return new THREE.Color(value || fallback);
+}
+
+function applyTheme() {
+  if (!scene) return;
+  scene.background = cssColor("--tikal-background", "#013220");
+  if (gridHelper) {
+    const materials = Array.isArray(gridHelper.material) ? gridHelper.material : [gridHelper.material];
+    materials[0]?.color.copy(cssColor("--tikal-selection", "#458b74"));
+    materials[1]?.color.copy(cssColor("--tikal-border", "#2f4f4f"));
+  }
+  if (modelGroup) {
+    for (const child of modelGroup.children) {
+      if (!(child instanceof THREE.Mesh)) continue;
+      const preview = props.previews[child.name];
+      if (preview?.color === undefined) {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        materials.forEach((material) => {
+          if (material instanceof THREE.MeshStandardMaterial) material.color.copy(cssColor("--tikal-primary", "#7cfc00"));
+        });
+      }
+    }
+  }
+  renderer?.render(scene, camera);
+}
 
 function rebuild() {
   if (!scene || !modelGroup) return;
@@ -39,7 +69,7 @@ function rebuild() {
     geometry.setIndex(preview.triangles);
     geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({
-      color: preview.color ?? 0x7cfc00,
+      color: preview.color ?? cssColor("--tikal-primary", "#7cfc00"),
       metalness: 0.12,
       roughness: 0.68,
       side: THREE.DoubleSide,
@@ -79,7 +109,7 @@ function resize() {
 onMounted(() => {
   if (!host.value) return;
   scene = new THREE.Scene();
-  scene.background = new THREE.Color("#013220");
+  scene.background = cssColor("--tikal-background", "#013220");
   camera = new THREE.PerspectiveCamera(42, 1, 0.1, 10000);
   camera.up.set(0, 0, 1);
   camera.position.set(100, -100, 90);
@@ -93,9 +123,13 @@ onMounted(() => {
   key.position.set(80, -60, 120);
   scene.add(key);
 
-  const grid = new THREE.GridHelper(240, 24, 0x458b74, 0x2f4f4f);
-  grid.rotation.x = Math.PI / 2;
-  scene.add(grid);
+  gridHelper = new THREE.GridHelper(
+    240, 24,
+    cssColor("--tikal-selection", "#458b74"),
+    cssColor("--tikal-border", "#2f4f4f"),
+  );
+  gridHelper.rotation.x = Math.PI / 2;
+  scene.add(gridHelper);
   scene.add(new THREE.AxesHelper(35));
   modelGroup = new THREE.Group();
   scene.add(modelGroup);
@@ -115,7 +149,9 @@ onMounted(() => {
   resizeObserver.observe(host.value);
   resize();
   rebuild();
-
+  themeObserver = new MutationObserver(applyTheme);
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-findspot-theme"] });
+  applyTheme();
 });
 
 watch(() => props.previews, rebuild, { deep: true });
@@ -123,6 +159,7 @@ watch(() => props.previews, rebuild, { deep: true });
 onBeforeUnmount(() => {
   cancelAnimationFrame(animationFrame);
   resizeObserver?.disconnect();
+  themeObserver?.disconnect();
   controls?.dispose();
   renderer?.dispose();
   renderer?.domElement.remove();

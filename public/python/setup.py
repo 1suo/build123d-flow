@@ -61,23 +61,20 @@ micropip.add_mock_package("lib3mf", "2.4.1", modules={
 })
 
 if not restored_environment:
-try:
-    ocp_installed = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm") == OCP_VERSION
-except importlib.metadata.PackageNotFoundError:
-    ocp_installed = False
-if not ocp_installed:
-    print("Downloading OCP.wasm…")
-    await micropip.install([f"cadquery-ocp-novtk-OCP.wasm=={OCP_VERSION}"])
-
-try:
-    lib3mf_installed = importlib.metadata.version("lib3mf") == "2.4.1"
-except importlib.metadata.PackageNotFoundError:
-    lib3mf_installed = False
-if not lib3mf_installed:
-    await micropip.install(["lib3mf==2.4.1"])
-
-
-
+    try:
+        ocp_installed = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm") == OCP_VERSION
+    except importlib.metadata.PackageNotFoundError:
+        ocp_installed = False
+    if not ocp_installed:
+        print("Downloading OCP.wasm…")
+        await micropip.install([f"cadquery-ocp-novtk-OCP.wasm=={OCP_VERSION}"])
+    
+    try:
+        lib3mf_installed = importlib.metadata.version("lib3mf") == "2.4.1"
+    except importlib.metadata.PackageNotFoundError:
+        lib3mf_installed = False
+    if not lib3mf_installed:
+        await micropip.install(["lib3mf==2.4.1"])
 else:
     print("Restored Python environment; verifying required packages…")
 

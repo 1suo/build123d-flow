@@ -194,7 +194,7 @@ onMounted(() => {
   mobileMediaQuery = window.matchMedia("(max-width: 760px)");
   updateMobileLayout();
   mobileMediaQuery.addEventListener("change", updateMobileLayout);
-  void runtime.initialize(updateRuntimeStatus).then(() => {
+  void runtime.initialize(updateRuntimeStatus).then(async () => {
     const discovered = await runtime.getCatalog();
     const byName = new Map(discovered.map((item) => [item.name, item]));
     catalog.value = discovered;
@@ -232,7 +232,7 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
 
 async function ensureFullCatalog() {
   if (fullCatalogLoaded || discoveryPromise || !runtime.isReady) return discoveryPromise;
-  discoveryPromise = runtime.discoverCatalog().then((discovered) => {
+  discoveryPromise = runtime.discoverCatalog().then(async (discovered) => {
     const byId = new Map(discovered.map((item) => [item.id, item]));
     catalog.value = discovered;
     for (const node of nodes.value as any[]) {

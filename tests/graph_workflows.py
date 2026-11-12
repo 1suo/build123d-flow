@@ -127,13 +127,29 @@ def run_data_mapping_tests():
     )
     if not isinstance(normalized_rotation["rotation"], runtime.b3d.Rotation):
         raise AssertionError("Serialized Rotation literal must be decoded before data mapping")
-    preserved_rotation = runtime._map_item_inputs(
-        {"rotation": rotation_value},
+    mapped_rotation = runtime._map_item_inputs(
+        normalized_rotation,
         {"rotation": rotation_metadata.get("data_access", "item")},
         lambda values: values["rotation"],
     )
-    if preserved_rotation != rotation_value:
-        raise AssertionError("Rotation tuple was split into scalar items")
+    if not isinstance(mapped_rotation, runtime.b3d.Rotation):
+        raise AssertionError("Decoded Rotation was split into scalar items")
+
+    vector_signature = runtime.inspect.Signature([
+        runtime.inspect.Parameter(
+            "vector", runtime.inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=runtime.b3d.Vector,
+        )
+    ])
+    normalized_vector = runtime._coerce_literal_inputs(
+        {"vector": [1, 2, 3]}, vector_signature, False, {"vector"}
+    )
+    mapped_vector = runtime._map_item_inputs(
+        normalized_vector, {"vector": "item"},
+        lambda values: values["vector"],
+    )
+    if not isinstance(mapped_vector, runtime.b3d.Vector):
+        raise AssertionError("Serialized Vector literal was split before coercion")
     shape_list = runtime._annotation_metadata(list[runtime.b3d.Face])
     if shape_list.get("data_structure") != "list" or shape_list.get("item_type") != "Face":
         raise AssertionError("List[Face] metadata conflates collection and element types")

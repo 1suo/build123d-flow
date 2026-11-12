@@ -1216,7 +1216,7 @@ def discover(include_full=True):
             signatures.pop(node_id, None)
             hint_targets.pop(node_id, None)
             continue
-        for field in ("name", "category", "description"):
+        for field in ("name", "category", "description", "palette_category", "palette_section"):
             if field in override:
                 found[node_id][field] = override[field]
 

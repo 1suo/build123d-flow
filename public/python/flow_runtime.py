@@ -277,13 +277,25 @@ def _boolean_intersection(a, b):
 
 
 
-def _add_node(found, callables, node_id, name, category, function=None, inputs=None, output_type=None, description=""):
-    # Allow concise calls without an explicit category; infer it from the stable node id.
-    if output_type is None and callable(category):
-        output_type = inputs
-        inputs = function
-        function = category
-        category = "Core"
+_FLOW_PALETTE = {
+    "Math": ("Math", "Arithmetic & trigonometry"),
+    "Logic": ("Logic", "Logic"),
+    "Collections": ("Data", "Collections"),
+    "Series": ("Data", "Series"),
+    "Strings": ("Data", "Strings"),
+    "Spatial": ("Spatial", "Spatial operations"),
+    "Utilities": ("Math", "Numeric utilities"),
+    "Constants": ("Math", "Constants"),
+    "Values": ("Data", "Literal values"),
+    "Boolean": ("Boolean", "Boolean operations"),
+}
+
+
+def _add_node(found, callables, node_id, name, category, function, inputs, output_type, description=""):
+    """Register an app-owned Flow primitive with explicit provenance and palette metadata."""
+    if category not in _FLOW_PALETTE:
+        raise ValueError("Unknown Flow primitive category: " + str(category))
+    palette_category, palette_section = _FLOW_PALETTE[category]
     defaults = {"step": 1, "count": 10, "stop": 10, "index": 0, "start": 0, "default": None}
     found[node_id] = {
         "id": node_id,
@@ -291,6 +303,8 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
         "kind": "value" if not inputs else "operation",
         "name": name,
         "category": category,
+        "palette_category": palette_category,
+        "palette_section": palette_section,
         "description": description,
         "inputs": [
             {
@@ -457,7 +471,8 @@ def _add_core_nodes(found, callables):
         ("core.value.boolean", "Boolean", "Boolean", False, lambda value: bool(value)),
     ]:
         found[node_id] = {
-            "id": node_id, "kind": "value", "name": name, "category": "Values",
+            "id": node_id, "source": "flow", "kind": "value", "name": name, "category": "Values",
+            "palette_category": "Data", "palette_section": "Literal values",
             "description": "Literal " + socket_type.lower() + " value",
             "inputs": [{"name": "value", "type": socket_type, "annotation": socket_type,
                         "required": False, "default": default}],
@@ -507,13 +522,13 @@ def _add_core_nodes(found, callables):
     ]:
         _add_node(found, callables, "core.compare." + key, label, "Logic",
                   fn, [("a", "Number"), ("b", "Number")], "Boolean")
-    _add_node(found, callables, "core.logic.and", "And", lambda a, b: operator.and_(a, b),
+    _add_node(found, callables, "core.logic.and", "And", "Logic", lambda a, b: operator.and_(a, b),
               [("a", "Boolean"), ("b", "Boolean")], "Boolean")
-    _add_node(found, callables, "core.logic.or", "Or", lambda a, b: operator.or_(a, b),
+    _add_node(found, callables, "core.logic.or", "Or", "Logic", lambda a, b: operator.or_(a, b),
               [("a", "Boolean"), ("b", "Boolean")], "Boolean")
-    _add_node(found, callables, "core.logic.not", "Not", lambda value: operator.not_(value),
+    _add_node(found, callables, "core.logic.not", "Not", "Logic", lambda value: operator.not_(value),
               [("value", "Boolean")], "Boolean")
-    _add_node(found, callables, "core.logic.select", "Select", lambda condition, if_true, if_false: if_true if condition else if_false,
+    _add_node(found, callables, "core.logic.select", "Select", "Logic", lambda condition, if_true, if_false: if_true if condition else if_false,
               [("condition", "Boolean"), ("if_true", "Any"), ("if_false", "Any")], "Any")
 
     # String construction and common operations.
@@ -535,22 +550,22 @@ def _add_core_nodes(found, callables):
               [("value", "Any")], "String")
 
     # Vector operations use build123d's native Vector type.
-    _add_node(found, callables, "core.vector.add", "Vector Add", lambda a, b: a + b,
+    _add_node(found, callables, "core.vector.add", "Vector Add", "Spatial", lambda a, b: a + b,
               [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.subtract", "Vector Subtract", lambda a, b: a - b,
+    _add_node(found, callables, "core.vector.subtract", "Vector Subtract", "Spatial", lambda a, b: a - b,
               [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.scale", "Vector Scale",
+    _add_node(found, callables, "core.vector.scale", "Vector Scale", "Spatial",
               lambda vector_value, factor: vector_value * factor,
               [("vector_value", "Vector3"), ("factor", "Number")], "Vector3")
-    _add_node(found, callables, "core.vector.dot", "Dot Product", lambda a, b: a.dot(b),
+    _add_node(found, callables, "core.vector.dot", "Dot Product", "Spatial", lambda a, b: a.dot(b),
               [("a", "Vector3"), ("b", "Vector3")], "Number")
-    _add_node(found, callables, "core.vector.cross", "Cross Product",
+    _add_node(found, callables, "core.vector.cross", "Cross Product", "Spatial",
               lambda a, b: a.cross(b),
               [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.length", "Vector Length",
+    _add_node(found, callables, "core.vector.length", "Vector Length", "Spatial",
               lambda value: value.length,
               [("value", "Vector3")], "Number")
-    _add_node(found, callables, "core.vector.normalize", "Normalize",
+    _add_node(found, callables, "core.vector.normalize", "Normalize", "Spatial",
               lambda value: value.normalized(),
               [("value", "Vector3")], "Vector3")
 
@@ -814,68 +829,6 @@ def _python_function(code, a=None, b=None, c=None):
 
 
 
-def _palette_metadata(definition):
-    """Assign user-facing taxonomy independently from IDs and implementation modules."""
-    source = definition["source"]
-    name = definition.get("name", "").lower()
-    api_category = definition.get("category", "").lower()
-
-    if source == "python":
-        return "Scripting", "Python"
-    if source == "flow":
-        if api_category == "logic" or name in {
-            "equal", "not equal", "less than", "less or equal", "greater than",
-            "greater or equal", "and", "or", "not", "select",
-        }:
-            return "Logic", "Logic"
-        if api_category == "math" or name in {
-            "add", "subtract", "multiply", "divide", "floor divide", "modulo", "power",
-            "negate", "absolute", "square root", "sin", "cos", "tan", "asin", "acos",
-            "atan", "radians", "degrees", "exp", "log", "natural log", "floor", "ceil",
-            "round", "pi", "e", "tau", "minimum", "maximum", "clamp", "remap", "interpolate",
-        }:
-            return "Math", "Arithmetic & trigonometry"
-        if api_category == "spatial" or name in {
-            "vector add", "vector subtract", "vector scale", "dot product", "cross product",
-            "vector length", "normalize", "xy grid", "polar points", "hex grid points",
-            "voronoi 2d", "distance 2d",
-        }:
-            return "Spatial", "Spatial operations"
-        if api_category in {"collections", "series", "values", "constants", "strings"}:
-            sections = {
-                "collections": "Collections", "series": "Series", "values": "Literal values",
-                "constants": "Constants", "strings": "Strings",
-            }
-            return "Data", sections[api_category]
-        if api_category == "utilities":
-            return "Math", "Numeric utilities"
-        return "Data", "Other data operations"
-
-    if api_category == "boolean" or name in {"union", "difference", "intersection"}:
-        return "Boolean", "Boolean operations"
-    if any(term in name for term in ("fillet", "chamfer", "shell", "offset", "draft", "hollow", "thicken")):
-        return "Modify", "Finishing"
-    if any(term in name for term in ("extrude", "revolve", "loft", "sweep", "pipe", "split")):
-        return "Create", "Feature generation"
-    if any(term in name for term in ("translate", "rotate", "mirror", "scale", "move", "transform")):
-        return "Transform", "Position & transforms"
-    if any(term in name for term in ("plane", "axis", "datum", "frame", "coordinate", "rotation")):
-        return "Reference", "Planes & references"
-    if any(term in name for term in ("area", "volume", "length", "center", "bounding", "measure", "distance", "mass", "inertia")):
-        return "Inspect", "Measurements & topology"
-    if any(term in name for term in ("curve", "surface")):
-        return "Create", "Curves & surfaces"
-    if any(term in name for term in ("rectangle", "circle", "ellipse", "polygon", "slot", "trapezoid", "polyline", "sketch")):
-        return "Create", "2D profiles"
-    if definition.get("kind") == "geometry" or name in {"box", "cylinder", "sphere", "cone", "torus", "wedge", "prism"}:
-        return "Create", "3D solids"
-    if api_category.endswith(" methods"):
-        return "Inspect", "Shape methods"
-    if api_category.endswith(" properties"):
-        return "Inspect", "Shape properties"
-    return "API", "Other API"
-
-
 def discover(include_full=True):
     global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
     found = {}
@@ -1002,11 +955,21 @@ def discover(include_full=True):
                 module_parts = canonical_module.split(".")
                 category = module_parts[-1].replace("_", " ").title() if len(module_parts) > 1 else "Build123d"
                 doc = inspect.getdoc(obj) or ""
+                if node_kind == "geometry":
+                    palette_category, palette_section = "Create", "Geometry constructors"
+                elif node_kind == "enum":
+                    palette_category, palette_section = "Reference", "Enumerations"
+                else:
+                    palette_category, palette_section = "API", "Build123d API functions"
+
                 found[overload_id] = {
                     "id": overload_id,
+                    "source": "build123d",
                     "kind": node_kind,
                     "name": display_name,
                     "category": category,
+                    "palette_category": palette_category,
+                    "palette_section": palette_section,
                     "description": doc.split("\n")[0][:180],
                     "inputs": inputs,
                     "outputs": [{
@@ -1068,8 +1031,10 @@ def discover(include_full=True):
                         **_annotation_metadata(return_annotation),
                     }
                     found[property_id] = {
-                        "id": property_id, "kind": "operation", "name": owner.__name__ + "." + member_name,
+                        "id": property_id, "source": "build123d",
+                        "kind": "operation", "name": owner.__name__ + "." + member_name,
                         "category": owner.__name__ + " Properties",
+                        "palette_category": "API", "palette_section": "Discovered properties",
                         "description": (inspect.getdoc(getter_fn) or "").split("\n")[0][:180],
                         "inputs": [{
                             "name": "self", "label": "object", "type": receiver_type,
@@ -1143,8 +1108,10 @@ def discover(include_full=True):
                     **_annotation_metadata(return_annotation),
                 }
                 found[method_id] = {
-                    "id": method_id, "kind": "operation", "name": owner.__name__ + "." + member_name,
+                    "id": method_id, "source": "build123d",
+                    "kind": "operation", "name": owner.__name__ + "." + member_name,
                     "category": owner.__name__ + " Methods",
+                    "palette_category": "API", "palette_section": "Discovered methods",
                     "description": (inspect.getdoc(raw_member) or "").split("\n")[0][:180],
                     "inputs": inputs, "outputs": [output_socket],
                 }
@@ -1168,8 +1135,10 @@ def discover(include_full=True):
                     **_annotation_metadata(field_annotation),
                 }
                 found[field_id] = {
-                    "id": field_id, "kind": "operation", "name": field_name,
+                    "id": field_id, "source": "build123d",
+                    "kind": "operation", "name": field_name,
                     "category": owner.__name__ + " Properties",
+                    "palette_category": "API", "palette_section": "Discovered properties",
                     "description": "Read the " + field_name.replace("_", " ") + " field",
                     "inputs": [{
                         "name": "self", "label": "object", "type": receiver_type,
@@ -1190,6 +1159,8 @@ def discover(include_full=True):
         "kind": "operation",
         "name": "Python Function",
         "category": "Python",
+        "palette_category": "Scripting",
+        "palette_section": "Python",
         "description": "Run a small Python function body. Inputs are a, b and c; assign the output to result. math and operator are available.",
         "inputs": [
             {"name": "code", "type": "Code", "annotation": "Python source", "required": False,
@@ -1210,10 +1181,12 @@ def discover(include_full=True):
     ]:
         found[node_id] = {
             "id": node_id,
-            "source": "build123d",
+            "source": "flow",
             "kind": "operation",
             "name": name,
             "category": "Boolean",
+            "palette_category": "Boolean",
+            "palette_section": "Boolean operations",
             "description": "Binary solid boolean operation",
             "inputs": [
                 {"name": "a", "type": "Shape", "annotation": "Shape", "required": True},
@@ -1222,11 +1195,6 @@ def discover(include_full=True):
             "outputs": [{"name": "result", "type": "Shape", "annotation": "Shape"}],
         }
         callables[node_id] = function
-
-    # Discovered API definitions receive provenance at the discovery boundary;
-    # manually registered nodes declare it where they are registered.
-    for definition in found.values():
-        definition.setdefault("source", "build123d")
 
     # Keep curated presentation/eligibility policy separate from introspection.
     for node_id, override in _NODE_METADATA_OVERRIDES.items():
@@ -1242,13 +1210,14 @@ def discover(include_full=True):
             if field in override:
                 found[node_id][field] = override[field]
 
-    # Finalize required palette metadata after overrides, before publishing catalog.
+    # Validate declared metadata. Missing provenance or palette placement is a
+    # registration error; it is never inferred from IDs, names, or modules.
     for definition in found.values():
-        definition["palette_category"], definition["palette_section"] = _palette_metadata(definition)
+        node_id = definition.get("id", "<unknown>")
         if definition.get("source") not in {"build123d", "python", "flow"}:
-            raise RuntimeError("Node has invalid source metadata: " + definition.get("id", "<unknown>"))
-        if not definition["palette_category"].strip() or not definition["palette_section"].strip():
-            raise RuntimeError("Node has incomplete palette metadata: " + definition.get("id", "<unknown>"))
+            raise RuntimeError("Node has missing or invalid source metadata: " + node_id)
+        if not definition.get("palette_category") or not definition.get("palette_section"):
+            raise RuntimeError("Node has incomplete palette metadata: " + node_id)
 
     report["palette_source_counts"] = {}
     report["palette_category_counts"] = {}

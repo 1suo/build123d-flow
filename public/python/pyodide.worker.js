@@ -1,5 +1,5 @@
 /* Pyodide runs in a dedicated classic worker so large WASM modules compile off the UI thread. */
-const VERSION="314.0.7", INDEX="https://cdn.jsdelivr.net/pyodide/v"+VERSION+"/full/", MARKER=".build123d-flow-environment";
+const VERSION="314.0.7", CDN_ROOTS=["https://cdn.jsdelivr.net/pyodide/","https://fastly.jsdelivr.net/pyodide/","https://gcore.jsdelivr.net/pyodide/"], MARKER=".build123d-flow-environment";
 let pyodide=null;
 const status=message=>self.postMessage({type:"status",message});
 const sync=(FS,populate)=>new Promise((resolve,reject)=>FS.syncfs(populate,e=>e?reject(e):resolve()));
@@ -9,9 +9,11 @@ async function initialize(base){
  status("Preparing Python environment in background worker…");
  const [setup,runtime]=await Promise.all(["setup.py","flow_runtime.py"].map(async f=>{const r=await fetch(base+"python/"+f);if(!r.ok)throw Error("Could not load "+f+": "+r.status);return r.text();}));
  const key=VERSION+":"+await hash(setup);
- status("Loading Pyodide in background worker…");importScripts(INDEX+"pyodide.js");
+ let indexURL="",loadErrors=[];
+ for(const root of CDN_ROOTS){const candidate=root+"v"+VERSION+"/full/";try{status("Loading Pyodide from "+new URL(root).host+"…");importScripts(candidate+"pyodide.js");indexURL=candidate;break;}catch(e){loadErrors.push(root+": "+String(e));}}
+ if(!indexURL)throw Error("Could not download Pyodide "+VERSION+" from the available CDNs. Check access to cdn.jsdelivr.net, fastly.jsdelivr.net and gcore.jsdelivr.net. "+loadErrors.join(" | "));
  let persistent=false,restored=false;
- pyodide=await loadPyodide({indexURL:INDEX,fsInit:async(FS,info)=>{
+ pyodide=await loadPyodide({indexURL,fsInit:async(FS,info)=>{
   try{if(!FS.filesystems?.IDBFS)throw Error("IDBFS unavailable");FS.mount(FS.filesystems.IDBFS,{},info.sitePackages);persistent=true;status("Checking saved Python environment…");await sync(FS,true);
    let saved="";try{saved=new TextDecoder().decode(FS.readFile(info.sitePackages+"/"+MARKER));}catch{}
    if(saved===key){restored=true;status("Restored Python environment from this browser");}else{clear(FS,info.sitePackages);status("Preparing fresh Python environment…");}

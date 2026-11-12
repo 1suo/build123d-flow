@@ -83,10 +83,14 @@ def _annotation_metadata(annotation):
         dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping,
     }
     if origin in collection_origins:
-        metadata["data_structure"] = "set" if origin in (
-            set, frozenset, collections.abc.Set, collections.abc.MutableSet
-        ) else "list"
-        metadata["item_type"] = _type_name(args[0]) if args else "Any"
+        item_annotation = args[0] if args else typing.Any
+        item_metadata = _annotation_metadata(item_annotation) if item_annotation is not typing.Any else {}
+        nested_structure = item_metadata.get("data_structure") in ("list", "tree")
+        metadata["data_structure"] = (
+            "set" if origin in (set, frozenset, collections.abc.Set, collections.abc.MutableSet)
+            else "tree" if nested_structure else "list"
+        )
+        metadata["item_type"] = item_metadata.get("item_type", _type_name(item_annotation))
     elif origin is tuple:
         metadata["data_structure"] = "tuple"
         element_args = [arg for arg in args if arg is not Ellipsis]
@@ -1097,7 +1101,8 @@ def discover(include_full=True):
 
     # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.
     _add_core_nodes(found, callables)
-
+    for definition in found.values():
+        definition.setdefault("data_matching", "longest")
 
     found["core.python.function"] = {
         "id": "core.python.function",

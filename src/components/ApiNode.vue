@@ -25,16 +25,27 @@ const props = defineProps<{
 const inputs = computed(() => props.data.definition.inputs);
 const outputs = computed(() => props.data.definition.outputs);
 const errorPopover = ref<any>();
-const canPreview = computed(() => outputs.value.some((output) => ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type)));
-function socketColor(type: string): string {
+const canPreview = computed(() => outputs.value.some((output) =>
+  ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.type) ||
+  ["Shape", "Solid", "Compound", "Face", "Wire", "Edge"].includes(output.item_type || "")
+));
+function socketTypeLabel(socket: any): string {
+  const structure = socket.data_structure;
+  if (!structure || structure === "item") return socket.type;
+  if (structure === "dict") return `Dict[${socket.key_type || "Any"}, ${socket.value_type || "Any"}]`;
+  const itemType = socket.item_type || socket.type;
+  const label = structure === "tree" ? "Tree" : structure[0].toUpperCase() + structure.slice(1);
+  return `${label}[${itemType}]`;
+}
+function socketColor(socket: any): string {
+  const type = socket.item_type || socket.value_type || socket.type;
   if (["Shape","Solid","Compound","Face","Edge","Wire","Shell","Part","Sketch"].includes(type)) return "var(--socket-geometry)";
   if (["Number","Boolean","Vector2","Vector3","Rotation","Plane","Location","Axis","Color"].includes(type)) return "var(--socket-numeric)";
-  if (["List","Tuple","Set","Dict"].includes(type)) return "var(--socket-collection)";
   if (["String","Code","Enum"].includes(type)) return "var(--socket-text)";
   return "var(--socket-generic)";
 }
-function socketTitle(socket: { name: string; type: string; annotation?: string }, direction: string): string {
-  return direction + ": " + socket.name + " · " + socket.type + (socket.annotation ? " | " + socket.annotation : "");
+function socketTitle(socket: any, direction: string): string {
+  return direction + ": " + socket.name + " · " + socketTypeLabel(socket) + (socket.annotation ? " | " + socket.annotation : "");
 }
 
 function toggleVisibility() {
@@ -56,8 +67,8 @@ function toggleCollapse() {
         <Button icon="pi pi-chevron-right" text rounded size="small" severity="secondary"
           class="node-collapse" aria-label="Expand node" title="Expand node" @click.stop="toggleCollapse" />
         <div class="collapsed-socket-group collapsed-inputs" aria-label="Inputs">
-          <span v-for="input in inputs" :key="input.name" class="collapsed-socket" :title="input.name + ' · ' + input.type">
-            <Handle :id="input.name" type="target" :position="Position.Top" class="socket-handle" :style="{ '--socket-color': socketColor(input.type) }" />
+          <span v-for="input in inputs" :key="input.name" class="collapsed-socket" :title="socketTitle(input, 'Input')">
+            <Handle :id="input.name" type="target" :position="Position.Top" class="socket-handle" :style="{ '--socket-color': socketColor(input) }" />
           </span>
         </div>
         <div class="collapsed-node-title">
@@ -69,8 +80,8 @@ function toggleCollapse() {
             :aria-label="`Description: ${data.definition.name}`" />
         </div>
         <div class="collapsed-socket-group collapsed-outputs" aria-label="Outputs">
-          <span v-for="output in outputs" :key="output.name" class="collapsed-socket" :title="output.name + ' · ' + output.type">
-            <Handle :id="output.name" type="source" :position="Position.Bottom" class="socket-handle" :style="{ '--socket-color': socketColor(output.type) }" />
+          <span v-for="output in outputs" :key="output.name" class="collapsed-socket" :title="socketTitle(output, 'Output')">
+            <Handle :id="output.name" type="source" :position="Position.Bottom" class="socket-handle" :style="{ '--socket-color': socketColor(output) }" />
           </span>
         </div>
       </div>
@@ -101,14 +112,14 @@ function toggleCollapse() {
       <div v-if="!data.collapsed" class="node-body">
         <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
           <Handle :id="input.name" type="target" :position="Position.Left" class="socket-handle"
-            :title="input.name + ' · ' + input.type" :style="{ '--socket-color': socketColor(input.type) }" />
-          <label :title="input.annotation" @click.stop="inspect(input.name, 'input')">{{ input.label || input.name }}</label>
+            :title="socketTitle(input, 'Input')" :style="{ '--socket-color': socketColor(input) }" />
+          <label :title="input.annotation" @click.stop="inspect(input.name, 'input')">{{ input.label || input.name }} <small>{{ socketTypeLabel(input) }}</small></label>
         </div>
         <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
           <span class="output-socket-inspect" :title="`Inspect ${output.name}`"
-            @click.stop="inspect(output.name, 'output')">{{ output.name }} <small>{{ output.type }}</small></span>
+            @click.stop="inspect(output.name, 'output')">{{ output.name }} <small>{{ socketTypeLabel(output) }}</small></span>
           <Handle :id="output.name" type="source" :position="Position.Right" class="socket-handle"
-            :title="output.name + ' · ' + output.type" :style="{ '--socket-color': socketColor(output.type) }" />
+            :title="socketTitle(output, 'Output')" :style="{ '--socket-color': socketColor(output) }" />
         </div>
       </div>
     </template>

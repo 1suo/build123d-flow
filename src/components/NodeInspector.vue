@@ -20,6 +20,14 @@ const drafts = reactive<Record<string, string>>({});
 const activeName = ref("");
 const editorOpen = ref(false);
 
+function socketTypeLabel(socket: any): string {
+  const structure = socket.data_structure;
+  if (!structure || structure === "item") return socket.type;
+  if (structure === "dict") return `Dict[${socket.key_type || "Any"}, ${socket.value_type || "Any"}]`;
+  const itemType = socket.item_type || socket.type;
+  const label = structure === "tree" ? "Tree" : structure[0].toUpperCase() + structure.slice(1);
+  return `${label}[${itemType}]`;
+}
 function currentValue(socket: any): unknown {
   return props.node.data.params[socket.name] ?? socket.default ?? null;
 }
@@ -58,7 +66,7 @@ function updateStructured(value: string) {
       <div v-for="socket in inputs" :key="socket.name" class="inspector-socket" :class="{ 'is-linked': socket.connected }">
         <div class="inspector-socket-heading">
           <strong>{{ socket.label || socket.name }}</strong>
-          <small>{{ socket.type }}{{ socket.connected ? ' · linked' : '' }}</small>
+          <small>{{ socketTypeLabel(socket) }}{{ socket.connected ? ' · linked' : '' }}</small>
         </div>
         <DataValue v-if="socket.connected" :label="socket.name" :value="socket.value ?? 'Waiting for value'" />
         <div v-else class="inspector-input-control">
@@ -83,7 +91,7 @@ function updateStructured(value: string) {
     <section>
       <h4>Outputs</h4>
       <div v-for="socket in outputs" :key="socket.name" class="inspector-socket">
-        <div class="inspector-socket-heading"><strong>{{ socket.name }}</strong><small>{{ socket.type }}</small></div>
+        <div class="inspector-socket-heading"><strong>{{ socket.name }}</strong><small>{{ socketTypeLabel(socket) }}</small></div>
         <DataValue :label="socket.name" :value="socket.value ?? 'Not evaluated'" />
       </div>
     </section>

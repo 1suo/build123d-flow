@@ -67,6 +67,31 @@ def _core_node(node_id, instance_id, params=None):
     return _node(definition, instance_id, params)
 
 
+def run_data_mapping_tests():
+    add = lambda values: values["a"] + values["b"]
+    longest = runtime._map_item_inputs(
+        {"a": [1, 2, 3], "b": [10]}, {"a": "item", "b": "item"}, add, "longest"
+    )
+    shortest = runtime._map_item_inputs(
+        {"a": [1, 2, 3], "b": [10]}, {"a": "item", "b": "item"}, add, "shortest"
+    )
+    cross = runtime._map_item_inputs(
+        {"a": [1, 2], "b": [10, 20]}, {"a": "item", "b": "item"}, add, "cross"
+    )
+    nested = runtime._map_item_inputs(
+        {"a": [[1, 2], [3]], "b": [10, 20]},
+        {"a": "item", "b": "item"}, add, "longest"
+    )
+    if longest != [11, 12, 13] or shortest != [11] or cross != [11, 21, 12, 22]:
+        raise AssertionError("List matching modes returned unexpected values")
+    if nested != [[11, 12], [23]]:
+        raise AssertionError("Nested list mapping did not preserve branch structure")
+    shape_list = runtime._annotation_metadata(list[runtime.b3d.Face])
+    if shape_list.get("data_structure") != "list" or shape_list.get("item_type") != "Face":
+        raise AssertionError("List[Face] metadata conflates collection and element types")
+    return {"name": "data mapping", "longest": True, "shortest": True, "cross": True, "nested": True}
+
+
 def run_collection_workflow_tests():
     nodes = [
         _core_node("core.series.range", "range", {"start": 0, "stop": 5, "step": 1}),
@@ -104,7 +129,7 @@ def run_collection_workflow_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_collection_workflow_tests()]
+    results = [run_collection_workflow_tests(), run_data_mapping_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

@@ -35,11 +35,38 @@ function structureOf(socket: SocketDefinition): NonNullable<SocketDefinition["da
   return "item";
 }
 
+function accessOf(socket: SocketDefinition): NonNullable<SocketDefinition["data_access"]> {
+  return socket.data_access ?? (
+    ["List", "Tuple", "Set", "Dict"].includes(socket.type) ? "structure" : "item"
+  );
+}
+
+function effectiveOutput(
+  graph: GraphDocument,
+  node: GraphNode,
+  output: SocketDefinition,
+  visited = new Set<string>(),
+): SocketDefinition {
+  if (structureOf(output) !== "item" || visited.has(node.id)) return output;
+  const nextVisited = new Set(visited).add(node.id);
+  let inferred: "list" | "tree" | undefined;
+  for (const edge of graph.edges.filter((item) => item.target === node.id)) {
+    const input = node.data.definition.inputs.find((item) => item.name === edge.targetHandle);
+    if (!input || accessOf(input) !== "item") continue;
+    const upstream = graph.nodes.find((item) => item.id === edge.source);
+    const upstreamOutput = upstream?.data.definition.outputs.find((item) => item.name === edge.sourceHandle);
+    if (!upstream || !upstreamOutput) continue;
+    const resolved = effectiveOutput(graph, upstream, upstreamOutput, nextVisited);
+    const structure = structureOf(resolved);
+    if (structure === "tree") inferred = "tree";
+    else if (["list", "tuple"].includes(structure) && inferred !== "tree") inferred = "list";
+  }
+  return inferred ? { ...output, data_structure: inferred, item_type: output.type } : output;
+}
+
 function compatible(source: SocketDefinition, target: SocketDefinition): boolean {
   const sourceStructure = structureOf(source);
-  const targetAccess = target.data_access ?? (
-    ["List", "Tuple", "Set", "Dict"].includes(target.type) ? "structure" : "item"
-  );
+  const targetAccess = accessOf(target);
   if (sourceStructure !== "item" && targetAccess === "item") {
     if (sourceStructure === "set" || sourceStructure === "dict") return false;
     const sourceItemType = source.item_type ?? (["List", "Tuple", "Set", "Dict"].includes(source.type) ? "Any" : source.type);
@@ -77,7 +104,7 @@ export function canConnect(
 
   const output = source.data.definition.outputs.find((socket) => socket.name === connection.sourceHandle);
   const input = target.data.definition.inputs.find((socket) => socket.name === connection.targetHandle);
-  return Boolean(output && input && compatible(output, input));
+  return Boolean(output && input && compatible(effectiveOutput(graph, source, output), input));
 }
 
 export function validateGraph(graph: GraphDocument): string[] {
@@ -96,7 +123,7 @@ export function validateGraph(graph: GraphDocument): string[] {
     const output = source?.data.definition.outputs.find((socket) => socket.name === edge.sourceHandle);
     const input = target?.data.definition.inputs.find((socket) => socket.name === edge.targetHandle);
     if (!output || !input) errors.push(`Edge ${edge.id}: unknown socket`);
-    else if (!compatible(output, input)) errors.push(`Edge ${edge.id}: incompatible ${output.type} → ${input.type}`);
+    else if (!compatible(effectiveOutput(graph, source!, output), input)) errors.push(`Edge ${edge.id}: incompatible ${output.type} → ${input.type}`);
   }
 
   const occupiedInputs = new Set<string>();

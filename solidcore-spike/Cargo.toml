@@ -1,0 +1,14 @@
+[package]
+name = "solidcore-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+serde_json = "1"
+wasm-bindgen = "0.2"
+solidcore-ops = { git = "https://github.com/tangency-labs/solidcore", rev = "bfc2b6c7660a8609b172c1a0ba459ab0b3de3a8b" }
+solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "bfc2b6c7660a8609b172c1a0ba459ab0b3de3a8b" }

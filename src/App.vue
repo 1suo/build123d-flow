@@ -710,7 +710,7 @@ async function downloadStep() {
           >
             <template #default>
               <span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
-              <span class="context-result-main"><span class="context-result-name">{{ item.name }}</span><span class="context-result-category">{{ item.category }}</span></span>
+              <span class="context-result-main"><span class="context-result-name">{{ item.name }}</span><span class="context-result-category">{{ paletteSources.find((source) => source.id === paletteOrigin(item))?.label }} · {{ item.category }}</span></span>
             </template>
           </Button>
           <span v-if="!contextResults.length" class="context-empty">No matching nodes</span>

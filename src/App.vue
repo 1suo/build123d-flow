@@ -100,74 +100,6 @@ let nextId = 1;
 let evaluationRevision = 0;
 let evaluationTimer: ReturnType<typeof setTimeout> | undefined;
 
-function paletteGroup(item: NodeDefinition): string {
-  const id = item.id.toLowerCase();
-  const name = item.name.toLowerCase();
-  const category = item.category.toLowerCase();
-
-  if (id.startsWith("core.spatial.")) return "Spatial";
-  if (id.startsWith("core.utility.")) return "Math";
-  if (id.startsWith("core.list.") || id.startsWith("core.dict.") ||
-      id.startsWith("core.tuple.") || id.startsWith("core.set.") ||
-      id.startsWith("core.series.") || id.startsWith("core.value.") ||
-      id.startsWith("core.constant.") || id.startsWith("core.string.") ||
-      id.startsWith("core.convert.")) return "Data";
-  if (id.startsWith("core.math.") || id.startsWith("core.compare.") ||
-      id.startsWith("core.logic.")) return "Math";
-  if (id.startsWith("core.vector.") || /^vector(?:\(|$)/.test(name)) return "Spatial";
-  if (id.startsWith("core.python.")) return "Scripting";
-
-  if (/^(union|difference|intersection|fuse|cut|common|intersect)$/.test(name) ||
-      /boolean/.test(category) || id.startsWith("build123d_flow.")) return "Model";
-  if (/fillet|chamfer|shell|offset|draft|hollow|thicken/.test(name)) return "Model";
-  if (/extrude|revolve|loft|sweep|pipe|split/.test(name) || /operations_/.test(id)) return "Model";
-  if (/translate|rotate|mirror|scale|move|transform|location/.test(name) ||
-      /transform|location/.test(category)) return "Transform";
-  if (/plane|axis|datum|frame|coordinate|rotation/.test(name) ||
-      /plane|datum|reference|geometry/.test(category)) return "Reference";
-  if (/area|volume|length|center|bounding|measure|distance|mass|inertia/.test(name) ||
-      /measure|properties|topology/.test(category) || /topology/.test(id)) return "Inspect";
-  if (/objects_curve|surface|curve/.test(id) || /curves|surfaces/.test(category)) return "Create";
-  if (/rectangle|circle|ellipse|polygon|slot|regularpolygon|trapezoid|polyline|sketch/.test(name) ||
-      /objects_sketch|profile/.test(id) || /sketch|profile/.test(category)) return "Create";
-  if (/^(box|cylinder|sphere|cone|torus|wedge|prism|extrusion|revolution)$/.test(name) ||
-      /objects_part|primitives/.test(id) || item.kind === "geometry") return "Create";
-  return "API";
-}
-
-function paletteSection(item: NodeDefinition): string {
-  const id = item.id.toLowerCase();
-  const name = item.name.toLowerCase();
-  const category = item.category.toLowerCase();
-  if (id.startsWith("core.value.")) return "Literal values";
-  if (id.startsWith("core.constant.")) return "Constants";
-  if (id.startsWith("core.series.")) return "Series";
-  if (id.startsWith("core.list.")) return "Lists";
-  if (id.startsWith("core.dict.")) return "Dictionaries";
-  if (id.startsWith("core.tuple.")) return "Tuples";
-  if (id.startsWith("core.set.")) return "Sets";
-  if (id.startsWith("core.string.")) return "Strings";
-  if (id.startsWith("core.convert.")) return "Conversions";
-  if (id.startsWith("core.math.")) return "Arithmetic & trigonometry";
-  if (id.startsWith("core.compare.") || id.startsWith("core.logic.")) return "Logic";
-  if (id.startsWith("core.vector.") || /^vector(?:\(|$)/.test(name)) return "Vectors";
-  if (id.startsWith("core.utility.")) return "Numeric utilities";
-  if (id.startsWith("core.spatial.")) return /voronoi|distance/.test(id) ? "Spatial operations" : "Point distributions";
-  if (id.startsWith("core.python.")) return "Python";
-  if (id.startsWith("build123d_flow.")) return "Boolean operations";
-  if (/^(union|difference|intersection|fuse|cut|common|intersect)$/.test(name) || /boolean/.test(category)) return "Boolean operations";
-  if (/fillet|chamfer|shell|offset|draft|hollow|thicken/.test(name)) return "Finishing";
-  if (/extrude|revolve|loft|sweep|pipe/.test(name) || /operations_/.test(id)) return "Feature generation";
-  if (/translate|rotate|mirror|scale|move|transform|location/.test(name) || /transform|location/.test(category)) return "Position & transforms";
-  if (/plane|axis|datum|frame|coordinate|rotation/.test(name) || /plane|datum|reference/.test(category)) return "Planes & references";
-  if (/area|volume|length|center|bounding|measure|distance|mass|inertia/.test(name) || /measure|properties/.test(category) || /topology/.test(id)) return "Measurements & topology";
-  if (/objects_curve|surface|curve/.test(id) || /curves|surfaces/.test(category)) return "Curves & surfaces";
-  if (/rectangle|circle|ellipse|polygon|slot|regularpolygon|trapezoid|polyline|sketch/.test(name) || /objects_sketch|profile/.test(id) || /sketch|profile/.test(category)) return "2D profiles";
-  if (item.kind === "geometry" || /objects_part|primitives/.test(id)) return "3D solids";
-  if (category.endsWith(" methods")) return "Shape methods";
-  const parts = id.split(".");
-  return parts.length > 2 ? parts.slice(1, -1).join(" · ").replace(/_/g, " ") : "Other API";
-}
 
 const paletteSources = [
   { id: "build123d", label: "build123d" },
@@ -176,28 +108,24 @@ const paletteSources = [
 ] as const;
 type PaletteSource = typeof paletteSources[number]["id"];
 function paletteOrigin(item: NodeDefinition): PaletteSource {
-  const id = item.id.toLowerCase();
-  if (id.startsWith("core.python.")) return "python";
-  if (id.startsWith("build123d.") || id.startsWith("build123d_flow.")) return "build123d";
-  if (id.startsWith("core.")) return "flow";
-  return "python";
+  return item.source;
 }
 const dockGroups = computed(() => paletteSources.map((source) => {
   const sourceItems = catalog.value.filter((item) => paletteOrigin(item) === source.id);
-  const categories = [...new Set(sourceItems.map(paletteGroup))].sort((a, b) => a.localeCompare(b));
+  const categories = [...new Set(sourceItems.map((item) => item.palette_category))].sort((a, b) => a.localeCompare(b));
   return { ...source, categories: categories.map((label) => ({
-    label, count: sourceItems.filter((item) => paletteGroup(item) === label).length,
+    label, count: sourceItems.filter((item) => item.palette_category === label).length,
   })) };
 }));
 const activePaletteItems = computed(() => catalog.value.filter((item) => {
   const query = paletteSearch.value.trim().toLowerCase();
-  if (query) return (item.name + " " + item.id + " " + item.description + " " + paletteGroup(item) + " " + paletteSection(item)).toLowerCase().includes(query);
-  return activeCategory.value !== null && paletteOrigin(item) === activeSource.value && paletteGroup(item) === activeCategory.value;
-}).sort((a, b) => paletteSection(a).localeCompare(paletteSection(b)) || a.name.localeCompare(b.name)));
+  if (query) return (item.name + " " + item.id + " " + item.description + " " + item.palette_category + " " + item.palette_section).toLowerCase().includes(query);
+  return activeCategory.value !== null && paletteOrigin(item) === activeSource.value && item.palette_category === activeCategory.value;
+}).sort((a, b) => a.palette_section.localeCompare(b.palette_section) || a.name.localeCompare(b.name)));
 const activePaletteSections = computed(() => {
   const sections = new Map<string, NodeDefinition[]>();
   for (const item of activePaletteItems.value) {
-    const section = paletteSection(item);
+    const section = item.palette_section;
     if (!sections.has(section)) sections.set(section, []);
     sections.get(section)!.push(item);
   }

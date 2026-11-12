@@ -346,7 +346,7 @@ def run_python_export_tests():
     return {"name": "Python export", "native_constructors": True, "native_operators": True}
 
 
-def run_duplicate_input_validation_tests():
+def run_graph_plan_validation_tests():
     nodes = [
         {"id": "left", "data": {}},
         {"id": "right", "data": {}},
@@ -372,7 +372,27 @@ def run_duplicate_input_validation_tests():
     else:
         raise AssertionError("Python exporter did not reject duplicate input connections")
 
-    return {"name": "duplicate input validation", "evaluator": True, "exporter": True}
+    cyclic_graph = {
+        "nodes": [{"id": "left", "data": {}}, {"id": "right", "data": {}}],
+        "edges": [
+            {"id": "left-right", "source": "left", "target": "right",
+             "sourceHandle": "result", "targetHandle": "value"},
+            {"id": "right-left", "source": "right", "target": "left",
+             "sourceHandle": "result", "targetHandle": "value"},
+        ],
+    }
+    cyclic_result = json.loads(runtime.evaluate_graph_json(json.dumps(cyclic_graph)))
+    if cyclic_result["errors"].get("graph") != "Graph contains a cycle":
+        raise AssertionError("Evaluator did not reject cyclic graphs")
+    try:
+        runtime.export_python_code(cyclic_graph)
+    except ValueError as exc:
+        if str(exc) != "Graph contains a cycle":
+            raise
+    else:
+        raise AssertionError("Python exporter did not reject cyclic graphs")
+
+    return {"name": "graph plan validation", "duplicate_inputs": True, "cycles": True}
 
 
 def run_graph_workflow_tests():

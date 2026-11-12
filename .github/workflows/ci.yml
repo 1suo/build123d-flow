@@ -23,6 +23,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: jetli/wasm-pack-action@v0.4.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: solidcore-spike
+      - name: Build SolidCore WebAssembly smoke test
+        working-directory: solidcore-spike
+        run: wasm-pack build --target web --release --out-dir ../public/solidcore-test/pkg
+        env:
+          RUSTFLAGS: "-C link-arg=-zstack-size=8388608"
       - name: Cache staged Pyodide runtime
         id: pyodide-cache
         uses: actions/cache@v4

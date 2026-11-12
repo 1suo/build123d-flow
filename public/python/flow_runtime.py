@@ -1814,7 +1814,20 @@ def _resolve_callable(path):
 
 
 def _python_code_literal(value, annotation=None):
-    """Render a JSON graph value as a Python expression, preserving build123d enums."""
+    """Render a JSON graph value as Python, preserving nested build123d enums."""
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin in (typing.Union, types.UnionType):
+        candidates = [item for item in args if item is not type(None)]
+        for candidate in candidates:
+            try:
+                if inspect.isclass(candidate) and issubclass(candidate, enum.Enum):
+                    return _python_code_literal(value, candidate)
+            except TypeError:
+                continue
+        annotation = candidates[0] if candidates else None
+        origin = typing.get_origin(annotation)
+        args = typing.get_args(annotation)
     if annotation is not None:
         try:
             if inspect.isclass(annotation) and issubclass(annotation, enum.Enum):
@@ -1825,17 +1838,26 @@ def _python_code_literal(value, annotation=None):
     if isinstance(value, enum.Enum):
         return "b3d.{}.{}".format(type(value).__name__, value.name)
     if isinstance(value, list):
-        return "[" + ", ".join(_python_code_literal(item) for item in value) + "]"
+        item_type = args[0] if args else None
+        return "[" + ", ".join(_python_code_literal(item, item_type) for item in value) + "]"
     if isinstance(value, tuple):
-        body = ", ".join(_python_code_literal(item) for item in value)
-        return "(" + body + ("," if len(value) == 1 else "") + ")"
+        parts = []
+        for index, item in enumerate(value):
+            item_type = args[index] if origin is tuple and index < len(args) and args[-1:] != (Ellipsis,) else (
+                args[0] if args else None
+            )
+            parts.append(_python_code_literal(item, item_type))
+        return "(" + ", ".join(parts) + ("," if len(parts) == 1 else "") + ")"
+    if isinstance(value, set):
+        item_type = args[0] if args else None
+        return "{" + ", ".join(_python_code_literal(item, item_type) for item in value) + "}"
     if isinstance(value, dict):
+        key_type, value_type = args if len(args) > 1 else (None, None)
         return "{" + ", ".join(
-            _python_code_literal(key) + ": " + _python_code_literal(item)
+            _python_code_literal(key, key_type) + ": " + _python_code_literal(item, value_type)
             for key, item in value.items()
         ) + "}"
     return repr(value)
-
 
 def _python_node_annotation(definition, socket):
     node_id = definition["id"]
@@ -1854,7 +1876,13 @@ def _python_node_annotation(definition, socket):
         return annotation
     signature = _CATALOG_SIGNATURES.get(node_id)
     parameter = signature.parameters.get(socket["name"]) if signature else None
-    return parameter.annotation if parameter else None
+    annotation = parameter.annotation if parameter else None
+    if isinstance(annotation, str) and target is not None:
+        try:
+            annotation = eval(annotation, getattr(target, "__globals__", {}))
+        except Exception:
+            pass
+    return annotation
 
 
 def _python_import_reference(obj, imports, alias):

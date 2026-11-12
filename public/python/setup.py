@@ -40,25 +40,25 @@ micropip.add_mock_package("pillow", "12.2.0", modules={
 micropip.add_mock_package("cadquery-ocp-novtk", OCP_VERSION, modules={})
 micropip.add_mock_package("cadquery-ocp", OCP_VERSION, modules={})
 
-    # build123d imports Mesher at package import time; 3MF is unused here, so
-    # register the same import-only stub each session and install it only once.
-    micropip.add_mock_package("lib3mf", "2.4.1", modules={
-        "lib3mf": (
-            "from enum import Enum\n"
-            "class _ModelUnit(Enum):\n"
-            "    MicroMeter = 0\n    MilliMeter = 1\n    CentiMeter = 2\n"
-            "    Inch = 3\n    Foot = 4\n    Meter = 5\n"
-            "class _ObjectType(Enum):\n"
-            "    Other = 0\n    Model = 1\n    Support = 2\n    SolidSupport = 3\n"
-            "class _Unavailable: pass\n"
-            "class Lib3MF:\n"
-            "    __file__ = '/lib3mf/__init__.py'\n"
-            "    ModelUnit = _ModelUnit\n    ObjectType = _ObjectType\n"
-            "    Wrapper = _Unavailable\n    MeshObject = _Unavailable\n"
-            "    MeshObjectIterator = _Unavailable\n    ComponentsObject = _Unavailable\n"
-            "    Position = _Unavailable\n    Triangle = _Unavailable\n    Color = _Unavailable\n"
-        ),
-    })
+# build123d imports Mesher at package import time; 3MF is unused here, so
+# register the same import-only stub each session and install it only once.
+micropip.add_mock_package("lib3mf", "2.4.1", modules={
+    "lib3mf": (
+        "from enum import Enum\n"
+        "class _ModelUnit(Enum):\n"
+        "    MicroMeter = 0\n    MilliMeter = 1\n    CentiMeter = 2\n"
+        "    Inch = 3\n    Foot = 4\n    Meter = 5\n"
+        "class _ObjectType(Enum):\n"
+        "    Other = 0\n    Model = 1\n    Support = 2\n    SolidSupport = 3\n"
+        "class _Unavailable: pass\n"
+        "class Lib3MF:\n"
+        "    __file__ = '/lib3mf/__init__.py'\n"
+        "    ModelUnit = _ModelUnit\n    ObjectType = _ObjectType\n"
+        "    Wrapper = _Unavailable\n    MeshObject = _Unavailable\n"
+        "    MeshObjectIterator = _Unavailable\n    ComponentsObject = _Unavailable\n"
+        "    Position = _Unavailable\n    Triangle = _Unavailable\n    Color = _Unavailable\n"
+    ),
+})
 
 if not restored_environment:
     try:

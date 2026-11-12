@@ -30,7 +30,7 @@ npm install
 npm run dev
 ```
 
-The GitHub Actions workflow typechecks and builds the static client, then deploys it to GitHub Pages on pushes to `main`. The empty workspace and core node catalog render synchronously. Example graphs are loaded explicitly from the canvas dropdown. Pyodide is downloaded only after the app mounts; OCP.wasm and build123d are installed in the background. Full API introspection is deferred until the palette is opened. Repeat-visit caching is implemented for deterministic graph nodes and their mesh previews; worker isolation remains a future optimization.
+The GitHub Actions workflow typechecks and builds the static client, then deploys it to GitHub Pages on pushes to `main`. The empty workspace and core node catalog render synchronously. Example graphs are loaded explicitly from the canvas dropdown. Pyodide is downloaded only after the app mounts; OCP.wasm and build123d are installed in the background. Full API introspection is deferred until the first category is selected. Repeat-visit caching is implemented for deterministic graph nodes and their mesh previews; worker isolation remains a future optimization.
 
 ## Current limitations
 
@@ -45,7 +45,7 @@ The GitHub Actions workflow typechecks and builds the static client, then deploy
 2. Separate API discovery from node eligibility and presentation policy.
 3. Keep graph documents declarative and serializable. Never persist Python object instances.
 4. Treat Python objects as runtime values; keep them inside the Pyodide interpreter.
-5. Re-evaluate on graph changes with stale-run suppression; incremental caching is a follow-up.
+5. Re-evaluate on graph changes with stale-run suppression and reuse deterministic results through bounded session-local caching.
 6. Make node/socket types explicit, with controlled compatibility and conversions.
 7. Keep helpers and implementation details out of the user-facing node catalog.
 8. Never silently expose arbitrary Python execution; user-authored code stays explicit in a clearly named Python Function node.
@@ -59,6 +59,6 @@ Apache-2.0.
 
 The dock separates API provenance (build123d, Python/libraries, Flow) from functional categories. Provenance headings are non-interactive; each functional category is an individual selector. Selecting a category opens its node list. Search inside the list spans the complete discovered catalog.
 
-Full API discovery is deferred until the first category is opened. It walks build123d modules, then inspects public classes/functions and public shape-class properties/methods without evaluating descriptors. The discovery report records visited modules, import failures, accepted/rejected candidates and inferred socket types. Discovery is not a promise that every callable is a safe or useful node: variadic signatures, unsupported annotations, stateful builder APIs and ambiguous callables require conservative handling. New API coverage should be added through explicit eligibility/metadata policy rather than exposing every public name.
+Full API discovery is deferred until the first category is opened. It walks build123d modules, then inspects public classes/functions and public shape-class properties/methods without evaluating descriptors. The discovery report records visited modules, import failures, accepted/rejected candidates and inferred socket types. Stateful context-manager builders are excluded because their lifecycle cannot be represented by a single node call. Instance methods/properties are limited to shape and value-like geometry receivers; private, uninspectable and non-build123d callables are rejected. A separate NODE_METADATA_OVERRIDES policy can hide, rename or re-categorize canonical node IDs without coupling presentation to introspection.
 
 Evaluation cache entries retain Python objects inside Pyodide (including exact B-rep values); only JSON-safe graph parameters and dependency keys participate in hashing. Mesh previews are cached separately. No Python object is serialized into the graph document or browser storage.

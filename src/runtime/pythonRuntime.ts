@@ -12,7 +12,7 @@ export class PythonRuntime {
     if (this.initPromise) return this.initPromise;
     this.statusHandler = onStatus;
     this.initPromise = new Promise<void>((resolve, reject) => {
-      const worker = new Worker(`${import.meta.env.BASE_URL}python/pyodide.worker.js`);
+      const worker = new Worker(`${import.meta.env.BASE_URL}python/pyodide.worker.js?v=2`);
       this.worker = worker;
       worker.onmessage = ({ data }: MessageEvent<WorkerMessage>) => {
         if (data.type === "status") this.statusHandler(data.message);

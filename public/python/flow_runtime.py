@@ -113,6 +113,10 @@ def _annotation_metadata(annotation):
         variants = sorted({_type_name(arg) for arg in args if arg is not type(None)})
         if len(variants) > 1:
             metadata["variants"] = variants
+        # A union such as Shape | Iterable[Shape] accepts either one object or
+        # a collection. Keep that collection intact for the native operator.
+        if any(typing.get_origin(arg) in collection_origins for arg in args):
+            metadata["data_access"] = "structure"
     return metadata
 
 
@@ -264,17 +268,27 @@ def _discover_modules(report=None):
 
 
 
-def _boolean_union(a, b):
-    return a + b
-
-
-def _boolean_difference(a, b):
-    return a - b
-
-
-def _boolean_intersection(a, b):
-    return a & b
-
+# Explicit Python operator protocol: only meaningful algebra/transform operators
+# are surfaced. Other dunder implementation details remain private.
+_PYTHON_OPERATOR_SPECS = {
+    "__add__": ("+", "addition"),
+    "__sub__": ("−", "subtraction"),
+    "__mul__": ("×", "multiplication"),
+    "__rmul__": ("×", "reverse multiplication"),
+    "__truediv__": ("÷", "division"),
+    "__floordiv__": ("//", "floor division"),
+    "__mod__": ("%", "modulo"),
+    "__pow__": ("**", "power"),
+    "__matmul__": ("@", "matrix multiplication"),
+    "__and__": ("&", "intersection / and"),
+    "__or__": ("|", "union / or"),
+    "__xor__": ("^", "exclusive or"),
+    "__lshift__": ("<<", "left shift"),
+    "__rshift__": (">>", "right shift"),
+    "__neg__": ("−", "negation"),
+    "__pos__": ("+", "positive"),
+    "__invert__": ("~", "invert"),
+}
 
 
 _FLOW_PALETTE = {
@@ -855,31 +869,6 @@ def _register_python_nodes(found, callables):
     callables[node_id] = _python_function
 
 
-def _register_flow_boolean_nodes(found, callables):
-    """Register convenience CSG operators implemented by Flow over Shape operators."""
-    for node_id, name, function in [
-        ("flow.boolean.union", "Union", _boolean_union),
-        ("flow.boolean.difference", "Difference", _boolean_difference),
-        ("flow.boolean.intersection", "Intersection", _boolean_intersection),
-    ]:
-        found[node_id] = {
-            "id": node_id,
-            "source": "flow",
-            "kind": "operation",
-            "name": name,
-            "category": "Boolean",
-            "palette_category": "Boolean",
-            "palette_section": "Boolean operations",
-            "description": "Flow convenience node applying the corresponding overloaded Shape operator",
-            "inputs": [
-                {"name": "a", "type": "Shape", "annotation": "Shape", "required": True},
-                {"name": "b", "type": "Shape", "annotation": "Shape", "required": True},
-            ],
-            "outputs": [{"name": "result", "type": "Shape", "annotation": "Shape"}],
-        }
-        callables[node_id] = function
-
-
 def discover(include_full=True):
     global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
     found = {}
@@ -975,7 +964,7 @@ def discover(include_full=True):
                     if typing.get_origin(annotation) is typing.Literal:
                         socket["options"] = list(typing.get_args(annotation))
                     socket.update(_annotation_metadata(annotation))
-                    socket["data_access"] = "structure" if socket.get("data_structure") else "item"
+                    socket.setdefault("data_access", "structure" if socket.get("data_structure") else "item")
                     _populate_editor_default(socket)
                     inputs.append(socket)
 
@@ -1039,6 +1028,8 @@ def discover(include_full=True):
     # hierarchy. Introspection is static: descriptors are never evaluated here.
     # Only members declared by build123d classes are exposed; external OCP and
     # Python implementation details stay out of the graph catalog.
+    # Python's operator protocol is part of the native API, even though its
+    # methods are dunder members rather than public module-level functions.
     for cls in api_classes:
         # Instance methods are useful as nodes on shapes and value-like geometry objects.
         if cls not in shape_classes and cls.__name__ not in {
@@ -1050,7 +1041,8 @@ def discover(include_full=True):
             if getattr(owner, "__module__", "").split(".")[0] != "build123d":
                 continue
             for member_name, raw_member in vars(owner).items():
-                if member_name.startswith("_") or member_name in seen_members:
+                operator_spec = _PYTHON_OPERATOR_SPECS.get(member_name)
+                if (member_name.startswith("_") and operator_spec is None) or member_name in seen_members:
                     continue
                 seen_members.add(member_name)
                 node_prefix = owner.__module__ + "." + owner.__name__
@@ -1149,7 +1141,33 @@ def discover(include_full=True):
                     _populate_editor_default(socket)
                     inputs.append(socket)
 
-                method_id = node_prefix + "." + member_name
+                if operator_spec:
+                    symbol, operator_label = operator_spec
+                    is_shape_operator = False
+                    try:
+                        is_shape_operator = issubclass(owner, b3d.Shape)
+                    except TypeError:
+                        pass
+                    if is_shape_operator and member_name in {"__add__", "__sub__", "__and__"}:
+                        semantic = {
+                            "__add__": ("Boolean", "Boolean", "Boolean operations", "union / fuse"),
+                            "__sub__": ("Boolean", "Boolean", "Boolean operations", "difference / cut"),
+                            "__and__": ("Boolean", "Boolean", "Boolean operations", "intersection"),
+                        }[member_name]
+                        category, palette_category, palette_section, operator_label = semantic
+                    else:
+                        category, palette_category, palette_section = (
+                            owner.__name__ + " Operators", "API", "Discovered operators"
+                        )
+                    method_id = node_prefix + ".operator." + member_name
+                    display_name = owner.__name__ + " " + symbol
+                    if is_shape_operator and member_name in {"__add__", "__sub__", "__and__"}:
+                        display_name += " (" + operator_label + ")"
+                else:
+                    method_id = node_prefix + "." + member_name
+                    category = owner.__name__ + " Methods"
+                    palette_category, palette_section = "API", "Discovered methods"
+                    display_name = owner.__name__ + "." + member_name
                 if method_id in found:
                     continue
                 return_annotation = hints.get("return", signature.return_annotation)
@@ -1160,11 +1178,12 @@ def discover(include_full=True):
                 }
                 found[method_id] = {
                     "id": method_id, "source": "build123d",
-                    "kind": "operation", "name": owner.__name__ + "." + member_name,
-                    "category": owner.__name__ + " Methods",
-                    "palette_category": "API", "palette_section": "Discovered methods",
+                    "kind": "operation", "name": display_name,
+                    "category": category,
+                    "palette_category": palette_category, "palette_section": palette_section,
                     "description": (inspect.getdoc(raw_member) or "").split("\n")[0][:180],
                     "inputs": inputs, "outputs": [output_socket],
+                    **({"operator": {"method": member_name, "symbol": symbol}} if operator_spec else {}),
                 }
                 callables[method_id] = raw_member
 
@@ -1202,7 +1221,6 @@ def discover(include_full=True):
     # Register app-owned node providers after native API discovery.
     _register_flow_nodes(found, callables)
     _register_python_nodes(found, callables)
-    _register_flow_boolean_nodes(found, callables)
     for definition in found.values():
         definition.setdefault("data_matching", "longest")
 

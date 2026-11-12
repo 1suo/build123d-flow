@@ -62,3 +62,8 @@ The dock separates API provenance (build123d, Python/libraries, Flow) from funct
 Full API discovery is deferred until the first category is opened. It walks build123d modules, then inspects public classes/functions and public shape-class properties/methods without evaluating descriptors. The discovery report records visited modules, import failures, accepted/rejected candidates and inferred socket types. Stateful context-manager builders are excluded because their lifecycle cannot be represented by a single node call. Instance methods/properties are limited to shape and value-like geometry receivers; private, uninspectable and non-build123d callables are rejected. A separate _NODE_METADATA_OVERRIDES policy can hide, rename or re-categorize canonical node IDs without coupling presentation to introspection.
 
 Evaluation cache entries retain Python objects inside Pyodide (including exact B-rep values); only JSON-safe graph parameters and dependency keys participate in hashing. Mesh previews are cached separately. No Python object is serialized into the graph document or browser storage.
+
+
+## Findspot palettes
+
+The canvas theme selector uses the palettes from [1suo/findspot](https://github.com/1suo/findspot) as its source of truth: Alexandria, Babylon, Knossos, Petra, Tikal and Troy. Each palette also has a `-swapped` option that exchanges only its background and surface roles, matching the Findspot variants. The selected palette is persisted locally in the browser. Theme tokens drive the canvas, nodes, controls, status UI and 3D viewport; Tikal is the fallback.

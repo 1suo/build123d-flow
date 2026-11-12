@@ -1286,11 +1286,7 @@ def _inspect_value(value, depth=0):
 
 
 def _map_item_inputs(params, access, invoke, matching="longest", path=()):
-    """Map item-access inputs recursively, preserving nested list structure.
-
-    Scalars broadcast. Longest matching repeats the last item; shortest truncates.
-    Cross matching forms a Cartesian product at each nested level.
-    """
+    """Map item-access inputs recursively, preserving nested list structure."""
     sequences = {
         name: list(value) if access.get(name, "item") == "item" and isinstance(value, (list, tuple))
         else None
@@ -1321,14 +1317,20 @@ def _map_item_inputs(params, access, invoke, matching="longest", path=()):
         child = dict(params)
         for name, value in zip(names, row):
             child[name] = value
-        results.append(_map_item_inputs(cdef _cache_key(definition_id, params, upstream_keys):
+        results.append(_map_item_inputs(child, access, invoke, matching, path + (index,)))
+    return results
+
+
+def _cache_key(definition_id, params, upstream_keys):
     payload = json.dumps([definition_id, params, sorted(upstream_keys.items())],
                          sort_keys=True, separators=(",", ":"), default=repr, allow_nan=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _cacheable(definition):
-    node_id, name, category = definition.get("id", ""), definition.get("name", ""), definition.get("category", "")
+    node_id = definition.get("id", "")
+    name = definition.get("name", "")
+    category = definition.get("category", "")
     if node_id.startswith("core.python.") or category.endswith((" Methods", " Properties")):
         return False
     if name in {"BuildPart", "BuildSketch", "BuildLine", "Build123d", "BuildSheet"}:
@@ -1347,7 +1349,8 @@ def evaluate_graph_json(payload):
     graph = json.loads(payload)
     nodes = {node["id"]: node for node in graph.get("nodes", [])}
     edges = graph.get("edges", [])
-    incoming, outgoing = {}, {node_id: [] for node_id in nodes}
+    incoming = {}
+    outgoing = {node_id: [] for node_id in nodes}
     indegree = {node_id: 0 for node_id in nodes}
     for edge in edges:
         source, target = edge.get("source"), edge.get("target")
@@ -1356,7 +1359,8 @@ def evaluate_graph_json(payload):
         incoming.setdefault(target, {})[edge.get("targetHandle")] = (source, edge.get("sourceHandle"))
         outgoing[source].append(target)
         indegree[target] += 1
-    queue, order = [node_id for node_id, degree in indegree.items() if degree == 0], []
+    queue = [node_id for node_id, degree in indegree.items() if degree == 0]
+    order = []
     while queue:
         node_id = queue.pop(0)
         order.append(node_id)
@@ -1365,8 +1369,10 @@ def evaluate_graph_json(payload):
             if indegree[target] == 0:
                 queue.append(target)
     if len(order) != len(nodes):
-        return json.dumps({"previews": {}, "errors": {"graph": "Graph contains a cycle"},
-                           "order": order, "cache": {"hits": 0, "misses": 0}})
+        return json.dumps({
+            "previews": {}, "errors": {"graph": "Graph contains a cycle"}, "order": order,
+            "cache": {"hits": 0, "misses": 0},
+        })
 
     values, previews, errors, node_keys = {}, {}, {}, {}
     cache_hits = cache_misses = 0
@@ -1378,7 +1384,9 @@ def evaluate_graph_json(payload):
             errors[node_id] = "Unknown or unavailable API node: " + str(definition_id)
             continue
         params = dict(node.get("data", {}).get("params", {}))
-        upstream_keys, failed_dependency, upstream_cacheable = {}, False, True
+        upstream_keys = {}
+        failed_dependency = False
+        upstream_cacheable = True
         for input_name, (source_id, output_name) in incoming.get(node_id, {}).items():
             if source_id in errors or source_id not in values:
                 errors[node_id] = "Input depends on a failed node: " + source_id
@@ -1391,12 +1399,13 @@ def evaluate_graph_json(payload):
             else:
                 upstream_cacheable = False
         if failed_dependency:
-            if node_id not in errors:
-                errors[node_id] = "Input depends on a non-cacheable or failed node"
             continue
+
         can_cache = _cacheable(definition) and upstream_cacheable
         try:
-            key = _cache_key(definition_id, node.get("data", {}).get("params", {}), upstream_keys) if can_cache else None
+            key = _cache_key(
+                definition_id, node.get("data", {}).get("params", {}), upstream_keys
+            ) if can_cache else None
             cached = _EVAL_CACHE.get(key) if key else None
             if cached is not None:
                 values[node_id] = {"result": cached}
@@ -1405,15 +1414,22 @@ def evaluate_graph_json(payload):
                 _EVAL_CACHE.pop(key, None)
                 _EVAL_CACHE[key] = cached
                 continue
+
             cache_misses += 1
             callable_obj = _resolve_callable(definition_id)
             invoke = lambda mapped: _call_with_coercion(
-                callable_obj, mapped, signature=_CATALOG_SIGNATURES.get(definition_id),
-                hint_target=_CATALOG_HINT_TARGETS.get(definition_id))
-            input_access = {socket["name"]: socket.get("data_access", "item")
-                            for socket in definition.get("inputs", [])}
-            result = _map_item_inputs(params, input_access, invoke,
-                                      matching=definition.get("data_matching", "longest"))
+                callable_obj, mapped,
+                signature=_CATALOG_SIGNATURES.get(definition_id),
+                hint_target=_CATALOG_HINT_TARGETS.get(definition_id),
+            )
+            input_access = {
+                socket["name"]: socket.get("data_access", "item")
+                for socket in definition.get("inputs", [])
+            }
+            result = _map_item_inputs(
+                params, input_access, invoke,
+                matching=definition.get("data_matching", "longest"),
+            )
             values[node_id] = {"result": result}
             if key:
                 _EVAL_CACHE[key] = result
@@ -1446,14 +1462,16 @@ def evaluate_graph_json(payload):
                 _LAST_SHAPE = _as_export_shape(result)
         except Exception as exc:
             errors[node_id] = "Preview: " + str(exc)
+
     _LAST_VALUES = values
     return json.dumps(_json_clean({
         "previews": previews, "errors": errors, "order": order,
         "cache": {"hits": cache_hits, "misses": cache_misses},
-        "socket_values": {node_id: {name: _inspect_value(value) for name, value in outputs.items()}
-                          for node_id, outputs in values.items()},
+        "socket_values": {
+            node_id: {name: _inspect_value(value) for name, value in outputs.items()}
+            for node_id, outputs in values.items()
+        },
     }), allow_nan=False)
-s.items()} for node_id, outputs in values.items()}}), allow_nan=False)
 
 
 

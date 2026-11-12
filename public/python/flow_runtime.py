@@ -460,7 +460,7 @@ def _shift_list(items, offset, wrap):
     return values[amount:] + [None] * amount
 
 
-def _add_core_nodes(found, callables):
+def _register_flow_nodes(found, callables):
     import math
     import operator
 
@@ -829,6 +829,56 @@ def _python_function(code, a=None, b=None, c=None):
 
 
 
+
+def _register_python_nodes(found, callables):
+    """Register the app's Python execution node; it is not a build123d API."""
+    node_id = "core.python.function"
+    found[node_id] = {
+        "id": node_id,
+        "source": "python",
+        "kind": "operation",
+        "name": "Python Function",
+        "category": "Python",
+        "palette_category": "Scripting",
+        "palette_section": "Python",
+        "description": "Run a small Python function body. Inputs are a, b and c; assign the output to result. math and operator are available.",
+        "inputs": [
+            {"name": "code", "type": "Code", "annotation": "Python source", "required": False,
+             "default": "result = a + b"},
+            {"name": "a", "type": "Any", "annotation": "Any", "required": False, "default": None},
+            {"name": "b", "type": "Any", "annotation": "Any", "required": False, "default": None},
+            {"name": "c", "type": "Any", "annotation": "Any", "required": False, "default": None},
+        ],
+        "outputs": [{"name": "result", "type": "Any", "annotation": "Any"}],
+    }
+    callables[node_id] = _python_function
+
+
+def _register_flow_boolean_nodes(found, callables):
+    """Register convenience CSG operators implemented by Flow over Shape operators."""
+    for node_id, name, function in [
+        ("build123d_flow.union", "Union", _boolean_union),
+        ("build123d_flow.difference", "Difference", _boolean_difference),
+        ("build123d_flow.intersection", "Intersection", _boolean_intersection),
+    ]:
+        found[node_id] = {
+            "id": node_id,
+            "source": "flow",
+            "kind": "operation",
+            "name": name,
+            "category": "Boolean",
+            "palette_category": "Boolean",
+            "palette_section": "Boolean operations",
+            "description": "Flow convenience node applying the corresponding overloaded Shape operator",
+            "inputs": [
+                {"name": "a", "type": "Shape", "annotation": "Shape", "required": True},
+                {"name": "b", "type": "Shape", "annotation": "Shape", "required": True},
+            ],
+            "outputs": [{"name": "result", "type": "Shape", "annotation": "Shape"}],
+        }
+        callables[node_id] = function
+
+
 def discover(include_full=True):
     global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
     found = {}
@@ -1148,53 +1198,12 @@ def discover(include_full=True):
                 }
                 callables[field_id] = field_getter
 
-    # Core dataflow nodes are explicit wrappers over Python's math/operator/builtins APIs.
-    _add_core_nodes(found, callables)
+    # Register app-owned node providers after native API discovery.
+    _register_flow_nodes(found, callables)
+    _register_python_nodes(found, callables)
+    _register_flow_boolean_nodes(found, callables)
     for definition in found.values():
         definition.setdefault("data_matching", "longest")
-
-    found["core.python.function"] = {
-        "id": "core.python.function",
-        "source": "python",
-        "kind": "operation",
-        "name": "Python Function",
-        "category": "Python",
-        "palette_category": "Scripting",
-        "palette_section": "Python",
-        "description": "Run a small Python function body. Inputs are a, b and c; assign the output to result. math and operator are available.",
-        "inputs": [
-            {"name": "code", "type": "Code", "annotation": "Python source", "required": False,
-             "default": "result = a + b"},
-            {"name": "a", "type": "Any", "annotation": "Any", "required": False, "default": None},
-            {"name": "b", "type": "Any", "annotation": "Any", "required": False, "default": None},
-            {"name": "c", "type": "Any", "annotation": "Any", "required": False, "default": None},
-        ],
-        "outputs": [{"name": "result", "type": "Any", "annotation": "Any"}],
-    }
-    callables["core.python.function"] = _python_function
-
-    # Binary wrappers expose common overloaded CSG operators as graph operations.
-    for node_id, name, function in [
-        ("build123d_flow.union", "Union", _boolean_union),
-        ("build123d_flow.difference", "Difference", _boolean_difference),
-        ("build123d_flow.intersection", "Intersection", _boolean_intersection),
-    ]:
-        found[node_id] = {
-            "id": node_id,
-            "source": "flow",
-            "kind": "operation",
-            "name": name,
-            "category": "Boolean",
-            "palette_category": "Boolean",
-            "palette_section": "Boolean operations",
-            "description": "Binary solid boolean operation",
-            "inputs": [
-                {"name": "a", "type": "Shape", "annotation": "Shape", "required": True},
-                {"name": "b", "type": "Shape", "annotation": "Shape", "required": True},
-            ],
-            "outputs": [{"name": "result", "type": "Shape", "annotation": "Shape"}],
-        }
-        callables[node_id] = function
 
     # Keep curated presentation/eligibility policy separate from introspection.
     for node_id, override in _NODE_METADATA_OVERRIDES.items():

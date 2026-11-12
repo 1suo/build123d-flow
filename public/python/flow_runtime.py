@@ -287,6 +287,7 @@ def _add_node(found, callables, node_id, name, category, function=None, inputs=N
     defaults = {"step": 1, "count": 10, "stop": 10, "index": 0, "start": 0, "default": None}
     found[node_id] = {
         "id": node_id,
+        "source": "flow",
         "kind": "value" if not inputs else "operation",
         "name": name,
         "category": category,
@@ -813,6 +814,56 @@ def _python_function(code, a=None, b=None, c=None):
 
 
 
+def _palette_metadata(definition):
+    """Assign user-facing taxonomy independently from IDs and implementation modules."""
+    source = definition["source"]
+    name = definition.get("name", "").lower()
+    api_category = definition.get("category", "").lower()
+
+    if source == "python":
+        return "Scripting", "Python"
+    if source == "flow":
+        if api_category == "logic":
+            return "Logic", "Logic"
+        if api_category == "math":
+            return "Math", "Arithmetic & trigonometry"
+        if api_category in {"collections", "series", "values", "constants", "strings"}:
+            sections = {
+                "collections": "Collections", "series": "Series", "values": "Literal values",
+                "constants": "Constants", "strings": "Strings",
+            }
+            return "Data", sections[api_category]
+        if api_category == "spatial":
+            return "Spatial", "Spatial operations"
+        if api_category == "utilities":
+            return "Math", "Numeric utilities"
+        return "Flow", "Other"
+
+    if api_category == "boolean" or name in {"union", "difference", "intersection"}:
+        return "Boolean", "Boolean operations"
+    if any(term in name for term in ("fillet", "chamfer", "shell", "offset", "draft", "hollow", "thicken")):
+        return "Modify", "Finishing"
+    if any(term in name for term in ("extrude", "revolve", "loft", "sweep", "pipe", "split")):
+        return "Create", "Feature generation"
+    if any(term in name for term in ("translate", "rotate", "mirror", "scale", "move", "transform")):
+        return "Transform", "Position & transforms"
+    if any(term in name for term in ("plane", "axis", "datum", "frame", "coordinate", "rotation")):
+        return "Reference", "Planes & references"
+    if any(term in name for term in ("area", "volume", "length", "center", "bounding", "measure", "distance", "mass", "inertia")):
+        return "Inspect", "Measurements & topology"
+    if any(term in name for term in ("curve", "surface")):
+        return "Create", "Curves & surfaces"
+    if any(term in name for term in ("rectangle", "circle", "ellipse", "polygon", "slot", "trapezoid", "polyline", "sketch")):
+        return "Create", "2D profiles"
+    if definition.get("kind") == "geometry" or name in {"box", "cylinder", "sphere", "cone", "torus", "wedge", "prism"}:
+        return "Create", "3D solids"
+    if api_category.endswith(" methods"):
+        return "Inspect", "Shape methods"
+    if api_category.endswith(" properties"):
+        return "Inspect", "Shape properties"
+    return "API", "Other API"
+
+
 def discover(include_full=True):
     global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
     found = {}
@@ -1123,6 +1174,7 @@ def discover(include_full=True):
 
     found["core.python.function"] = {
         "id": "core.python.function",
+        "source": "python",
         "kind": "operation",
         "name": "Python Function",
         "category": "Python",
@@ -1146,6 +1198,7 @@ def discover(include_full=True):
     ]:
         found[node_id] = {
             "id": node_id,
+            "source": "build123d",
             "kind": "operation",
             "name": name,
             "category": "Boolean",
@@ -1157,6 +1210,11 @@ def discover(include_full=True):
             "outputs": [{"name": "result", "type": "Shape", "annotation": "Shape"}],
         }
         callables[node_id] = function
+
+    # Discovered API definitions receive provenance at the discovery boundary;
+    # manually registered nodes declare it where they are registered.
+    for definition in found.values():
+        definition.setdefault("source", "build123d")
 
     # Keep curated presentation/eligibility policy separate from introspection.
     for node_id, override in _NODE_METADATA_OVERRIDES.items():
@@ -1171,6 +1229,10 @@ def discover(include_full=True):
         for field in ("name", "category", "description"):
             if field in override:
                 found[node_id][field] = override[field]
+
+    # Finalize required palette metadata after overrides, before publishing catalog.
+    for definition in found.values():
+        definition["palette_category"], definition["palette_section"] = _palette_metadata(definition)
 
     report["node_count"] = len(found)
     report["kind_counts"] = {}

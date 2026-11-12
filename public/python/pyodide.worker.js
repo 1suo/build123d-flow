@@ -1,11 +1,11 @@
 /* Pyodide 314 requires an ES-module worker. Keep the loader same-origin. */
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
-const VERSION="314.0.7", MARKER=".build123d-flow-environment-v2";
+const VERSION="314.0.7", MARKER=".build123d-flow-environment-v3";
 let pyodide=null;
 const status=message=>self.postMessage({type:"status",message});
 const sync=(FS,populate)=>new Promise((resolve,reject)=>FS.syncfs(populate,e=>e?reject(e):resolve()));
 function clear(FS,dir){for(const n of FS.readdir(dir)){if(n==="."||n==="..")continue;const p=dir+"/"+n,s=FS.stat(p);if(FS.isDir(s.mode)){clear(FS,p);FS.rmdir(p);}else FS.unlink(p);}}
-async function hash(s){try{const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));return [...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,"0")).join("");}catch{return "setup-revision-2";}}
+async function hash(s){try{const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));return [...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,"0")).join("");}catch{return "setup-revision-3";}}
 async function initialize(base){
  status("Preparing Python environment in background worker…");
  const [setup,runtime]=await Promise.all(["setup.py","flow_runtime.py"].map(async f=>{const r=await fetch(base+"python/"+f);if(!r.ok)throw Error("Could not load "+f+": "+r.status);return r.text();}));
@@ -20,7 +20,7 @@ async function initialize(base){
   }catch(e){persistent=false;status("Persistent cache unavailable; using temporary storage ("+e+")");}
  }});
  pyodide.setStdout({batched:s=>{if(s.trim())status(s.trim());}});pyodide.setStderr({batched:s=>{if(s.trim())status("Python: "+s.trim());}});
- status("Loading micropip and required Pyodide packages from the local runtime…");await pyodide.loadPackage(["micropip","requests","pyparsing","wrapt","deprecated","svgwrite","idna","packaging","urllib3","charset-normalizer","certifi"]);
+ status("Loading micropip from the local runtime…");await pyodide.loadPackage(["micropip"]);
  status(restored?"Verifying saved Python packages…":"Installing Python dependencies…");await pyodide.runPythonAsync(setup);
  status("Loading graph runtime…");pyodide.FS.writeFile("/flow_runtime.py",runtime);await pyodide.runPythonAsync("import sys; sys.path.insert(0, '/')");await pyodide.runPythonAsync("import flow_runtime");
  if(persistent)try{status("Saving Python environment…");const dir=pyodide.runPython("import sysconfig; sysconfig.get_paths()['purelib']");pyodide.FS.writeFile(dir+"/"+MARKER,key);await sync(pyodide.FS,false);status(restored?"Python environment restored":"Python environment saved");}catch(e){status("Could not persist environment ("+e+")");}

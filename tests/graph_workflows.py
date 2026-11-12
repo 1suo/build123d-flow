@@ -206,6 +206,8 @@ def run_catalog_metadata_tests():
             if other.get("item_type") != "Shape" or other.get("data_access") != "structure":
                 raise AssertionError("Shape + must retain its Shape | Iterable[Shape] input contract")
             output = definition["outputs"][0]
+            if output["type"] != "Shape":
+                raise AssertionError("Shape + must expose the common Shape output type")
             if not {"Shape", "Compound"}.issubset(set(output.get("variants", []))):
                 raise AssertionError("Shape + must expose its Self | Compound return contract")
     if any(node_id.startswith("flow.boolean.") for node_id in catalog):

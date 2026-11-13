@@ -69,10 +69,10 @@ async function loadSources(baseUrl) {
   if (!/^def\s+analyze_source\s*\(/m.test(frontend)) {
     throw new Error("Refusing incomplete Python importer frontend from " + frontendUrl.href);
   }
-  if (!/^class\\s+CatalogResolver\\b/m.test(semantics)) {
+  if (!/^class\s+CatalogResolver\b/m.test(semantics)) {
     throw new Error("Refusing incomplete Python importer semantics from " + semanticsUrl.href);
   }
-  const sourceRevision = await fingerprint(setup + "\\0" + runtime + "\\0" + frontend + "\\0" + semantics);
+  const sourceRevision = await fingerprint(setup + "\0" + runtime + "\0" + frontend + "\0" + semantics);
   return { setup, runtime, frontend, semantics, sourceRevision };
 }
 

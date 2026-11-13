@@ -133,7 +133,8 @@ class PythonImportSourceTests(unittest.TestCase):
             and isinstance(node.test.left.value, ast.Name)
             and node.test.left.value.id == "operand"
         )
-        self.assertIn('operand[0] == "literal"', ast.unparse(unary))
+        self.assertIsInstance(unary.test.comparators[0], ast.Constant)
+        self.assertEqual(unary.test.comparators[0].value, "literal")
         self.assertIn("apply_operator(operand[1])", source)
         self.assertIn("operator.neg", source)
         self.assertIn("operator.pos", source)

@@ -23,6 +23,7 @@ export default defineConfig({
     command: "npm run preview -- --host 127.0.0.1 --port 4173 --strictPort",
     url: "http://127.0.0.1:4173/build123d-flow/",
     reuseExistingServer: !process.env.CI,
-    timeout: 30_000
+    timeout: 30_000,
+    env: { GITHUB_PAGES: "true" }
   }
 });

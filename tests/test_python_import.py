@@ -44,6 +44,18 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("variants", source)
         self.assertIn("receiver_type", source)
 
+    def test_catalog_preserves_build123d_collection_types(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        type_name = ast.unparse(functions["_type_name"])
+        discovery = ast.unparse(functions["discover"])
+        self.assertIn('"ShapeList"', type_name)
+        self.assertIn('"GroupBy"', type_name)
+        self.assertIn('"ShapeList"', discovery)
+        self.assertIn('"GroupBy"', discovery)
+
     def test_importer_never_executes_or_evaluates_source(self):
         forbidden = {"exec", "eval", "compile", "__import__"}
         calls = {

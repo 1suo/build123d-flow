@@ -2448,23 +2448,33 @@ def import_python_code(source):
             return None
         return constructor, constructor_type
 
-    def expression(node, expected_type=None):
-        if isinstance(node, ast.Constant):
-            return ("literal", node.value)
-        if isinstance(node, ast.Set):
-            raise ValueError("Set literals are not yet importable (line {})".format(node.lineno))
-        if isinstance(node, (ast.List, ast.Tuple)):
-            values = [expression(item) for item in node.elts]
+    def expression_from_ir(ir):
+        from python_importer_ir import LiteralExpr, NameExpr, SequenceExpr
+        if isinstance(ir, LiteralExpr):
+            return ("literal", ir.value)
+        if isinstance(ir, NameExpr):
+            if ir.name in variables:
+                return variables[ir.name]
+            if ir.name in {"True", "False", "None"}:
+                return ("literal", {"True": True, "False": False, "None": None}[ir.name])
+            raise ValueError("Unresolved name '{}' at line {}".format(ir.name, ir.location.line))
+        if isinstance(ir, SequenceExpr):
+            if ir.kind == "set":
+                raise ValueError("Set literals are not yet importable (line {})".format(ir.location.line))
+            values = [expression_from_ir(item) for item in ir.items]
             if all(item[0] == "literal" for item in values):
                 raw = [item[1] for item in values]
-                return ("literal", raw if isinstance(node, ast.List) else tuple(raw))
-            raise ValueError("Connected collections are not yet importable (line {})".format(node.lineno))
-        if isinstance(node, ast.Name):
-            if node.id in variables:
-                return variables[node.id]
-            if node.id in {"True", "False", "None"}:
-                return ("literal", {"True": True, "False": False, "None": None}[node.id])
-            raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
+                return ("literal", raw if ir.kind == "list" else tuple(raw))
+            raise ValueError("Connected collections are not yet importable (line {})".format(ir.location.line))
+        raise ValueError("Unsupported IR expression at line {}".format(ir.location.line))
+
+    def expression(node, expected_type=None):
+        # Core literal, name, and sequence lowering now consumes kernel-neutral IR.
+        # Other expression families remain on the compatibility path during migration.
+        from python_importer_ir import LiteralExpr, NameExpr, SequenceExpr, lower_expression
+        ir = lower_expression(node)
+        if isinstance(ir, (LiteralExpr, NameExpr, SequenceExpr)):
+            return expression_from_ir(ir)
         if isinstance(node, ast.Attribute):
             receiver_root = node.value
             while isinstance(receiver_root, ast.Attribute):

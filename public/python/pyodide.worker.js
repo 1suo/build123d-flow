@@ -2,7 +2,7 @@
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
 
 const PYODIDE_VERSION = "314.0.7";
-const RUNTIME_REVISION = "2026-11-13-r13";
+const RUNTIME_REVISION = "2026-11-13-r14";
 const ENV_MARKER = ".build123d-flow-environment-v6";
 
 let pyodide = null;
@@ -58,12 +58,14 @@ async function loadSources(baseUrl) {
   const runtimeUrl = new URL("python/flow_runtime.py?v=" + RUNTIME_REVISION, base);
   const frontendUrl = new URL("python/python_importer_frontend.py?v=" + RUNTIME_REVISION, base);
   const semanticsUrl = new URL("python/python_importer_semantics.py?v=" + RUNTIME_REVISION, base);
+  const irUrl = new URL("python/python_importer_ir.py?v=" + RUNTIME_REVISION, base);
   const setupUrl = new URL("python/setup.py?v=" + RUNTIME_REVISION, base);
-  const [setup, runtime, frontend, semantics] = await Promise.all([
+  const [setup, runtime, frontend, semantics, ir] = await Promise.all([
     fetchText(setupUrl, "Python dependency setup"),
     fetchText(runtimeUrl, "graph runtime"),
     fetchText(frontendUrl, "Python importer frontend"),
-    fetchText(semanticsUrl, "Python importer catalog semantics")
+    fetchText(semanticsUrl, "Python importer catalog semantics"),
+    fetchText(irUrl, "Python importer intermediate representation")
   ]);
   validateRuntimeSource(runtime, runtimeUrl.href);
   if (!/^def\s+analyze_source\s*\(/m.test(frontend)) {
@@ -80,7 +82,7 @@ async function initializePython(baseUrl) {
   status("Fetching versioned Python runtime…");
   // Validate the actual downloaded source before spending time loading Pyodide
   // or installing build123d. This catches stale CDN/service-worker responses.
-  const { setup, runtime, frontend, semantics, sourceRevision } = await loadSources(baseUrl);
+  const { setup, runtime, frontend, semantics, ir, sourceRevision } = await loadSources(baseUrl);
   const environmentRevision = RUNTIME_REVISION + ":" + PYODIDE_VERSION + ":" + sourceRevision;
   const indexURL = new URL(
     "pyodide/v" + PYODIDE_VERSION + "/full/",
@@ -132,7 +134,7 @@ async function initializePython(baseUrl) {
   status("Importing graph runtime…");
   pyodide.FS.writeFile("/flow_runtime.py", runtime);
   pyodide.FS.writeFile("/python_importer_frontend.py", frontend);
-  pyodide.FS.writeFile("/python_importer_semantics.py", semantics);
+  pyodide.FS.writeFile("/python_importer_semantics.py", semantics);\n  pyodide.FS.writeFile("/python_importer_ir.py", ir);
   await pyodide.runPythonAsync(
     "import sys, importlib.util; " +
     "sys.path.insert(0, '/'); " +

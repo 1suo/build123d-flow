@@ -2381,14 +2381,25 @@ def import_python_code(source):
             accepted = receiver.get("variants") or [receiver.get("type", "Any")]
             if receiver_type in accepted:
                 score = 3
-            elif receiver_type == "Shape" and any(
-                item in {"Shape", "Solid", "Part", "Compound"} for item in accepted
-            ):
-                score = 2
-            elif "Any" in accepted:
-                score = 1
             else:
-                continue
+                actual_class = getattr(b3d, receiver_type, None)
+                compatible = False
+                if inspect.isclass(actual_class):
+                    for accepted_type in accepted:
+                        expected_class = getattr(b3d, accepted_type, None)
+                        if inspect.isclass(expected_class):
+                            try:
+                                if issubclass(actual_class, expected_class):
+                                    compatible = True
+                                    break
+                            except TypeError:
+                                pass
+                if compatible:
+                    score = 2
+                elif "Any" in accepted:
+                    score = 1
+                else:
+                    continue
             candidates.append((score, candidate_id))
         if not candidates:
             return None, ()

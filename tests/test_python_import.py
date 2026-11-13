@@ -99,6 +99,16 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertNotIn("_candidate_rejection", member_loop_source)
         self.assertIn("for owner in getattr(cls, '__mro__'", member_loop_source)
 
+    def test_importer_serializes_axis_class_constants(self):
+        functions = {
+            node.name: node for node in self.importer.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        source = ast.unparse(functions["expression"])
+        self.assertIn("isinstance(value, b3d.Axis)", source)
+        self.assertIn("value.position", source)
+        self.assertIn("value.direction", source)
+
     def test_importer_reports_unsupported_statements_with_location(self):
         source = ast.unparse(self.importer)
         self.assertIn("Unsupported statement", source)

@@ -2696,7 +2696,8 @@ def import_python_code(source):
             if len(node.args) > len(argument_sockets):
                 raise ValueError("Too many positional arguments for {} at line {}".format(
                     definition.get("name"), node.lineno))
-            supplied = {}            for index, value in enumerate(node.args):
+            supplied = {}
+            for index, value in enumerate(node.args):
                 supplied[argument_sockets[index]["name"]] = value
             for keyword in node.keywords:
                 if keyword.arg is None:

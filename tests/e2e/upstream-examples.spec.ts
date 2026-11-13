@@ -75,7 +75,9 @@ const EXAMPLES = [
 ];
 
 async function importExample(page: Page, source: string) {
-  await page.getByRole("button", { name: "Settings" }).click();
+  if (!(await page.locator("#python-source-input").isVisible())) {
+    await page.getByRole("button", { name: "Settings" }).click();
+  }
   await page.locator("#python-source-input").fill(source);
   await page.getByRole("button", { name: "Import pasted code" }).click();
 

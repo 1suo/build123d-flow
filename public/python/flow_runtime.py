@@ -32,6 +32,10 @@ def _type_name(annotation):
         return "Any"
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
+    # Preserve concrete build123d generic return types (e.g. ShapeList[Edge]).
+    # Their methods must remain resolvable on the next expression in a chain.
+    if inspect.isclass(origin) and getattr(origin, "__module__", "").split(".")[0] == "build123d":
+        return _type_name(origin)
     if origin in (typing.Union, types.UnionType):
         union_args = [arg for arg in args if arg is not type(None)]
         shape_base = getattr(b3d, "Shape", None)
@@ -94,6 +98,7 @@ def _type_name(annotation):
         "matrix": "Matrix",
         "shape": "Shape", "solid": "Solid", "compound": "Compound", "face": "Face",
         "edge": "Edge", "wire": "Wire", "shell": "Shell", "part": "Part",
+        "shapelist": "ShapeList", "groupby": "GroupBy",
         "sketch": "Sketch", "code": "Code", "callable": "Code",
     }
     return mapping.get(name, "Any")
@@ -1194,9 +1199,14 @@ def discover(include_full=True):
     # methods are dunder members rather than public module-level functions.
     for cls in api_classes:
         # Instance methods are useful as nodes on shapes and value-like geometry objects.
+        is_collection = False
+        try:
+            is_collection = issubclass(cls, collections.abc.Collection)
+        except TypeError:
+            pass
         if cls not in shape_classes and cls.__name__ not in {
             "Vector", "Vector2D", "Plane", "Location", "Rotation", "Axis", "Color",
-        }:
+        } and not is_collection:
             continue
         seen_members = set()
         for owner in getattr(cls, "__mro__", (cls,)):

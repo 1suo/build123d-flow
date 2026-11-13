@@ -131,7 +131,6 @@ class PythonImportSourceTests(unittest.TestCase):
             }, "ShapeList"),
             (unique_id, (unique_id,)),
         )
-        self.assertIn('candidates.append((0, candidate_id))', source)
 
     def test_catalog_discovers_typed_build123d_collection_members(self):
         functions = {

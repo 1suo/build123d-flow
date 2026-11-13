@@ -2,8 +2,8 @@
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
 
 const PYODIDE_VERSION = "314.0.7";
-const RUNTIME_REVISION = "2026-11-13-r13";
-const ENV_MARKER = ".build123d-flow-environment-v6";
+const RUNTIME_REVISION = "2026-11-13-r14";
+const ENV_MARKER = ".build123d-flow-environment-v7";
 
 let pyodide = null;
 let initialized = false;

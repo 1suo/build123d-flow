@@ -2460,12 +2460,13 @@ def import_python_code(source):
                 else:
                     continue
             candidates.append((score, candidate_id))
-        # Some valid Python collection expressions (notably comprehensions and
-        # plain-list transformations) have no statically recoverable element
-        # class. When the receiver is unknown, still allow a method if the
-        # discovered build123d API has exactly one implementation by that name.
-        # This is deterministic; multiple implementations remain ambiguous.
-        if not candidates and receiver_type in (None, "Any"):
+        # Type inference is necessarily incomplete for chained collection
+        # expressions and generic return annotations. If no receiver-compatible
+        # method was found, permit a uniquely named discovered method. The graph
+        # evaluator binds it to the actual receiver at runtime, so Python's own
+        # attribute lookup remains the final compatibility check. Multiple
+        # implementations remain ambiguous and are rejected.
+        if not candidates:
             for candidate_id, candidate in definitions.items():
                 if candidate_id.rsplit(".", 1)[-1] != member_name:
                     continue

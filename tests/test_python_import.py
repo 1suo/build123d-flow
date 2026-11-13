@@ -1,6 +1,9 @@
 """Structural checks for the conservative Python-to-graph translator."""
 
 import ast
+import copy
+import inspect
+import types
 import unittest
 from pathlib import Path
 
@@ -85,15 +88,49 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("'Vertex'", source)
         self.assertIn('return shape_name', source)
 
-    def test_unknown_receiver_can_resolve_only_a_unique_discovered_method(self):
-        functions = {
-            node.name: node for node in self.importer.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        }
-        source = ast.unparse(functions["resolve_member"])
-        self.assertIn("if not candidates", source)
-        self.assertIn("candidate_id.rsplit('.', 1)[-1] != member_name", source)
-        self.assertIn("Multiple", source)
+    def test_unmatched_receiver_resolves_only_a_unique_discovered_method(self):
+        resolver = next(
+            node for node in self.importer.body
+            if isinstance(node, ast.FunctionDef) and node.name == "resolve_member"
+        )
+
+        def resolve(definitions, receiver_type):
+            module = ast.Module(body=[copy.deepcopy(resolver)], type_ignores=[])
+            namespace = {
+                "definitions": definitions,
+                "b3d": types.SimpleNamespace(),
+                "inspect": inspect,
+            }
+            exec(compile(module, "<resolve_member_test>", "exec"), namespace)
+            return namespace["resolve_member"]("group_by", receiver_type)
+
+        def method(receiver_type):
+            return {
+                "inputs": [{"name": "self", "type": receiver_type}],
+            }
+
+        unique_id = "build123d.topology.ShapeList.group_by"
+        self.assertEqual(
+            resolve({unique_id: method("ShapeList")}, "UnrecognizedCollection"),
+            (unique_id, (unique_id,)),
+        )
+
+        other_id = "build123d.other.OtherList.group_by"
+        self.assertEqual(
+            resolve({
+                unique_id: method("ShapeList"),
+                other_id: method("OtherList"),
+            }, "UnrecognizedCollection"),
+            (None, tuple(sorted((unique_id, other_id)))),
+        )
+
+        self.assertEqual(
+            resolve({
+                unique_id: method("ShapeList"),
+                other_id: method("OtherList"),
+            }, "ShapeList"),
+            (unique_id, (unique_id,)),
+        )
         self.assertIn('candidates.append((0, candidate_id))', source)
 
     def test_catalog_discovers_typed_build123d_collection_members(self):

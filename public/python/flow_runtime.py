@@ -2273,7 +2273,10 @@ def import_python_code(source):
                 return ("literal", {"True": True, "False": False, "None": None}[node.id])
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
-            receiver = expression(node.value) if isinstance(node.value, (ast.Name, ast.Attribute)) else None
+            receiver_root = node.value
+            while isinstance(receiver_root, ast.Attribute):
+                receiver_root = receiver_root.value
+            receiver = expression(node.value) if isinstance(receiver_root, ast.Name) and receiver_root.id in variables else None
             if receiver and receiver[0] == "ref":
                 receiver_node = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
                 receiver_type = receiver_node["data"]["definition"].get("outputs", [{}])[0].get("type") if receiver_node else None

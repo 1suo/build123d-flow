@@ -17,19 +17,19 @@ class PythonImportSourceTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef) and node.name == "import_python_code"
         )
 
-    def test_importer_uses_python_ast(self):
+    def test_importer_delegates_parsing_to_frontend(self):
         calls = {
             node.func.id for node in ast.walk(self.importer)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
-        self.assertTrue(any(
-            isinstance(node, ast.Attribute) and node.attr == "parse"
-            for node in ast.walk(self.importer)
-        ))
-        self.assertTrue(any(
-            isinstance(node, ast.Attribute) and node.attr == "Call"
-            for node in ast.walk(self.importer)
-        ))
+        imports_frontend = any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "python_importer_frontend"
+            and any(alias.name == "analyze_source" for alias in node.names)
+            for node in self.importer.body
+        )
+        self.assertTrue(imports_frontend)
+        self.assertIn("analyze_source", calls)
 
     def test_importer_never_executes_or_evaluates_source(self):
         forbidden = {"exec", "eval", "compile", "__import__"}

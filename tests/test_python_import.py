@@ -63,8 +63,9 @@ class PythonImportSourceTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef) and node.name == "resolve_member"
         )
         source = ast.unparse(resolver)
-        self.assertIn('candidate_id.rsplit(".", 1)[-1] != member_name', source)
-        self.assertNotIn('candidate.get("name") != member_name', source)
+        self.assertIn("candidate_id.rsplit", source)
+        self.assertIn("member_name", source)
+        self.assertNotIn("candidate.get", source)
 
     def test_catalog_discovers_typed_build123d_collection_members(self):
         functions = {

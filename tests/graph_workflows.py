@@ -457,6 +457,48 @@ def run_python_import_tests():
     return {"name": "Python import with ocp_vscode", "viewer_import_forms": 3, "viewer_calls_ignored": True}
 
 
+def run_python_scope_tests():
+    """BuildPart and nested Locations retain real context-manager lifecycles."""
+    source = (
+        "from build123d import BuildPart, Locations, Box, Cylinder\\n"
+        "with BuildPart() as part:\\n"
+        "    with Locations((0, 0, 0), (12, 0, 0)):\\n"
+        "        Box(4, 4, 4)\\n"
+        "        Cylinder(2, 6)\\n"
+        "result = part.part\\n"
+    )
+    graph = runtime.import_python_code(source)
+    scopes = graph.get("execution_scopes", [])
+    if [item["name"] for item in scopes] != ["BuildPart", "Locations"]:
+        raise AssertionError("Nested context managers were not represented: " + json.dumps(scopes))
+    scope_paths = [
+        node["data"].get("execution_scope_path", [])
+        for node in graph["nodes"]
+        if node["data"].get("definition", {}).get("name") in {"Box", "Cylinder"}
+    ]
+    if not scope_paths or any(len(path) != 2 for path in scope_paths):
+        raise AssertionError("Geometry operations lost their nested execution scope: " + repr(scope_paths))
+
+    evaluated = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
+    if evaluated["errors"]:
+        raise AssertionError("Nested build123d context execution failed: " + json.dumps(evaluated["errors"]))
+    result_nodes = [
+        node["id"] for node in graph["nodes"]
+        if node["data"].get("scope_result")
+    ]
+    if not result_nodes or result_nodes[-1] not in evaluated["previews"]:
+        raise AssertionError("BuildPart scope result did not produce a geometry preview")
+
+    exported = runtime.export_python_code(graph)
+    compile(exported, "<scoped-build123d-export>", "exec")
+    if "with b3d.BuildPart() as _scope_1:" not in exported or "with b3d.Locations(" not in exported:
+        raise AssertionError("Python export dropped nested context managers: " + exported)
+    if "_scope_1.part" not in exported:
+        raise AssertionError("Python export did not preserve the BuildPart result")
+    return {"name": "Python execution scopes", "nested_contexts": True,
+            "builder_result": True, "export": True}
+
+
 def run_python_export_tests():
     box = _definition("Box")
     cylinder = _definition("Cylinder")
@@ -543,7 +585,7 @@ def run_graph_plan_validation_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_value_constructor_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_value_constructor_tests(), run_python_scope_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

@@ -74,7 +74,7 @@ class PythonImportSourceTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
         }
         source = ast.unparse(functions["_type_name"])
-        self.assertIn('"Vertex"', source)
+        self.assertIn("'Vertex'", source)
         self.assertIn('return shape_name', source)
 
     def test_catalog_discovers_typed_build123d_collection_members(self):

@@ -10,6 +10,7 @@ import typing
 import types
 import collections.abc
 import hashlib
+import operator
 
 import build123d as b3d
 
@@ -2393,7 +2394,7 @@ def import_python_code(source):
         ],
         "outputs": [{"name": "result", "type": "Any"}],
     }
-    _CATALOG_CALLABLES[_PYTHON_SUBSCRIPT_ID] = __import__("operator").getitem
+    _CATALOG_CALLABLES[_PYTHON_SUBSCRIPT_ID] = operator.getitem
     _CATALOG_CALLABLES[_PYTHON_SLICE_ID] = slice
     by_name = {}
     for definition_id, definition in definitions.items():

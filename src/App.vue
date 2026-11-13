@@ -689,6 +689,9 @@ async function downloadPython() {
               </label>
               <div class="settings-divider"></div>
               <div class="settings-export-actions">
+                <span>Python interchange</span>
+                <input ref="pythonFileInput" type="file" accept=".py,text/x-python,text/plain" hidden @change="importPythonFile" />
+                <Button icon="pi pi-file-import" label="Import Python script" text severity="secondary" @click="pythonFileInput?.click()" :disabled="!runtime.isReady" />
                 <span>Export</span>
                 <Button icon="pi pi-download" label="STEP model" text severity="secondary" @click="downloadStep(); settingsPopover?.hide()" />
                 <Button icon="pi pi-file-export" label="Python script" text severity="secondary" @click="downloadPython()" />

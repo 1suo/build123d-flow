@@ -47,5 +47,6 @@ export class PythonRuntime {
   evaluate(graph: GraphDocument): Promise<EvaluationResult> { return this.request<EvaluationResult>("evaluate", graph); }
   exportStep(): Promise<Uint8Array | null> { return this.request<Uint8Array | null>("exportStep"); }
   exportPython(graph: GraphDocument): Promise<string> { return this.request<string>("exportPython", graph); }
+  importPython(source: string): Promise<GraphDocument> { return this.request<GraphDocument>("importPython", source); }
   terminate(): void { this.worker?.terminate(); this.worker = null; this.ready = false; this.failPending(new Error("Python worker terminated")); }
 }

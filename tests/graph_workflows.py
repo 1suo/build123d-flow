@@ -493,10 +493,27 @@ def run_python_scope_tests():
     compile(exported, "<scoped-build123d-export>", "exec")
     if "with b3d.BuildPart() as _scope_1:" not in exported or "with b3d.Locations(" not in exported:
         raise AssertionError("Python export dropped nested context managers: " + exported)
-    if "_scope_1.part" not in exported:
-        raise AssertionError("Python export did not preserve the BuildPart result")
+    if "_scope_1.part" not in exported or "b3d.Mode.ADD" not in exported:
+        raise AssertionError("Python export did not preserve builder result/configuration")
+
+    sketch_source = (
+        "from build123d import BuildSketch, Plane, Rectangle\\n"
+        "with BuildSketch(Plane.XY):\\n"
+        "    Rectangle(6, 8)\\n"
+    )
+    sketch_graph = runtime.import_python_code(sketch_source)
+    encoded_plane = sketch_graph["execution_scopes"][0]["args"][0]
+    if encoded_plane.get("__flow_object__") != "Plane":
+        raise AssertionError("Plane.XY was not encoded as a portable scope value: " + repr(encoded_plane))
+    sketch_result = json.loads(runtime.evaluate_graph_json(json.dumps(sketch_graph)))
+    if sketch_result["errors"]:
+        raise AssertionError("BuildSketch(Plane.XY) scope failed: " + json.dumps(sketch_result["errors"]))
+    sketch_export = runtime.export_python_code(sketch_graph)
+    compile(sketch_export, "<buildsketch-export>", "exec")
+    if "b3d.Plane(" not in sketch_export:
+        raise AssertionError("BuildSketch plane constant was not restored by export")
     return {"name": "Python execution scopes", "nested_contexts": True,
-            "builder_result": True, "export": True}
+            "builder_result": True, "enum_and_plane_values": True, "export": True}
 
 
 def run_python_export_tests():

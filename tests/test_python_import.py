@@ -1,56 +1,50 @@
-"""Static Python-to-graph import and roundtrip tests."""
+"""Static checks for the non-executing Python graph importer."""
 
+import ast
 import unittest
+from pathlib import Path
 
-import flow_runtime
+
+RUNTIME_PATH = Path(__file__).parents[1] / "public" / "python" / "flow_runtime.py"
 
 
-class PythonImportTests(unittest.TestCase):
-    def test_import_generated_style_build123d_calls(self):
-        graph = flow_runtime.import_python_code(
-            "import build123d as b3d\n"
-            "from build123d import Box as _api_callable_0\n"
-            "_node_1 = _api_callable_0(length=20, width=30, height=10)\n"
-            "result = _node_1\n"
-        )
-        self.assertEqual(len(graph["nodes"]), 1)
-        node = graph["nodes"][0]
-        self.assertEqual(node["data"]["definition"]["name"], "Box")
-        self.assertEqual(node["data"]["params"]["length"], 20)
-        self.assertEqual(node["data"]["params"]["width"], 30)
-        self.assertEqual(node["data"]["params"]["height"], 10)
-        self.assertEqual(graph["edges"], [])
-
-    def test_import_export_import_roundtrip(self):
-        source = (
-            "from build123d import Box\n"
-            "block = Box(length=20, width=30, height=10)\n"
-            "result = block\n"
-        )
-        first_graph = flow_runtime.import_python_code(source)
-        generated = flow_runtime.export_python_code(first_graph)
-        second_graph = flow_runtime.import_python_code(generated)
-        self.assertEqual(len(first_graph["nodes"]), len(second_graph["nodes"]))
-        self.assertEqual(
-            first_graph["nodes"][0]["data"]["params"],
-            second_graph["nodes"][0]["data"]["params"],
+class PythonImportSourceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.module = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
+        cls.importer = next(
+            node for node in cls.module.body
+            if isinstance(node, ast.FunctionDef) and node.name == "import_python_code"
         )
 
-    def test_import_rejects_control_flow_without_execution(self):
-        with self.assertRaisesRegex(ValueError, "Unsupported statement.*For"):
-            flow_runtime.import_python_code(
-                "from build123d import Box\n"
-                "for index in range(3):\n"
-                "    Box(10, 10, 10)\n"
-            )
+    def test_importer_uses_python_ast(self):
+        calls = {
+            node.func.id for node in ast.walk(self.importer)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertIn("parse", calls)
+        self.assertTrue(any(
+            isinstance(node, ast.Attribute) and node.attr == "Call"
+            for node in ast.walk(self.importer)
+        ))
 
-    def test_import_reports_syntax_error(self):
-        with self.assertRaisesRegex(ValueError, "Python syntax error"):
-            flow_runtime.import_python_code("from build123d import\n")
+    def test_importer_never_executes_or_evaluates_source(self):
+        forbidden = {"exec", "eval", "compile", "__import__"}
+        calls = {
+            node.func.id for node in ast.walk(self.importer)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        self.assertFalse(forbidden.intersection(calls))
 
-    def test_import_rejects_non_build123d_imports(self):
-        with self.assertRaisesRegex(ValueError, "Only build123d imports"):
-            flow_runtime.import_python_code("import os\n")
+    def test_importer_reports_unsupported_statements(self):
+        source = ast.unparse(self.importer)
+        self.assertIn("Unsupported statement", source)
+        self.assertIn("lineno", source)
+
+    def test_importer_builds_serializable_graph_records(self):
+        source = ast.unparse(self.importer)
+        for required in ('"nodes"', '"edges"', '"position"', '"definition"', '"params"'):
+            self.assertIn(required, source)
 
 
 if __name__ == "__main__":

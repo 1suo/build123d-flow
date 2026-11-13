@@ -110,7 +110,8 @@ async function importExample(page: Page, source: string) {
   await expect(page.locator(".viewport-status-dot")).not.toHaveClass(/is-error/);
 }
 
-test("imports and evaluates the pinned upstream build123d examples corpus", async ({ page, request }) => {\n  test.setTimeout(45 * 60 * 1000);
+test("imports and evaluates the pinned upstream build123d examples corpus", async ({ page, request }) => {
+  test.setTimeout(45 * 60 * 1000);
   const pageErrors: string[] = [];
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto("./", { waitUntil: "domcontentloaded" });

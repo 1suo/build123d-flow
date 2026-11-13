@@ -2014,7 +2014,9 @@ def evaluate_graph_json(payload):
                 bound_signature = signature.replace(parameters=signature_parameters[1:])
 
                 def invoke(mapped):
-                    receiver_value = mapped.get(receiver_name)
+                    receiver_value = _coerce_graph_receiver(
+                        mapped.get(receiver_name), receiver_socket
+                    )
                     if receiver_value is None:
                         raise TypeError("Method {} requires receiver input '{}'; received inputs {}, incoming edges {}".format(
                             method_name, receiver_name, sorted(mapped),
@@ -2202,6 +2204,22 @@ def _coerce_annotation(value, annotation):
         if annotation is str:
             return str(value)
     return value
+
+
+def _coerce_graph_receiver(value, socket):
+    """Restore JSON-serialized build123d value objects before native method lookup."""
+    value_types = {
+        "Vector2": b3d.Vector,
+        "Vector3": b3d.Vector,
+        "Rotation": b3d.Rotation,
+        "Plane": b3d.Plane,
+        "Location": b3d.Location,
+        "Axis": b3d.Axis,
+        "Color": b3d.Color,
+        "Matrix": b3d.Matrix,
+    }
+    annotation = value_types.get(socket.get("type"))
+    return _coerce_annotation(value, annotation) if annotation is not None else value
 
 
 def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):

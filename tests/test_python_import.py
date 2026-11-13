@@ -52,6 +52,20 @@ class PythonImportSourceTests(unittest.TestCase):
         }
         self.assertFalse(forbidden.intersection(calls))
 
+    def test_member_resolution_matches_catalog_method_ids_not_display_names(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        importer = functions["import_python_code"]
+        resolver = next(
+            node for node in ast.walk(importer)
+            if isinstance(node, ast.FunctionDef) and node.name == "resolve_member"
+        )
+        source = ast.unparse(resolver)
+        self.assertIn('candidate_id.rsplit(".", 1)[-1] != member_name', source)
+        self.assertNotIn('candidate.get("name") != member_name', source)
+
     def test_catalog_discovers_typed_build123d_collection_members(self):
         functions = {
             node.name: node for node in self.module.body

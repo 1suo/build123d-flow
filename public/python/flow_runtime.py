@@ -1824,6 +1824,25 @@ def evaluate_graph_json(payload):
     scope_results = {}
     failed_scopes = set()
 
+    def restore_scope_value(value):
+        if isinstance(value, list):
+            return [restore_scope_value(item) for item in value]
+        if isinstance(value, dict):
+            if "__flow_enum__" in value:
+                module_name, class_name, member_name = value["__flow_enum__"]
+                enum_type = getattr(importlib.import_module(module_name), class_name)
+                return getattr(enum_type, member_name)
+            if "__flow_object__" in value:
+                object_type = value["__flow_object__"]
+                constructor = getattr(b3d, object_type)
+                if object_type == "Plane":
+                    return constructor(origin=value["origin"], x_dir=value["x_dir"], z_dir=value["z_dir"])
+                if object_type == "Location":
+                    return constructor(value["value"])
+                return constructor(*value["value"])
+            return {key: restore_scope_value(item) for key, item in value.items()}
+        return value
+
     def close_scope(scope_id, exception_info=(None, None, None)):
         entry = active_scopes.pop()
         manager = entry["manager"]
@@ -1853,7 +1872,9 @@ def evaluate_graph_json(payload):
                 raise ValueError("Unknown Python execution scope: " + str(scope_id))
             module = importlib.import_module(descriptor["module"])
             manager_type = getattr(module, descriptor["name"])
-            manager = manager_type(*descriptor.get("args", []), **descriptor.get("kwargs", {}))
+            manager_args = restore_scope_value(descriptor.get("args", []))
+            manager_kwargs = restore_scope_value(descriptor.get("kwargs", {}))
+            manager = manager_type(*manager_args, **manager_kwargs)
             try:
                 entered = manager.__enter__()
             except Exception as exc:
@@ -2633,19 +2654,56 @@ def import_python_code(source):
         raise ValueError("Unsupported expression '{}' at line {}".format(
             type(node).__name__, getattr(node, "lineno", "?")))
 
+    def encode_scope_value(value):
+        if isinstance(value, enum.Enum):
+            return {"__flow_enum__": [value.__class__.__module__,
+                                      value.__class__.__name__, value.name]}
+        if isinstance(value, b3d.Plane):
+            return {
+                "__flow_object__": "Plane",
+                "origin": list(value.origin), "x_dir": list(value.x_dir),
+                "z_dir": list(value.z_dir),
+            }
+        if isinstance(value, b3d.Location):
+            return {"__flow_object__": "Location", "value": list(value.to_tuple())}
+        if isinstance(value, b3d.Vector):
+            return {"__flow_object__": "Vector", "value": list(value)}
+        if isinstance(value, (list, tuple)):
+            return [encode_scope_value(item) for item in value]
+        if isinstance(value, dict):
+            return {key: encode_scope_value(item) for key, item in value.items()}
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        raise ValueError("Unsupported context-manager argument value: " + type(value).__name__)
+
     def scope_argument(node):
         if isinstance(node, ast.Constant):
             return node.value
         if isinstance(node, (ast.List, ast.Tuple)):
             values = [scope_argument(item) for item in node.elts]
-            return values if isinstance(node, ast.List) else tuple(values)
+            return values if isinstance(node, ast.List) else values
         if isinstance(node, ast.Dict):
             return {scope_argument(key): scope_argument(value)
                     for key, value in zip(node.keys, node.values)}
         if isinstance(node, ast.Attribute):
-            kind, value, *extra = expression(node)
-            if kind == "literal":
-                return value
+            path = []
+            current = node
+            while isinstance(current, ast.Attribute):
+                path.append(current.attr)
+                current = current.value
+            if isinstance(current, ast.Name):
+                root = current.id
+                value = None
+                if root in aliases and aliases[root] == "b3d":
+                    value = b3d
+                elif root in imported:
+                    value = getattr(b3d, imported[root], None)
+                elif hasattr(b3d, root):
+                    value = getattr(b3d, root, None)
+                for part in reversed(path):
+                    value = getattr(value, part, None) if value is not None else None
+                if value is not None:
+                    return encode_scope_value(value)
         if isinstance(node, ast.UnaryOp):
             try:
                 return ast.literal_eval(node)
@@ -2658,8 +2716,8 @@ def import_python_code(source):
                 if kind == "literal":
                     return value
         raise ValueError(
-            "Context-manager arguments must currently be literal build123d values "
-            "(line {})".format(getattr(node, "lineno", "?"))
+            "Context-manager arguments must be literal build123d values or "
+            "named build123d constants (line {})".format(getattr(node, "lineno", "?"))
         )
 
     def resolve_context_manager(node):
@@ -2820,8 +2878,27 @@ def export_python_code(payload):
             if descriptor is None:
                 raise ValueError("Unknown Python execution scope: " + str(scope_id))
             manager_name = descriptor["name"]
-            args = [repr(value) for value in descriptor.get("args", [])]
-            kwargs = ["{}={!r}".format(key, value)
+            def scope_code_value(value):
+                if isinstance(value, list):
+                    return "[" + ", ".join(scope_code_value(item) for item in value) + "]"
+                if isinstance(value, dict):
+                    if "__flow_enum__" in value:
+                        _, class_name, member_name = value["__flow_enum__"]
+                        return "b3d.{}.{}".format(class_name, member_name)
+                    if "__flow_object__" in value:
+                        object_type = value["__flow_object__"]
+                        if object_type == "Plane":
+                            fields = ["{}={}".format(key, scope_code_value(value[key]))
+                                      for key in ("origin", "x_dir", "z_dir")]
+                            return "b3d.Plane(" + ", ".join(fields) + ")"
+                        if object_type == "Location":
+                            return "b3d.Location(" + scope_code_value(value["value"]) + ")"
+                        return "b3d.Vector(" + ", ".join(scope_code_value(item) for item in value["value"]) + ")"
+                    return "{" + ", ".join(repr(key) + ": " + scope_code_value(item)
+                                            for key, item in value.items()) + "}"
+                return repr(value)
+            args = [scope_code_value(value) for value in descriptor.get("args", [])]
+            kwargs = ["{}={}".format(key, scope_code_value(value))
                       for key, value in descriptor.get("kwargs", {}).items()]
             manager_var = "_scope_" + str(len(active_export_scopes) + 1)
             call = "b3d.{}({})".format(manager_name, ", ".join(args + kwargs))

@@ -85,6 +85,16 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("'Vertex'", source)
         self.assertIn('return shape_name', source)
 
+    def test_unknown_receiver_can_resolve_only_a_unique_discovered_method(self):
+        functions = {
+            node.name: node for node in self.importer.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        source = ast.unparse(functions["resolve_member"])
+        self.assertIn('receiver_type in (None, "Any")', source)
+        self.assertIn('candidate_id.rsplit(".", 1)[-1] != member_name', source)
+        self.assertIn('candidates.append((0, candidate_id))', source)
+
     def test_catalog_discovers_typed_build123d_collection_members(self):
         functions = {
             node.name: node for node in self.module.body

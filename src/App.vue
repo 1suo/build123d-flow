@@ -489,12 +489,17 @@ async function importPythonSource(source: string, sourceLabel: string) {
         onParameter, onVisibility, onCollapse, onInspect,
       }
     }));
-    // Commit the new graph only after parsing and conversion both succeed.
-    nodes.value = importedNodes as Node[];
-    // Vue Flow resolves edge handles against mounted node handles. Wait for
-    // the imported nodes to render before installing edges that target them.
+    // Replace the Vue Flow store through its public mutation API. Setting the
+    // v-model arrays directly can race Vue Flow's internal node/edge store and
+    // leave imported wires visible but absent from the graph sent to Pyodide.
+    edges.value = [];
+    nodes.value = [];
     await nextTick();
-    edges.value = imported.edges as Edge[];
+    addNodes(importedNodes as Node[]);
+    // Target/source handles only exist after the custom nodes have mounted.
+    await nextTick();
+    addEdges(imported.edges as Edge[]);
+    await nextTick();
     executionScopes.value = imported.execution_scopes ?? [];
     nextId = importedNodes.length + 1;
     previews.value = {};

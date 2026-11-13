@@ -80,7 +80,7 @@ def _type_name(annotation):
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
-            for shape_name in ("Solid", "Compound", "Face", "Wire", "Edge", "Shell", "Sketch", "Part"):
+            for shape_name in ("Solid", "Compound", "Face", "Edge", "Wire", "Vertex", "Shell", "Sketch", "Part"):
                 shape_class = getattr(b3d, shape_name, None)
                 if inspect.isclass(shape_class) and issubclass(annotation, shape_class):
                     return shape_name
@@ -2652,19 +2652,8 @@ def import_python_code(source):
                         raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
                             node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
             if not definition_id:
-                receiver_candidates = []
-                if isinstance(node.func, ast.Attribute):
-                    for candidate_id, candidate in definitions.items():
-                        if candidate_id.rsplit(".", 1)[-1] != node.func.attr:
-                            continue
-                        candidate_receiver = next((item for item in candidate.get("inputs", [])
-                                                   if item.get("name") in {"self", "cls"}), None)
-                        if candidate_receiver is not None:
-                            receiver_candidates.append((candidate_id, candidate_receiver.get("type")))
-                raise ValueError("Unsupported or ambiguous call at line {}: {} "
-                                 "(receiver={}, receiver_type={}, candidates={})".format(
-                    node.lineno, ast.unparse(node.func), receiver, receiver_type,
-                    receiver_candidates))
+                raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
+                    node.lineno, ast.unparse(node.func)))
             definition = definitions[definition_id]
             sockets = definition.get("inputs", [])
             params, links = {}, []

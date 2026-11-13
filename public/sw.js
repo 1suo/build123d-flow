@@ -1,4 +1,4 @@
-const CACHE_NAME = "build123d-flow-static-v314.0.7-v15";
+const CACHE_NAME = "build123d-flow-static-v314.0.7-v16";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

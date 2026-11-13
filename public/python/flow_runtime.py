@@ -2888,6 +2888,34 @@ def import_python_code(source):
                     links.append((socket_name, operand[1], operand[2]))
             created = add_node(_PYTHON_SUBSCRIPT_ID, params, links, node.lineno)
             return ("ref", created, "result")
+        if isinstance(node, ast.Compare):
+            operators = {
+                ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt,
+                ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge,
+                ast.In: lambda left, right: left in right,
+                ast.NotIn: lambda left, right: left not in right,
+                ast.Is: operator.is_, ast.IsNot: operator.is_not,
+            }
+            operands = [expression(node.left)] + [expression(item) for item in node.comparators]
+            if any(item[0] != "literal" for item in operands):
+                raise ValueError("Graph-dependent conditions are not yet importable (line {})".format(node.lineno))
+            values = [materialize_literal(item[1]) for item in operands]
+            result = True
+            for index, operation in enumerate(node.ops):
+                function = operators.get(type(operation))
+                if function is None:
+                    raise ValueError("Unsupported comparison at line {}".format(node.lineno))
+                try:
+                    result = result and function(values[index], values[index + 1])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Invalid comparison at line {}: {}".format(node.lineno, exc))
+            return ("literal", result)
+        if isinstance(node, ast.BoolOp):
+            values = [expression(item) for item in node.values]
+            if any(item[0] != "literal" for item in values):
+                raise ValueError("Graph-dependent conditions are not yet importable (line {})".format(node.lineno))
+            raw = [materialize_literal(item[1]) for item in values]
+            return ("literal", all(raw) if isinstance(node.op, ast.And) else any(raw))
         if isinstance(node, ast.UnaryOp):
             methods = {
                 ast.USub: ("__neg__", operator.neg),
@@ -3142,6 +3170,44 @@ def import_python_code(source):
                     if not isinstance(target, ast.Name):
                         raise ValueError("Only simple variable assignments are supported (line {})".format(statement.lineno))
                     variables[target.id] = result
+                continue
+            if isinstance(statement, ast.For):
+                if statement.orelse:
+                    raise ValueError("for-else is not supported (line {})".format(statement.lineno))
+                if not isinstance(statement.target, ast.Name):
+                    raise ValueError("Only simple for-loop targets are supported (line {})".format(statement.lineno))
+                iterable = None
+                if isinstance(statement.iter, (ast.List, ast.Tuple)):
+                    values = [expression(item) for item in statement.iter.elts]
+                    if all(item[0] == "literal" for item in values):
+                        iterable = [item[1] for item in values]
+                elif (isinstance(statement.iter, ast.Call)
+                      and isinstance(statement.iter.func, ast.Name)
+                      and statement.iter.func.id == "range"):
+                    args = [expression(item) for item in statement.iter.args]
+                    if len(args) not in (1, 2, 3) or any(item[0] != "literal" or not isinstance(item[1], int) for item in args):
+                        raise ValueError("range() loop bounds must be integer literals (line {})".format(statement.lineno))
+                    try:
+                        iterable = list(range(*(item[1] for item in args)))
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("Invalid range() at line {}: {}".format(statement.lineno, exc))
+                if iterable is None:
+                    raise ValueError("For-loops require a literal list, tuple, or range() (line {})".format(statement.lineno))
+                previous = variables.get(statement.target.id)
+                had_previous = statement.target.id in variables
+                for item in iterable:
+                    variables[statement.target.id] = ("literal", item)
+                    process_statements(statement.body)
+                if had_previous:
+                    variables[statement.target.id] = previous
+                else:
+                    variables.pop(statement.target.id, None)
+                continue
+            if isinstance(statement, ast.If):
+                condition = expression(statement.test)
+                if condition[0] != "literal" or not isinstance(condition[1], bool):
+                    raise ValueError("if conditions must be statically known booleans (line {})".format(statement.lineno))
+                process_statements(statement.body if condition[1] else statement.orelse)
                 continue
             if isinstance(statement, ast.Pass):
                 continue

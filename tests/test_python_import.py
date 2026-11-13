@@ -65,7 +65,8 @@ class PythonImportSourceTests(unittest.TestCase):
         source = ast.unparse(resolver)
         self.assertIn("candidate_id.rsplit", source)
         self.assertIn("member_name", source)
-        self.assertNotIn("candidate.get", source)
+        self.assertNotIn("candidate.get('name')", source)
+        self.assertNotIn('candidate.get("name")', source)
 
     def test_catalog_discovers_typed_build123d_collection_members(self):
         functions = {

@@ -454,7 +454,33 @@ def run_python_import_tests():
             raise
     else:
         raise AssertionError("Importer unexpectedly allowed an unrelated third-party import")
-    return {"name": "Python import with ocp_vscode", "viewer_import_forms": 3, "viewer_calls_ignored": True}
+    # Regression: resolve a method on the result of another method call.
+    # The receiver of group_by is the value produced by vertices(), not a
+    # lexical variable or a direct constructor node.
+    chained = runtime.import_python_code(
+        "import build123d as b3d\\n"
+        "fender = b3d.Box(10, 10, 10)\\n"
+        "groups = fender.vertices().group_by(b3d.Axis.Z)\\n"
+    )
+    chained_names = [
+        node["data"]["definition"].get("name")
+        for node in chained.get("nodes", [])
+    ]
+    if "Box" not in chained_names or "vertices" not in chained_names or "group_by" not in chained_names:
+        raise AssertionError("Chained method resolution lost a catalog operation: " + repr(chained_names))
+    by_name = {
+        node["data"]["definition"].get("name"): node["id"]
+        for node in chained.get("nodes", [])
+    }
+    if not any(
+        edge["source"] == by_name["vertices"] and edge["target"] == by_name["group_by"]
+        for edge in chained.get("edges", [])
+    ):
+        raise AssertionError("Chained method receiver was not connected to its consumer")
+
+    return {"name": "Python import with ocp_vscode and chained methods",
+            "viewer_import_forms": 3, "viewer_calls_ignored": True,
+            "chained_method_resolution": True}
 
 
 def run_python_scope_tests():

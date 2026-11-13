@@ -1574,9 +1574,9 @@ def _socket_data_structure(socket):
 def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None, visiting=None):
     """Resolve output collection shape through item-consuming connections.
 
-    This mirrors the editor's graph type propagation. A node that consumes a
-    stream item-wise produces a stream of its own output; structure-consuming
-    inputs do not propagate collection shape.
+    A collection-producing operation mapped over a stream produces a nested
+    tree. Structure-consuming inputs preserve their values and do not
+    participate in mapping.
     """
     memo = memo if memo is not None else {}
     visiting = visiting if visiting is not None else set()
@@ -1593,11 +1593,8 @@ def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None
                    if item.get("name") == output_name), None)
     if output is None:
         return "item"
-    declared = _socket_data_structure(output)
-    if declared != "item":
-        memo[key] = declared
-        return declared
 
+    declared = _socket_data_structure(output)
     visiting.add(key)
     inferred = "item"
     for input_name, (source_id, source_output) in incoming.get(node_id, {}).items():
@@ -1618,9 +1615,14 @@ def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None
             break
         if upstream in ("list", "tuple"):
             inferred = "list"
+
     visiting.remove(key)
-    memo[key] = inferred
-    return inferred
+    if declared in ("list", "tuple") and inferred in ("list", "tree"):
+        result = "tree"
+    else:
+        result = declared if declared != "item" else inferred
+    memo[key] = result
+    return result
 
 
 def _stream_item_kind(value):
@@ -2405,6 +2407,10 @@ def import_python_code(source):
     imported = {}
     viewer_modules = {}
     viewer_functions = set()
+    stdlib_modules = {}
+    stdlib_symbols = {}
+    stdlib_star_modules = set()
+    safe_stdlib_modules = {"math", "copy", "functools", "itertools", "operator", "logging", "timeit"}
     viewer_api = {"show", "show_object", "show_all", "reset_show", "set_defaults"}
     for statement in tree.body:
         if isinstance(statement, ast.Import):
@@ -2413,6 +2419,8 @@ def import_python_code(source):
                     aliases[item.asname or item.name] = "b3d"
                 elif item.name == "ocp_vscode":
                     viewer_modules[item.asname or item.name] = "ocp_vscode"
+                elif item.name in safe_stdlib_modules:
+                    stdlib_modules[item.asname or item.name] = item.name
                 else:
                     raise ValueError("Unsupported import at line {}: {}".format(
                         statement.lineno, item.name))
@@ -2430,8 +2438,18 @@ def import_python_code(source):
                     else:
                         raise ValueError("Unsupported ocp_vscode import at line {}: {}".format(
                             statement.lineno, item.name))
+            elif statement.module in safe_stdlib_modules:
+                module = importlib.import_module(statement.module)
+                for item in statement.names:
+                    if item.name == "*":
+                        stdlib_star_modules.add(statement.module)
+                    elif hasattr(module, item.name):
+                        stdlib_symbols[item.asname or item.name] = (statement.module, item.name)
+                    else:
+                        raise ValueError("Unsupported standard-library import at line {}: {}".format(
+                            statement.lineno, item.name))
             else:
-                raise ValueError("Only build123d and ocp_vscode imports are supported (line {})".format(statement.lineno))
+                raise ValueError("Only build123d, ocp_vscode, and approved standard-library imports are supported (line {})".format(statement.lineno))
 
     def is_viewer_call(node):
         if not isinstance(node, ast.Call):
@@ -2550,6 +2568,8 @@ def import_python_code(source):
 
     graph_nodes, graph_edges = [], []
     variables = {}
+    stream_variables = set()
+    mapping_matching = "longest"
     active_scope_ids = []
     execution_scopes = []
     scope_counter = 0
@@ -2567,15 +2587,18 @@ def import_python_code(source):
             in {"BuildPart", "BuildSketch", "BuildLine"}
             for scope_id in active_scope_ids
         )
+        data = {"definition": definition, "params": params,
+                "execution_scope_path": list(active_scope_ids),
+                "visible": not builder_scope_active and any(
+                    socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
+                    for socket in definition.get("outputs", [])
+                )}
+        if mapping_matching != "longest":
+            data["data_matching"] = mapping_matching
         graph_nodes.append({
             "id": node_id, "type": "api",
             "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
-            "data": {"definition": definition, "params": params,
-                     "execution_scope_path": list(active_scope_ids),
-                     "visible": not builder_scope_active and any(
-                socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
-                for socket in definition.get("outputs", [])
-            )}
+            "data": data
         })
         for input_name, source_id, output_name in links:
             graph_edges.append({
@@ -2584,6 +2607,57 @@ def import_python_code(source):
                 "sourceHandle": output_name, "targetHandle": input_name
             })
         return node_id
+
+    def add_collection_node(items, structure, line):
+        """Build a structural list/tuple value from literal and graph-backed items."""
+        input_sockets = [
+            {"name": "item_{}".format(index), "type": "Any", "required": True,
+             "data_access": "structure"}
+            for index in range(len(items))
+        ]
+        output_structure = structure
+        source_nodes = {item["id"]: item for item in graph_nodes}
+        for kind, value, *extra in items:
+            if kind != "ref":
+                continue
+            source = source_nodes.get(value)
+            if source is None:
+                continue
+            output_name = extra[0] if extra else "result"
+            output = next((item for item in source["data"]["definition"].get("outputs", [])
+                           if item.get("name") == output_name), None)
+            if output and _socket_data_structure(output) in {"list", "tuple", "tree"}:
+                output_structure = "tree"
+                break
+        definition_id = "core.python.collect." + hashlib.sha1(
+            (structure + ":" + str(len(items))).encode("utf-8")
+        ).hexdigest()[:12]
+        definition = {
+            "id": definition_id, "name": "Python " + ("Tuple" if structure == "tuple" else "List"),
+            "source": "python", "kind": "function", "category": "Python",
+            "inputs": input_sockets,
+            "outputs": [{"name": "result", "type": "Any", "data_structure": output_structure}],
+        }
+        definitions[definition_id] = definition
+        names = [socket["name"] for socket in input_sockets]
+        def collect(**values):
+            result = [values[name] for name in names]
+            return tuple(result) if structure == "tuple" else result
+        collect.__signature__ = inspect.Signature([
+            inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY) for name in names
+        ])
+        _CATALOG_CALLABLES[definition_id] = collect
+        _CATALOG_SIGNATURES[definition_id] = collect.__signature__
+        _CATALOG_HINT_TARGETS[definition_id] = False
+        params, links = {}, []
+        for index, (kind, value, *extra) in enumerate(items):
+            name = "item_{}".format(index)
+            if kind == "literal":
+                params[name] = literal_json_value(value)
+            else:
+                links.append((name, value, extra[0]))
+        node_id = add_node(definition_id, params, links, line)
+        return ("ref", node_id, "result")
 
     def resolve_callable(node):
         if isinstance(node, ast.Name):
@@ -2598,11 +2672,45 @@ def import_python_code(source):
             if isinstance(current, ast.Name):
                 root = current.id
                 if root in aliases and aliases[root] == "b3d":
-                    return by_name.get(path[0]) if len(path) == 1 else None
+                    return by_name.get(path[0]) if len(path) == 1 else by_name.get(".".join(reversed(path)))
                 if root in imported:
                     return by_name.get(imported[root] + "." + ".".join(reversed(path)))
+                if hasattr(b3d, root):
+                    return by_name.get(root + "." + ".".join(reversed(path)))
             return None
         return None
+
+    def safe_stdlib_value(module_name, attribute):
+        module = importlib.import_module(module_name)
+        value = getattr(module, attribute, None)
+        if callable(value) or isinstance(value, (int, float, str, bool, tuple)):
+            return value
+        return None
+
+    def resolve_safe_stdlib_name(name):
+        if name in stdlib_symbols:
+            module_name, attribute = stdlib_symbols[name]
+            return safe_stdlib_value(module_name, attribute)
+        for module_name in stdlib_star_modules:
+            value = safe_stdlib_value(module_name, name)
+            if value is not None:
+                return value
+        return None
+
+    def resolve_safe_stdlib_attribute(node):
+        path = []
+        current = node
+        while isinstance(current, ast.Attribute):
+            path.append(current.attr)
+            current = current.value
+        if not isinstance(current, ast.Name) or current.id not in stdlib_modules:
+            return None
+        value = importlib.import_module(stdlib_modules[current.id])
+        for part in reversed(path):
+            value = getattr(value, part, None)
+            if value is None:
+                return None
+        return value
 
     def literal_json_value(value):
         if isinstance(value, enum.Enum):
@@ -2682,7 +2790,68 @@ def import_python_code(source):
             if all(item[0] == "literal" for item in values):
                 raw = [item[1] for item in values]
                 return ("literal", raw if isinstance(node, ast.List) else tuple(raw))
-            raise ValueError("Connected collections are not yet importable (line {})".format(node.lineno))
+            return add_collection_node(
+                values, "list" if isinstance(node, ast.List) else "tuple", node.lineno
+            )
+        if isinstance(node, ast.ListComp):
+            saved_variables = dict(variables)
+            saved_stream_variables = set(stream_variables)
+            saved_matching = mapping_matching
+            generator_streams = []
+            def graph_depends_on(node_id, ancestors):
+                pending = [node_id]
+                visited = set()
+                while pending:
+                    current_id = pending.pop()
+                    if current_id in visited:
+                        continue
+                    visited.add(current_id)
+                    for edge in graph_edges:
+                        if edge.get("target") != current_id:
+                            continue
+                        source_id = edge.get("source")
+                        if source_id in ancestors:
+                            return True
+                        pending.append(source_id)
+                return False
+            def compile_generator(index):
+                nonlocal mapping_matching
+                generator = node.generators[index]
+                if generator.is_async or not isinstance(generator.target, ast.Name):
+                    raise ValueError("Only synchronous simple-name comprehension targets are supported (line {})".format(node.lineno))
+                iterable = expression(generator.iter)
+                if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple)):
+                    iterable = add_collection_node(
+                        [("literal", item) for item in iterable[1]], "list", generator.iter.lineno
+                    )
+                if iterable[0] != "ref":
+                    raise ValueError("A comprehension iterable must be a sequence or graph output (line {})".format(generator.iter.lineno))
+                if generator_streams:
+                    outer_ids = {stream[1] for stream in generator_streams}
+                    mapping_matching = "longest" if graph_depends_on(iterable[1], outer_ids) else "cross"
+                variables[generator.target.id] = iterable
+                stream_variables.add(generator.target.id)
+                generator_streams.append(iterable)
+                for condition in generator.ifs:
+                    resolved = expression(condition)
+                    if resolved[0] != "literal" or not isinstance(resolved[1], bool):
+                        raise ValueError("Graph-dependent comprehension filters are not yet importable (line {})".format(condition.lineno))
+                    if not resolved[1]:
+                        return ("literal", [])
+                if index + 1 < len(node.generators):
+                    return compile_generator(index + 1)
+                return expression(node.elt)
+            try:
+                result = compile_generator(0)
+                if result[0] == "literal":
+                    raise ValueError("A comprehension must produce a graph-backed operation (line {})".format(node.lineno))
+                return result
+            finally:
+                variables.clear()
+                variables.update(saved_variables)
+                stream_variables.clear()
+                stream_variables.update(saved_stream_variables)
+                mapping_matching = saved_matching
         if isinstance(node, ast.Dict):
             keys = [expression(item) for item in node.keys]
             values = [expression(item) for item in node.values]
@@ -2694,8 +2863,18 @@ def import_python_code(source):
                 return variables[node.id]
             if node.id in {"True", "False", "None"}:
                 return ("literal", {"True": True, "False": False, "None": None}[node.id])
+            standard_value = resolve_safe_stdlib_name(node.id)
+            if standard_value is not None and not callable(standard_value):
+                return ("literal", standard_value)
+            build123d_value = getattr(b3d, imported.get(node.id, node.id), None)
+            if isinstance(build123d_value, (int, float, str, bool, enum.Enum,
+                                             b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
+                return ("literal", build123d_value)
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
+            standard_value = resolve_safe_stdlib_attribute(node)
+            if standard_value is not None and not callable(standard_value):
+                return ("literal", standard_value)
             receiver_root = node.value
             while isinstance(receiver_root, ast.Attribute):
                 receiver_root = receiver_root.value
@@ -2763,6 +2942,61 @@ def import_python_code(source):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == "locals":
+                local_names = set(variables) | set(imported) | set(viewer_functions) | set(stdlib_symbols)
+                return ("literal", {name: True for name in local_names})
+            safe_callable = None
+            if isinstance(node.func, ast.Name):
+                candidate = resolve_safe_stdlib_name(node.func.id)
+                if candidate is not None and callable(candidate):
+                    safe_callable = candidate
+            elif isinstance(node.func, ast.Attribute):
+                candidate = resolve_safe_stdlib_attribute(node.func)
+                if candidate is not None and callable(candidate):
+                    safe_callable = candidate
+            if safe_callable is not None:
+                safe_args = [expression(argument) for argument in node.args]
+                safe_kwargs = {}
+                for keyword in node.keywords:
+                    if keyword.arg is None:
+                        raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
+                    safe_kwargs[keyword.arg] = expression(keyword.value)
+                if all(item[0] == "literal" for item in safe_args) and all(item[0] == "literal" for item in safe_kwargs.values()):
+                    try:
+                        result = safe_callable(
+                            *[materialize_literal(item[1]) for item in safe_args],
+                            **{name: materialize_literal(item[1]) for name, item in safe_kwargs.items()}
+                        )
+                        if isinstance(result, range):
+                            result = list(result)
+                        return ("literal", result)
+                    except Exception as exc:
+                        raise ValueError("Standard-library call failed at line {}: {}".format(node.lineno, exc))
+            if isinstance(node.func, ast.Name) and node.func.id in {
+                "range", "enumerate", "zip", "len", "min", "max", "abs", "round",
+                "str", "int", "float", "bool", "list", "tuple", "sorted", "reversed",
+                "all", "any", "sum", "divmod", "pow"
+            }:
+                builtin_args = [expression(argument) for argument in node.args]
+                builtin_kwargs = {
+                    keyword.arg: expression(keyword.value) for keyword in node.keywords
+                    if keyword.arg is not None
+                }
+                if all(item[0] == "literal" for item in builtin_args) and all(item[0] == "literal" for item in builtin_kwargs.values()):
+                    functions = {
+                        "range": range, "enumerate": enumerate, "zip": zip, "len": len,
+                        "min": min, "max": max, "abs": abs, "round": round, "str": str,
+                        "int": int, "float": float, "bool": bool, "list": list, "tuple": tuple,
+                        "sorted": sorted, "reversed": reversed, "all": all, "any": any,
+                        "sum": sum, "divmod": divmod, "pow": pow,
+                    }
+                    result = functions[node.func.id](
+                        *[materialize_literal(item[1]) for item in builtin_args],
+                        **{name: materialize_literal(item[1]) for name, item in builtin_kwargs.items()}
+                    )
+                    if isinstance(result, (range, enumerate, zip, reversed)):
+                        result = list(result)
+                    return ("literal", result)
             # Resolve build123d value constructors from the destination socket's
             # declared type. This shares the runtime's type contract instead of
             # maintaining one importer exception per value class.
@@ -3108,6 +3342,31 @@ def import_python_code(source):
 
     def process_statements(statements):
         nonlocal scope_counter
+
+        def assign_target(target, assigned, line):
+            if isinstance(target, ast.Name):
+                variables[target.id] = assigned
+                return
+            if isinstance(target, (ast.Tuple, ast.List)):
+                if assigned[0] == "literal" and isinstance(assigned[1], (list, tuple)):
+                    values = [("literal", item) for item in assigned[1]]
+                elif assigned[0] == "ref":
+                    values = []
+                    for index in range(len(target.elts)):
+                        index_node = add_node(
+                            _PYTHON_SUBSCRIPT_ID, {"index": index},
+                            [("value", assigned[1], assigned[2])], line
+                        )
+                        values.append(("ref", index_node, "result"))
+                else:
+                    raise ValueError("Cannot unpack this assignment at line {}".format(line))
+                if len(values) != len(target.elts):
+                    raise ValueError("Unpacking length mismatch at line {}".format(line))
+                for child, value in zip(target.elts, values):
+                    assign_target(child, value, line)
+                return
+            raise ValueError("Unsupported assignment target at line {}".format(line))
+
         for statement in statements:
             if isinstance(statement, (ast.Import, ast.ImportFrom)):
                 continue
@@ -3167,32 +3426,38 @@ def import_python_code(source):
                 result = expression(value_node)
                 targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
                 for target in targets:
-                    if not isinstance(target, ast.Name):
-                        raise ValueError("Only simple variable assignments are supported (line {})".format(statement.lineno))
-                    variables[target.id] = result
+                    assign_target(target, result, statement.lineno)
                 continue
             if isinstance(statement, ast.For):
                 if statement.orelse:
                     raise ValueError("for-else is not supported (line {})".format(statement.lineno))
-                if not isinstance(statement.target, ast.Name):
-                    raise ValueError("Only a simple for-loop target is supported (line {})".format(statement.lineno))
                 iterable = expression(statement.iter)
+                if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple)):
+                    iterable = add_collection_node(
+                        [("literal", item) for item in iterable[1]], "list", statement.iter.lineno
+                    )
                 if iterable[0] != "ref":
                     raise ValueError(
-                        "A for-loop iterable must be a graph output (line {})".format(statement.lineno)
+                        "A for-loop iterable must be a sequence or graph output (line {})".format(statement.lineno)
                     )
-                target_name = statement.target.id
-                had_previous = target_name in variables
-                previous = variables.get(target_name)
-                # A loop variable is a stream alias. The body is translated exactly
-                # once; the evaluator maps each consuming node over the iterable and
-                # collects the results, preserving nested collection structure.
-                variables[target_name] = iterable
-                process_statements(statement.body)
-                if had_previous:
-                    variables[target_name] = previous
+                saved_stream_variables = set(stream_variables)
+                if isinstance(statement.target, ast.Name):
+                    target_names = [statement.target]
+                    variables[statement.target.id] = iterable
+                    stream_variables.add(statement.target.id)
+                elif isinstance(statement.target, (ast.Tuple, ast.List)):
+                    target_names = [item for item in statement.target.elts if isinstance(item, ast.Name)]
+                    if len(target_names) != len(statement.target.elts):
+                        raise ValueError("Only simple names are supported in a for-loop unpack target (line {})".format(statement.lineno))
+                    assign_target(statement.target, iterable, statement.lineno)
+                    stream_variables.update(item.id for item in target_names)
                 else:
-                    variables.pop(target_name, None)
+                    raise ValueError("Unsupported for-loop target (line {})".format(statement.lineno))
+                process_statements(statement.body)
+                stream_variables.clear()
+                stream_variables.update(saved_stream_variables)
+                for target in target_names:
+                    variables.pop(target.id, None)
                 continue
             if isinstance(statement, ast.AugAssign):
                 if not isinstance(statement.target, ast.Name):

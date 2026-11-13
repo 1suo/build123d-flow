@@ -2382,11 +2382,11 @@ def import_python_code(source):
             if receiver_type in accepted:
                 score = 3
             else:
-                actual_class = getattr(b3d, receiver_type, None)
+                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
                 compatible = False
                 if inspect.isclass(actual_class):
                     for accepted_type in accepted:
-                        expected_class = getattr(b3d, accepted_type, None)
+                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
                         if inspect.isclass(expected_class):
                             try:
                                 if issubclass(actual_class, expected_class):

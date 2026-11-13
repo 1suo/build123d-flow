@@ -1991,8 +1991,9 @@ def evaluate_graph_json(payload):
                 def invoke(mapped):
                     receiver_value = mapped.get(receiver_name)
                     if receiver_value is None:
-                        raise TypeError("Method {} requires receiver input '{}'; received inputs {}".format(
-                            method_name, receiver_name, sorted(mapped)))
+                        raise TypeError("Method {} requires receiver input '{}'; received inputs {}, incoming edges {}".format(
+                            method_name, receiver_name, sorted(mapped),
+                            sorted(incoming.get(node_id, {}))))
                     bound_method = getattr(receiver_value, method_name)
                     arguments = {name: value for name, value in mapped.items()
                                  if name != receiver_name}

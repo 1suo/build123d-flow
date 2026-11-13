@@ -2598,12 +2598,16 @@ def import_python_code(source):
                             value = getattr(value, part, None)
                         if isinstance(value, enum.Enum):
                             return ("literal", value.name)
+                        if isinstance(value, b3d.Axis):
+                            return ("literal", [list(value.position), list(value.direction)])
                 elif hasattr(b3d, root):
                     value = getattr(b3d, root, None)
                     for part in reversed(path):
                         value = getattr(value, part, None)
                     if isinstance(value, enum.Enum):
                         return ("literal", value.name)
+                    if isinstance(value, b3d.Axis):
+                        return ("literal", [list(value.position), list(value.direction)])
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
             # Resolve build123d value constructors from the destination socket's

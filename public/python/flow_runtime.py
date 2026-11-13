@@ -97,6 +97,7 @@ def _type_name(annotation):
         "vector": "Vector3", "vector2": "Vector2", "vector3": "Vector3",
         "rotation": "Rotation", "plane": "Plane", "location": "Location", "axis": "Axis", "color": "Color",
         "matrix": "Matrix",
+        "shapelist": "ShapeList", "groupby": "GroupBy",
         "shape": "Shape", "solid": "Solid", "compound": "Compound", "face": "Face",
         "edge": "Edge", "wire": "Wire", "shell": "Shell", "part": "Part",
         "sketch": "Sketch", "code": "Code", "callable": "Code",

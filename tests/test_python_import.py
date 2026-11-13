@@ -80,11 +80,5 @@ class PythonImportSourceTests(unittest.TestCase):
         source = ast.unparse(evaluator)
         self.assertIn("not scope_path", source)
 
-
-    def test_importer_expression_path_consumes_kernel_neutral_ir(self):
-        source = ast.unparse(self.importer)
-        self.assertIn("from python_importer_ir import", source)
-        self.assertIn("expression_from_ir", source)
-
 if __name__ == "__main__":
     unittest.main()

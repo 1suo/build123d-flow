@@ -6,7 +6,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pyodideDir = path.join(root, "public", "pyodide", "v314.0.7", "full");
 const { loadPyodide } = await import(pathToFileURL(path.join(pyodideDir, "pyodide.mjs")).href);
 const pyodide = await loadPyodide({
-  indexURL: pathToFileURL(pyodideDir + path.sep).href,
+  indexURL: pyodideDir,
 });
 
 pyodide.setStdout({ batched: (line) => line.trim() && console.log(line.trim()) });

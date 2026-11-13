@@ -1780,8 +1780,32 @@ def _graph_plan(nodes, edges):
         outgoing[source].append(target)
         indegree[target] += 1
 
-    # Stable topological ordering preserves source order for imported Python graphs
-    # while still respecting explicit data dependencies.
+    # Scope activation and context arguments participate in graph ordering even
+    # though they are runtime control-flow dependencies rather than value sockets.
+    def add_ordering_dependency(source, target):
+        if source not in nodes or target not in nodes or source == target:
+            return
+        if target not in outgoing[source]:
+            outgoing[source].append(target)
+            indegree[target] += 1
+
+    scope_bindings = {
+        node.get("data", {}).get("scope_binding"): node_id
+        for node_id, node in nodes.items()
+        if node.get("data", {}).get("scope_binding")
+    }
+    for node_id, node in nodes.items():
+        data = node.get("data", {})
+        if data.get("scope_binding"):
+            for source_id in data.get("scope_dependencies", []):
+                add_ordering_dependency(str(source_id), node_id)
+        for scope_id in data.get("execution_scope_path", []):
+            binding_node = scope_bindings.get(scope_id)
+            if binding_node:
+                add_ordering_dependency(binding_node, node_id)
+
+    # Stable topological ordering preserves source order while respecting both
+    # explicit data edges and the implicit dependencies of Python execution scopes.
     import heapq
     insertion_order = {node_id: index for index, node_id in enumerate(nodes)}
     queue = [(insertion_order[node_id], node_id)
@@ -2530,10 +2554,43 @@ def import_python_code(source):
         return None
 
     def literal_json_value(value):
+        if isinstance(value, enum.Enum):
+            return value.name
+        if isinstance(value, b3d.Axis):
+            return [list(value.position), list(value.direction)]
+        if isinstance(value, b3d.Plane):
+            return {"origin": list(value.origin), "x_dir": list(value.x_dir),
+                    "z_dir": list(value.z_dir)}
+        if isinstance(value, b3d.Location):
+            return list(value.to_tuple())
+        if isinstance(value, b3d.Vector):
+            return list(value)
+        if isinstance(value, dict):
+            if "__flow_object__" in value:
+                args = [literal_json_value(item) for item in value.get("args", [])]
+                kwargs = {key: literal_json_value(item)
+                          for key, item in value.get("kwargs", {}).items()}
+                if kwargs and value["__flow_object__"] in {"Plane", "Location"}:
+                    return kwargs
+                return args if args else kwargs
+            return {key: literal_json_value(item) for key, item in value.items()}
         if isinstance(value, (list, tuple)):
             return [literal_json_value(item) for item in value]
+        return value
+
+    def materialize_literal(value):
         if isinstance(value, dict):
-            return {key: literal_json_value(item) for key, item in value.items()}
+            if "__flow_object__" in value:
+                constructor = getattr(b3d, value["__flow_object__"])
+                args = [materialize_literal(item) for item in value.get("args", [])]
+                kwargs = {key: materialize_literal(item)
+                          for key, item in value.get("kwargs", {}).items()}
+                return constructor(*args, **kwargs)
+            return {key: materialize_literal(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [materialize_literal(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(materialize_literal(item) for item in value)
         return value
 
     def resolve_value_constructor(function_node, expected_type):
@@ -2575,6 +2632,12 @@ def import_python_code(source):
                 raw = [item[1] for item in values]
                 return ("literal", raw if isinstance(node, ast.List) else tuple(raw))
             raise ValueError("Connected collections are not yet importable (line {})".format(node.lineno))
+        if isinstance(node, ast.Dict):
+            keys = [expression(item) for item in node.keys]
+            values = [expression(item) for item in node.values]
+            if any(key[0] != "literal" for key in keys) or any(value[0] != "literal" for value in values):
+                raise ValueError("Connected dictionaries are not yet importable (line {})".format(node.lineno))
+            return ("literal", {key[1]: value[1] for key, value in zip(keys, values)})
         if isinstance(node, ast.Name):
             if node.id in variables:
                 return variables[node.id]
@@ -2589,6 +2652,11 @@ def import_python_code(source):
             if ((isinstance(receiver_root, ast.Name) and receiver_root.id in variables)
                     or isinstance(node.value, (ast.Call, ast.Subscript, ast.BinOp, ast.UnaryOp))):
                 receiver = expression(node.value)
+            if receiver and receiver[0] == "literal":
+                try:
+                    return ("literal", getattr(materialize_literal(receiver[1]), node.attr))
+                except AttributeError:
+                    pass
             if receiver and receiver[0] == "ref":
                 receiver_node = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
                 receiver_type = receiver_node["data"]["definition"].get("outputs", [{}])[0].get("type") if receiver_node else None
@@ -2627,18 +2695,14 @@ def import_python_code(source):
                         value = getattr(b3d, path[0], None)
                         for part in path[1:]:
                             value = getattr(value, part, None)
-                        if isinstance(value, enum.Enum):
-                            return ("literal", value.name)
-                        if isinstance(value, b3d.Axis):
-                            return ("literal", [list(value.position), list(value.direction)])
+                        if isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
+                            return ("literal", value)
                 elif hasattr(b3d, root):
                     value = getattr(b3d, root, None)
                     for part in reversed(path):
                         value = getattr(value, part, None)
-                    if isinstance(value, enum.Enum):
-                        return ("literal", value.name)
-                    if isinstance(value, b3d.Axis):
-                        return ("literal", [list(value.position), list(value.direction)])
+                    if isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
+                        return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
             # Resolve build123d value constructors from the destination socket's
@@ -2647,30 +2711,23 @@ def import_python_code(source):
             value_constructor = resolve_value_constructor(node.func, expected_type)
             if value_constructor is not None:
                 constructor, constructor_type = value_constructor
-                if constructor_type in {"Plane", "Location"} and node.keywords:
-                    if node.args:
-                        raise ValueError("{} cannot mix positional and keyword arguments at line {}".format(
-                            constructor_type, node.lineno))
-                    values = {}
-                    for keyword in node.keywords:
-                        if keyword.arg is None:
-                            raise ValueError("Expanded constructor arguments are unsupported at line {}".format(node.lineno))
-                        kind, value, *extra = expression(keyword.value)
-                        if kind != "literal":
-                            raise ValueError("{} requires literal constructor arguments (line {})".format(
-                                constructor_type, node.lineno))
-                        values[keyword.arg] = literal_json_value(value)
-                    if not values:
-                        raise ValueError("{} requires constructor arguments (line {})".format(constructor_type, node.lineno))
-                    return ("literal", values)
-                if node.keywords:
-                    raise ValueError("{} keyword arguments are not supported for graph values (line {})".format(
-                        constructor_type, node.lineno))
                 values = [expression(argument) for argument in node.args]
-                if not values or any(item[0] != "literal" for item in values):
+                kwargs = {}
+                for keyword in node.keywords:
+                    if keyword.arg is None:
+                        raise ValueError("Expanded constructor arguments are unsupported at line {}".format(node.lineno))
+                    kwargs[keyword.arg] = expression(keyword.value)
+                if any(item[0] != "literal" for item in values) or any(item[0] != "literal" for item in kwargs.values()):
                     raise ValueError("{} requires literal constructor arguments (line {})".format(
                         constructor_type, node.lineno))
-                return ("literal", [literal_json_value(item[1]) for item in values])
+                if node.args and node.keywords and constructor_type in {"Plane", "Location"}:
+                    raise ValueError("{} cannot mix positional and keyword arguments at line {}".format(
+                        constructor_type, node.lineno))
+                return ("literal", {
+                    "__flow_object__": constructor.__name__,
+                    "args": [item[1] for item in values],
+                    "kwargs": {name: item[1] for name, item in kwargs.items()},
+                })
 
             definition_id = resolve_callable(node.func)
             receiver = None
@@ -2728,7 +2785,7 @@ def import_python_code(source):
                     continue
                 kind, value, *extra = expression(supplied[name], socket.get("type"))
                 if kind == "literal":
-                    params[name] = value
+                    params[name] = literal_json_value(value)
                 else:
                     links.append((name, value, extra[0]))
             created = add_node(definition_id, params, links, node.lineno)
@@ -2757,6 +2814,14 @@ def import_python_code(source):
                 index = ("ref", index_node_id, "result")
             else:
                 index = expression(index_node)
+            if receiver[0] == "literal" and index[0] == "literal":
+                try:
+                    return ("literal", operator.getitem(
+                        materialize_literal(receiver[1]),
+                        materialize_literal(index[1]),
+                    ))
+                except (TypeError, KeyError, IndexError) as exc:
+                    raise ValueError("Invalid subscript at line {}: {}".format(node.lineno, exc))
             params, links = {}, []
             for socket_name, operand in (("value", receiver), ("index", index)):
                 if operand[0] == "literal":
@@ -2781,7 +2846,7 @@ def import_python_code(source):
             # items[-1], negative dimensions, and signed numeric arguments.
             if operand[0] == "literal":
                 try:
-                    return ("literal", apply_operator(operand[1]))
+                    return ("literal", apply_operator(materialize_literal(operand[1])))
                 except (TypeError, ValueError, OverflowError) as exc:
                     raise ValueError(
                         "Invalid {} operand at line {}: {}".format(method, node.lineno, exc)
@@ -2806,6 +2871,19 @@ def import_python_code(source):
             if not method:
                 raise ValueError("Unsupported binary operator at line {}".format(node.lineno))
             left, right = expression(node.left), expression(node.right)
+            if left[0] == "literal" and right[0] == "literal":
+                operations = {
+                    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+                    ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
+                    ast.Mod: operator.mod, ast.Pow: operator.pow, ast.BitAnd: operator.and_,
+                    ast.BitOr: operator.or_, ast.BitXor: operator.xor,
+                }
+                try:
+                    return ("literal", operations[type(node.op)](
+                        materialize_literal(left[1]), materialize_literal(right[1])
+                    ))
+                except (TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
+                    raise ValueError("Invalid binary operation at line {}: {}".format(node.lineno, exc))
             definition_id = next((key for key in definitions if ".operator." + method in key), None)
             if not definition_id:
                 raise ValueError("No graph node registered for operator {} (line {})".format(method, node.lineno))
@@ -2834,6 +2912,9 @@ def import_python_code(source):
             return {"__flow_object__": "Location", "value": list(value.to_tuple())}
         if isinstance(value, b3d.Vector):
             return {"__flow_object__": "Vector", "value": list(value)}
+        if isinstance(value, b3d.Axis):
+            return {"__flow_object__": "Axis",
+                    "args": [list(value.position), list(value.direction)], "kwargs": {}}
         if isinstance(value, (list, tuple)):
             return [encode_scope_value(item) for item in value]
         if isinstance(value, dict):
@@ -2842,63 +2923,30 @@ def import_python_code(source):
             return value
         raise ValueError("Unsupported context-manager argument value: " + type(value).__name__)
 
-    def scope_argument(node):
-        if isinstance(node, ast.Constant):
-            return node.value
-        if isinstance(node, ast.Name) and node.id in variables:
-            kind, value, *extra = variables[node.id]
-            if kind == "literal":
-                return value
-            if kind == "ref":
-                return {"__flow_ref__": [value, extra[0]]}
-        if isinstance(node, (ast.List, ast.Tuple)):
-            values = [scope_argument(item) for item in node.elts]
-            return values if isinstance(node, ast.List) else values
-        if isinstance(node, ast.Dict):
-            return {scope_argument(key): scope_argument(value)
-                    for key, value in zip(node.keys, node.values)}
-        if isinstance(node, ast.Attribute):
-            path = []
-            current = node
-            while isinstance(current, ast.Attribute):
-                path.append(current.attr)
-                current = current.value
-            if isinstance(current, ast.Name):
-                root = current.id
-                value = None
-                if root in aliases and aliases[root] == "b3d":
-                    value = b3d
-                elif root in imported:
-                    value = getattr(b3d, imported[root], None)
-                elif hasattr(b3d, root):
-                    value = getattr(b3d, root, None)
-                for part in reversed(path):
-                    value = getattr(value, part, None) if value is not None else None
-                if value is not None:
-                    return encode_scope_value(value)
-        if isinstance(node, ast.UnaryOp):
-            try:
-                return ast.literal_eval(node)
-            except Exception:
-                pass
-        if isinstance(node, ast.Call):
-            resolved = resolve_value_constructor(node.func, None)
-            if resolved is not None:
-                constructor, constructor_type = resolved
-                args = [scope_argument(argument) for argument in node.args]
-                kwargs = {}
-                for keyword in node.keywords:
-                    if keyword.arg is None:
-                        raise ValueError("Expanded value constructor arguments are unsupported (line {})".format(node.lineno))
-                    kwargs[keyword.arg] = scope_argument(keyword.value)
-                return {
-                    "__flow_object__": constructor.__name__,
-                    "args": args, "kwargs": kwargs,
-                }
-        raise ValueError(
-            "Context-manager arguments must be literal build123d values or "
-            "named build123d constants (line {})".format(getattr(node, "lineno", "?"))
-        )
+    def scope_expression(node):
+        kind, value, *extra = expression(node)
+        if kind == "literal":
+            return encode_scope_value(value)
+        if kind == "ref":
+            return {"__flow_ref__": [value, extra[0]]}
+        raise ValueError("Unsupported context-manager expression at line {}".format(node.lineno))
+
+    def scope_reference_ids(value):
+        references = []
+
+        def visit(item):
+            if isinstance(item, dict):
+                if "__flow_ref__" in item:
+                    references.append(str(item["__flow_ref__"][0]))
+                    return
+                for child in item.values():
+                    visit(child)
+            elif isinstance(item, list):
+                for child in item:
+                    visit(child)
+
+        visit(value)
+        return list(dict.fromkeys(references))
 
     def resolve_context_manager(node):
         if not isinstance(node, ast.Call):
@@ -2928,15 +2976,15 @@ def import_python_code(source):
         if not supports_context:
             raise ValueError("{} is not a context manager (line {})".format(
                 manager.__name__, node.lineno))
-        args = [scope_argument(argument) for argument in node.args]
+        args = [scope_expression(argument) for argument in node.args]
         kwargs = {}
         for keyword in node.keywords:
             if keyword.arg is None:
                 raise ValueError("Expanded context-manager arguments are unsupported (line {})".format(node.lineno))
-            kwargs[keyword.arg] = scope_argument(keyword.value)
+            kwargs[keyword.arg] = scope_expression(keyword.value)
         return manager, args, kwargs
 
-    def add_scope_node(scope_id, role, line, output_type="Any", visible=False):
+    def add_scope_node(scope_id, role, line, output_type="Any", visible=False, dependencies=()):
         nonlocal counter
         counter += 1
         node_id = "import_{}".format(counter)
@@ -2954,7 +3002,11 @@ def import_python_code(source):
             "execution_scope_path": list(active_scope_ids),
             "visible": visible,
         }
-        data["scope_binding" if role == "binding" else "scope_result"] = scope_id
+        if role == "binding":
+            data["scope_binding"] = scope_id
+            data["scope_dependencies"] = list(dict.fromkeys(dependencies))
+        else:
+            data["scope_result"] = scope_id
         graph_nodes.append({
             "id": node_id, "type": "api",
             "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
@@ -2987,9 +3039,13 @@ def import_python_code(source):
                         "has_binding": optional is not None,
                     }
                     execution_scopes.append(descriptor)
+                    dependencies = scope_reference_ids([args, kwargs])
                     active_scope_ids.append(scope_id)
+                    binding_node = add_scope_node(
+                        scope_id, "binding", statement.lineno,
+                        dependencies=dependencies,
+                    )
                     if optional is not None:
-                        binding_node = add_scope_node(scope_id, "binding", statement.lineno)
                         variables[optional.id] = ("ref", binding_node, "result")
                     entered_contexts.append((scope_id, manager_name, optional))
                 process_statements(statement.body)

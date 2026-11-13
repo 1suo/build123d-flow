@@ -386,6 +386,29 @@ def run_preview_style_test():
         raise AssertionError("Preview Style must export as a geometry pass-through")
     return {"name": "preview style and topology", "faces": True, "edges": True, "vertices": True}
 
+
+def run_python_import_tests():
+    """Viewer-only ocp_vscode imports/calls must not block graph conversion."""
+    examples = [
+        "from build123d import Box\\nfrom ocp_vscode import show\\nbox = Box(10, 10, 10)\\nshow(box)\\n",
+        "import build123d as b3d\\nimport ocp_vscode as viewer\\nbox = b3d.Box(10, 10, 10)\\nviewer.show(box)\\n",
+        "from build123d import Box\\nfrom ocp_vscode import *\\nbox = Box(10, 10, 10)\\nshow(box)\\n",
+    ]
+    for source in examples:
+        graph = runtime.import_python_code(source)
+        if len(graph.get("nodes", [])) != 1 or graph.get("edges"):
+            raise AssertionError("ocp_vscode display code changed the geometry graph: " + json.dumps(graph))
+
+    try:
+        runtime.import_python_code("import arbitrary_package\\n")
+    except ValueError as exc:
+        if "arbitrary_package" not in str(exc):
+            raise
+    else:
+        raise AssertionError("Importer unexpectedly allowed an unrelated third-party import")
+    return {"name": "Python import with ocp_vscode", "viewer_import_forms": 3, "viewer_calls_ignored": True}
+
+
 def run_python_export_tests():
     box = _definition("Box")
     cylinder = _definition("Cylinder")
@@ -472,7 +495,7 @@ def run_graph_plan_validation_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

@@ -145,7 +145,7 @@ class PythonImportSourceTests(unittest.TestCase):
         source = ast.unparse(expression)
         self.assertIn("_PYTHON_ATTRIBUTE_ID", source)
         self.assertIn('params["name"]', source)
-        self.assertIn('[( "value"', source.replace(" ", ""))
+        self.assertIn("[('value', receiver[1], receiver[2])]", source)
         self.assertIn("return ('ref', created, 'result')", source)
         helper = ast.unparse(functions["_python_getattr"])
         self.assertIn("getattr(value, name)", helper)

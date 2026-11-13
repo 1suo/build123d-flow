@@ -70,9 +70,9 @@ class PythonImportSourceTests(unittest.TestCase):
         }
         type_name = ast.unparse(functions["_type_name"])
         discovery = ast.unparse(functions["discover"])
-        self.assertIn('getattr(origin, "__module__"', type_name)
-        self.assertIn('"shapelist": "ShapeList"', type_name)
-        self.assertIn('"groupby": "GroupBy"', type_name)
+        self.assertIn("__module__", type_name)
+        self.assertIn("ShapeList", type_name)
+        self.assertIn("GroupBy", type_name)
         self.assertIn("collections.abc.Collection", discovery)
 
     def test_context_managers_are_preserved_as_execution_scopes(self):

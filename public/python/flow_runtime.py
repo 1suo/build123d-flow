@@ -61,6 +61,11 @@ def _type_name(annotation):
         if len(scalar_names) == 1 and collection_item_names == scalar_names:
             return scalar_names.pop()
         return names.pop() if len(names) == 1 else "Any"
+    # Preserve concrete build123d collection/value classes used as generic
+    # origins (for example ShapeList[Edge]); the receiver resolver needs the
+    # runtime class name to discover the next chained member.
+    if inspect.isclass(origin) and getattr(origin, "__module__", "").split(".")[0] == "build123d":
+        return _type_name(origin)
     if origin in (tuple, set, frozenset, list, dict, typing.Dict,
                   collections.abc.Set, collections.abc.MutableSet,
                   collections.abc.Sequence, collections.abc.MutableSequence,
@@ -83,6 +88,8 @@ def _type_name(annotation):
                 return "Shape"
         except TypeError:
             pass
+        if getattr(annotation, "__module__", "").split(".")[0] == "build123d":
+            return annotation.__name__
     if isinstance(annotation, str):
         name = annotation.strip().strip("'\\\"").split(".")[-1].lower()
     else:
@@ -1193,10 +1200,10 @@ def discover(include_full=True):
     # Python's operator protocol is part of the native API, even though its
     # methods are dunder members rather than public module-level functions.
     for cls in api_classes:
-        # Instance methods are useful as nodes on shapes and value-like geometry objects.
-        if cls not in shape_classes and cls.__name__ not in {
-            "Vector", "Vector2D", "Plane", "Location", "Rotation", "Axis", "Color",
-        }:
+        # Discover members for every public class that is itself a supported
+        # build123d API candidate. This includes collection return types, not
+        # just shapes and a manually maintained list of geometry value classes.
+        if _candidate_rejection(cls):
             continue
         seen_members = set()
         for owner in getattr(cls, "__mro__", (cls,)):

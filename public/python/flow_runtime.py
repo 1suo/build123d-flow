@@ -2469,10 +2469,24 @@ def import_python_code(source):
                        if item.get("name") == reference[2]), None)
         return output or {}
 
+    def annotation_head(annotation):
+        """Extract a qualified class head from an annotation without evaluating it."""
+        if not annotation:
+            return None
+        value = str(annotation).strip()
+        if value.startswith("class "):
+            value = value[6:].strip()
+        value = value.split("[", 1)[0].strip().strip("'\\\"")
+        return value.rsplit(".", 1)[-1] if value else None
+
     def receiver_score(output, receiver_socket):
         """Score a catalog receiver socket against a complete output contract."""
         if not output or not receiver_socket:
             return -1
+        source_head = annotation_head(output.get("annotation"))
+        target_head = annotation_head(receiver_socket.get("annotation"))
+        if source_head and target_head and source_head == target_head:
+            return 120
         source_types = set(output.get("variants") or [output.get("type", "Any")])
         target_types = set(receiver_socket.get("variants") or [receiver_socket.get("type", "Any")])
         source_item = output.get("item_type")
@@ -2481,9 +2495,7 @@ def import_python_code(source):
             source_types.add(source_item)
         if target_item:
             target_types.add(target_item)
-        if "Any" in source_types or "Any" in target_types:
-            return 1
-        exact = source_types.intersection(target_types)
+        exact = source_types.intersection(target_types) - {"Any"}
         if exact:
             return 100 if output.get("type") in target_types else 80
         # Shape is the common public contract for build123d shape subclasses.
@@ -2496,6 +2508,8 @@ def import_python_code(source):
             if output.get("data_structure") == receiver_socket.get("data_structure"):
                 if source_item and target_item and source_item == target_item:
                     return 90
+        if "Any" in source_types or "Any" in target_types:
+            return 1
         return -1
 
     def resolve_member(receiver, member_name, line, call_node=None, property_only=False):

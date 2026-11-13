@@ -74,7 +74,7 @@ class PythonImportSourceTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
         }
         source = ast.unparse(functions["_type_name"])
-        self.assertIn('"Vector": "Vector3"', source)
+        self.assertIn("'Vector': 'Vector3'", source)
 
     def test_shape_subclasses_keep_distinct_receiver_types(self):
         functions = {
@@ -94,7 +94,8 @@ class PythonImportSourceTests(unittest.TestCase):
         discovery = ast.unparse(functions["discover"])
         self.assertIn("getattr(origin", type_name)
         self.assertIn("__module__", type_name)
-        self.assertIn('return annotation.__name__', type_name)
+        self.assertIn("annotation.__name__", type_name)
+        self.assertIn("'Vector': 'Vector3'", type_name)
         member_loop = next(
             node for node in ast.walk(functions["discover"])
             if isinstance(node, ast.For)

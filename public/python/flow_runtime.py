@@ -2377,7 +2377,7 @@ def import_python_code(source):
             if property_only:
                 if not is_property:
                     continue
-            elif candidate.get("name") != member_name:
+            elif candidate_id.rsplit(".", 1)[-1] != member_name:
                 continue
             receiver = next((item for item in candidate.get("inputs", [])
                              if item.get("name") in {"self", "cls"}), None)

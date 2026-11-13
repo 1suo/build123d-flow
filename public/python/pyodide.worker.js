@@ -125,7 +125,8 @@ async function initializePython(baseUrl) {
   await pyodide.runPythonAsync(setup);
 
   status("Importing graph runtime…");
-  pyodide.FS.writeFile("/flow_runtime.py", runtime);\n  pyodide.FS.writeFile("/python_importer_frontend.py", frontend);
+  pyodide.FS.writeFile("/flow_runtime.py", runtime);
+  pyodide.FS.writeFile("/python_importer_frontend.py", frontend);
   await pyodide.runPythonAsync(
     "import sys, importlib.util; " +
     "sys.path.insert(0, '/'); " +

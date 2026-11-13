@@ -2438,6 +2438,11 @@ def import_python_code(source):
             if receiver and receiver[0] == "ref":
                 receiver_node = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
                 receiver_type = receiver_node["data"]["definition"].get("outputs", [{}])[0].get("type") if receiver_node else None
+                if receiver_node and receiver_node.get("data", {}).get("scope_result"):
+                    scope_id = receiver_node["data"]["scope_result"]
+                    descriptor = next((item for item in execution_scopes if item.get("id") == scope_id), {})
+                    if node.attr == descriptor.get("result_attribute"):
+                        return receiver
                 candidates = []
                 for candidate_id, candidate in definitions.items():
                     if not (".property." + node.attr in candidate_id or ".field." + node.attr in candidate_id):
@@ -2782,10 +2787,48 @@ def export_python_code(payload):
     imports = []
     statements = []
     variables = {node_id: "_node_{}".format(index + 1) for index, node_id in enumerate(order)}
+    execution_scopes = {item.get("id"): item for item in graph.get("execution_scopes", [])}
+    active_export_scopes = []
     unsupported = []
+
+    def transition_export_scopes(target_path):
+        common = 0
+        while common < len(active_export_scopes) and common < len(target_path):
+            if active_export_scopes[common] != target_path[common]:
+                break
+            common += 1
+        del active_export_scopes[common:]
+        for scope_id in target_path[common:]:
+            descriptor = execution_scopes.get(scope_id)
+            if descriptor is None:
+                raise ValueError("Unknown Python execution scope: " + str(scope_id))
+            manager_name = descriptor["name"]
+            args = [repr(value) for value in descriptor.get("args", [])]
+            kwargs = ["{}={!r}".format(key, value)
+                      for key, value in descriptor.get("kwargs", {}).items()]
+            manager_var = "_scope_" + str(len(active_export_scopes) + 1)
+            call = "b3d.{}({})".format(manager_name, ", ".join(args + kwargs))
+            statements.append("    " * len(active_export_scopes) + "with " + call + " as " + manager_var + ":")
+            active_export_scopes.append(scope_id)
+            scope_manager_variables[scope_id] = manager_var
+
+    scope_manager_variables = {}
     for node_id in order:
         node = nodes[node_id]
         data = node.get("data", {})
+        transition_export_scopes(data.get("execution_scope_path", []))
+        if data.get("scope_binding"):
+            variables[node_id] = scope_manager_variables[data["scope_binding"]]
+            continue
+        if data.get("scope_result"):
+            scope_id = data["scope_result"]
+            descriptor = execution_scopes[scope_id]
+            manager_var = scope_manager_variables[scope_id]
+            result_attr = descriptor.get("result_attribute")
+            expression = manager_var + ("." + result_attr if result_attr else "")
+            statements.append("    " * len(active_export_scopes) + variables[node_id] + " = " + expression)
+            statements.append("")
+            continue
         definition = _CATALOG.get(data.get("definition", {}).get("id"))
         if definition is None:
             raise ValueError("Node {} refers to an unknown API definition".format(node_id))
@@ -2905,8 +2948,10 @@ def export_python_code(payload):
                         arguments.append("{}={}".format(socket["name"], expression_value))
                 expression = "{}({})".format(callable_ref, ", ".join(arguments))
 
-        statements.append("{} = {}".format(variables[node_id], expression))
+        statements.append("    " * len(active_export_scopes) + "{} = {}".format(variables[node_id], expression))
         statements.append("")
+
+    active_export_scopes.clear()
 
     if unsupported:
         raise ValueError(

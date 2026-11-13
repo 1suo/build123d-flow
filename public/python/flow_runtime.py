@@ -2260,11 +2260,13 @@ def import_python_code(source):
     def expression(node):
         if isinstance(node, ast.Constant):
             return ("literal", node.value)
-        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        if isinstance(node, ast.Set):
+            raise ValueError("Set literals are not yet importable (line {})".format(node.lineno))
+        if isinstance(node, (ast.List, ast.Tuple)):
             values = [expression(item) for item in node.elts]
             if all(item[0] == "literal" for item in values):
                 raw = [item[1] for item in values]
-                return ("literal", raw if isinstance(node, ast.List) else tuple(raw) if isinstance(node, ast.Tuple) else set(raw))
+                return ("literal", raw if isinstance(node, ast.List) else tuple(raw))
             raise ValueError("Connected collections are not yet importable (line {})".format(node.lineno))
         if isinstance(node, ast.Name):
             if node.id in variables:

@@ -115,9 +115,12 @@ class PythonImportSourceTests(unittest.TestCase):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         source = ast.unparse(functions["expression"])
-        self.assertIn("isinstance(value, b3d.Axis)", source)
-        self.assertIn("value.position", source)
-        self.assertIn("value.direction", source)
+        serializer = ast.unparse(functions["literal_json_value"])
+        self.assertIn("b3d.Axis", source)
+        self.assertIn("return ('literal', value)", source)
+        self.assertIn("isinstance(value, b3d.Axis)", serializer)
+        self.assertIn("value.position", serializer)
+        self.assertIn("value.direction", serializer)
 
     def test_importer_evaluates_unary_operators_on_literals(self):
         functions = {
@@ -135,10 +138,47 @@ class PythonImportSourceTests(unittest.TestCase):
         )
         self.assertIsInstance(unary.test.comparators[0], ast.Constant)
         self.assertEqual(unary.test.comparators[0].value, "literal")
-        self.assertIn("apply_operator(operand[1])", source)
+        self.assertIn("apply_operator(materialize_literal(operand[1]))", source)
         self.assertIn("operator.neg", source)
         self.assertIn("operator.pos", source)
         self.assertIn("operator.invert", source)
+
+    def test_context_manager_arguments_share_the_expression_resolver(self):
+        functions = {
+            node.name: node for node in self.importer.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertNotIn("scope_argument", functions)
+        self.assertIn("expression(node)", ast.unparse(functions["scope_expression"]))
+        self.assertIn("scope_expression(argument)", ast.unparse(functions["resolve_context_manager"]))
+        process = ast.unparse(functions["process_statements"])
+        self.assertIn("scope_reference_ids([args, kwargs])", process)
+        self.assertIn("binding_node = add_scope_node", process)
+
+    def test_graph_plan_orders_scope_arguments_and_scope_bodies(self):
+        graph_plan = next(
+            node for node in self.module.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_graph_plan"
+        )
+        source = ast.unparse(graph_plan)
+        self.assertIn("scope_dependencies", source)
+        self.assertIn("execution_scope_path", source)
+        self.assertIn("scope_bindings", source)
+        self.assertIn("add_ordering_dependency", source)
+
+    def test_expression_resolver_keeps_typed_values_until_serialization(self):
+        functions = {
+            node.name: node for node in self.importer.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        expression = ast.unparse(functions["expression"])
+        serializer = ast.unparse(functions["literal_json_value"])
+        self.assertIn("__flow_object__", expression)
+        self.assertIn("materialize_literal", expression)
+        self.assertIn("literal_json_value(value)", expression)
+        self.assertIn("b3d.Plane", serializer)
+        self.assertIn("b3d.Location", serializer)
+        self.assertIn("b3d.Vector", serializer)
 
     def test_importer_reports_unsupported_statements_with_location(self):
         source = ast.unparse(self.importer)

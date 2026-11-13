@@ -2807,7 +2807,7 @@ def import_python_code(source):
                         continue
                     kind, value, *extra = expression(component)
                     if kind == "literal":
-                        slice_params[socket_name] = value
+                        slice_params[socket_name] = literal_json_value(value)
                     else:
                         slice_links.append((socket_name, value, extra[0]))
                 index_node_id = add_node(_PYTHON_SLICE_ID, slice_params, slice_links, node.lineno)
@@ -2891,7 +2891,7 @@ def import_python_code(source):
             params, links = {}, []
             operands = [left, right]
             for socket, operand in zip(definition.get("inputs", []), operands):
-                if operand[0] == "literal": params[socket["name"]] = operand[1]
+                if operand[0] == "literal": params[socket["name"]] = literal_json_value(operand[1])
                 else: links.append((socket["name"], operand[1], operand[2]))
             created = add_node(definition_id, params, links, node.lineno)
             return ("ref", created, "result")

@@ -62,6 +62,19 @@ class PythonImportSourceTests(unittest.TestCase):
         for required in ("graph_nodes", "graph_edges", "'position'", "'definition'", "'params'"):
             self.assertIn(required, source)
 
+    def test_catalog_preserves_concrete_build123d_collection_types(self):
+        functions = {
+            node.name: node for node in ast.walk(ast.parse(
+                RUNTIME_PATH.read_text(encoding="utf-8")
+            )) if isinstance(node, ast.FunctionDef)
+        }
+        type_name = ast.unparse(functions["_type_name"])
+        discovery = ast.unparse(functions["discover"])
+        self.assertIn('getattr(origin, "__module__"', type_name)
+        self.assertIn('"shapelist": "ShapeList"', type_name)
+        self.assertIn('"groupby": "GroupBy"', type_name)
+        self.assertIn("collections.abc.Collection", discovery)
+
     def test_context_managers_are_preserved_as_execution_scopes(self):
         source = ast.unparse(self.importer)
         for required in ("ast.With", "execution_scopes", "execution_scope_path",

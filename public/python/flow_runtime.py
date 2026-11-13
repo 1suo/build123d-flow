@@ -2651,8 +2651,19 @@ def import_python_code(source):
                         raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
                             node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
             if not definition_id:
-                raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
-                    node.lineno, ast.unparse(node.func)))
+                receiver_candidates = []
+                if isinstance(node.func, ast.Attribute):
+                    for candidate_id, candidate in definitions.items():
+                        if candidate_id.rsplit(".", 1)[-1] != node.func.attr:
+                            continue
+                        candidate_receiver = next((item for item in candidate.get("inputs", [])
+                                                   if item.get("name") in {"self", "cls"}), None)
+                        if candidate_receiver is not None:
+                            receiver_candidates.append((candidate_id, candidate_receiver.get("type")))
+                raise ValueError("Unsupported or ambiguous call at line {}: {} "
+                                 "(receiver={}, receiver_type={}, candidates={})".format(
+                    node.lineno, ast.unparse(node.func), receiver, receiver_type,
+                    receiver_candidates))
             definition = definitions[definition_id]
             sockets = definition.get("inputs", [])
             params, links = {}, []

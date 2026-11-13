@@ -62,9 +62,17 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("getattr(origin", type_name)
         self.assertIn("__module__", type_name)
         self.assertIn('return annotation.__name__', type_name)
-        self.assertIn("_candidate_rejection(cls)", discovery)
-        self.assertNotIn("ShapeList", discovery)
-        self.assertNotIn("GroupBy", discovery)
+        member_loop = next(
+            node for node in ast.walk(functions["discover"])
+            if isinstance(node, ast.For)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "cls"
+            and isinstance(node.iter, ast.Name)
+            and node.iter.id == "api_classes"
+        )
+        member_loop_source = ast.unparse(member_loop)
+        self.assertNotIn("_candidate_rejection", member_loop_source)
+        self.assertIn("for owner in getattr(cls, '__mro__'", member_loop_source)
 
     def test_importer_reports_unsupported_statements_with_location(self):
         source = ast.unparse(self.importer)

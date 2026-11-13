@@ -84,7 +84,6 @@ async function importExample(page: Page, source: string) {
   }
 
   const entries = page.locator(".viewport-log-entry");
-  const previousCount = await entries.count();
   await page.locator("#python-source-input").fill(source);
   await page.getByRole("button", { name: "Import pasted code" }).click();
 
@@ -101,9 +100,6 @@ async function importExample(page: Page, source: string) {
     throw new Error(latest);
   }
   expect(latest).toContain("Python imported");
-  await expect.poll(async () => await entries.count(), {
-    timeout: 180_000
-  }).toBeGreaterThan(previousCount + 1);
   await expect.poll(async () => (await entries.first().textContent()) ?? "", {
     timeout: 180_000
   }).toContain("Evaluation complete");

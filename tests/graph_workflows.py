@@ -512,6 +512,28 @@ def run_python_scope_tests():
     compile(sketch_export, "<buildsketch-export>", "exec")
     if "b3d.Plane(" not in sketch_export:
         raise AssertionError("BuildSketch plane constant was not restored by export")
+
+    constructed_plane = runtime.import_python_code(
+        "from build123d import BuildSketch, Plane, Rectangle\\n"
+        "with BuildSketch(Plane(origin=(0, 0, 0), x_dir=(1, 0, 0), z_dir=(0, 0, 1))):\\n"
+        "    Rectangle(3, 5)\\n"
+    )
+    plane_argument = constructed_plane["execution_scopes"][0]["args"][0]
+    if plane_argument.get("__flow_object__") != "Plane" or "kwargs" not in plane_argument:
+        raise AssertionError("Plane(...) context argument lost constructor semantics")
+    if json.loads(runtime.evaluate_graph_json(json.dumps(constructed_plane)))["errors"]:
+        raise AssertionError("BuildSketch(Plane(...)) failed")
+
+    multi = runtime.import_python_code(
+        "from build123d import BuildPart, Locations, Box\\n"
+        "with BuildPart() as part, Locations((0, 0, 0), (8, 0, 0)):\\n"
+        "    Box(2, 2, 2)\\n"
+    )
+    if [item["name"] for item in multi["execution_scopes"]] != ["BuildPart", "Locations"]:
+        raise AssertionError("Multiple managers in one with-statement were not nested")
+    if json.loads(runtime.evaluate_graph_json(json.dumps(multi)))["errors"]:
+        raise AssertionError("Multiple-manager with-statement failed")
+
     return {"name": "Python execution scopes", "nested_contexts": True,
             "builder_result": True, "enum_and_plane_values": True, "export": True}
 

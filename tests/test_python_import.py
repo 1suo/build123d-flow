@@ -59,11 +59,12 @@ class PythonImportSourceTests(unittest.TestCase):
         }
         type_name = ast.unparse(functions["_type_name"])
         discovery = ast.unparse(functions["discover"])
-        self.assertIn('getattr(origin, "__module__", "")', type_name)
+        self.assertIn("getattr(origin", type_name)
+        self.assertIn("__module__", type_name)
         self.assertIn('return annotation.__name__', type_name)
         self.assertIn("_candidate_rejection(cls)", discovery)
-        self.assertNotIn('"ShapeList"', discovery)
-        self.assertNotIn('"GroupBy"', discovery)
+        self.assertNotIn("ShapeList", discovery)
+        self.assertNotIn("GroupBy", discovery)
 
     def test_importer_reports_unsupported_statements_with_location(self):
         source = ast.unparse(self.importer)

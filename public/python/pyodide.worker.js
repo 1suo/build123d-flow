@@ -33,6 +33,11 @@ async function fetchText(url, label) {
   return response.text();
 }
 
+async function fingerprint(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function validateRuntimeSource(source, url) {
   const required = ["import_python_code", "export_python_code", "evaluate_graph_json"];
   const missing = required.filter((name) =>
@@ -57,14 +62,16 @@ async function loadSources(baseUrl) {
     fetchText(runtimeUrl, "graph runtime")
   ]);
   validateRuntimeSource(runtime, runtimeUrl.href);
-  return { setup, runtime };
+  const sourceRevision = await fingerprint(setup + "\\0" + runtime);
+  return { setup, runtime, sourceRevision };
 }
 
 async function initializePython(baseUrl) {
   status("Fetching versioned Python runtime…");
   // Validate the actual downloaded source before spending time loading Pyodide
   // or installing build123d. This catches stale CDN/service-worker responses.
-  const { setup, runtime } = await loadSources(baseUrl);
+  const { setup, runtime, sourceRevision } = await loadSources(baseUrl);
+  const environmentRevision = RUNTIME_REVISION + ":" + PYODIDE_VERSION + ":" + sourceRevision;
   const indexURL = new URL(
     "pyodide/v" + PYODIDE_VERSION + "/full/",
     new URL(baseUrl, self.location.href)
@@ -88,8 +95,7 @@ async function initializePython(baseUrl) {
         try {
           savedRevision = new TextDecoder().decode(FS.readFile(info.sitePackages + "/" + ENV_MARKER));
         } catch {}
-        const expectedRevision = RUNTIME_REVISION + ":" + PYODIDE_VERSION;
-        if (savedRevision === expectedRevision) {
+        if (savedRevision === environmentRevision) {
           restored = true;
         } else {
           clearDirectory(FS, info.sitePackages);
@@ -141,7 +147,7 @@ async function initializePython(baseUrl) {
       const sitePackages = pyodide.runPython("import sysconfig; sysconfig.get_paths()['purelib']");
       pyodide.FS.writeFile(
         sitePackages + "/" + ENV_MARKER,
-        RUNTIME_REVISION + ":" + PYODIDE_VERSION
+        environmentRevision
       );
       await syncFs(pyodide.FS, false);
     } catch (error) {

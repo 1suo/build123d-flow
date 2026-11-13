@@ -2,8 +2,8 @@
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
 
 const PYODIDE_VERSION = "314.0.7";
-const RUNTIME_REVISION = "2026-11-13-r12";
-const ENV_MARKER = ".build123d-flow-environment-v5";
+const RUNTIME_REVISION = "2026-11-13-r13";
+const ENV_MARKER = ".build123d-flow-environment-v6";
 
 let pyodide = null;
 let initialized = false;
@@ -56,21 +56,26 @@ function validateRuntimeSource(source, url) {
 async function loadSources(baseUrl) {
   const base = new URL(baseUrl, self.location.href);
   const runtimeUrl = new URL("python/flow_runtime.py?v=" + RUNTIME_REVISION, base);
+  const frontendUrl = new URL("python/python_importer_frontend.py?v=" + RUNTIME_REVISION, base);
   const setupUrl = new URL("python/setup.py?v=" + RUNTIME_REVISION, base);
-  const [setup, runtime] = await Promise.all([
+  const [setup, runtime, frontend] = await Promise.all([
     fetchText(setupUrl, "Python dependency setup"),
-    fetchText(runtimeUrl, "graph runtime")
+    fetchText(runtimeUrl, "graph runtime"),
+    fetchText(frontendUrl, "Python importer frontend")
   ]);
   validateRuntimeSource(runtime, runtimeUrl.href);
-  const sourceRevision = await fingerprint(setup + "\\0" + runtime);
-  return { setup, runtime, sourceRevision };
+  if (!/^def\\s+analyze_source\\s*\\(/m.test(frontend)) {
+    throw new Error("Refusing incomplete Python importer frontend from " + frontendUrl.href);
+  }
+  const sourceRevision = await fingerprint(setup + "\\0" + runtime + "\\0" + frontend);
+  return { setup, runtime, frontend, sourceRevision };
 }
 
 async function initializePython(baseUrl) {
   status("Fetching versioned Python runtime…");
   // Validate the actual downloaded source before spending time loading Pyodide
   // or installing build123d. This catches stale CDN/service-worker responses.
-  const { setup, runtime, sourceRevision } = await loadSources(baseUrl);
+  const { setup, runtime, frontend, sourceRevision } = await loadSources(baseUrl);
   const environmentRevision = RUNTIME_REVISION + ":" + PYODIDE_VERSION + ":" + sourceRevision;
   const indexURL = new URL(
     "pyodide/v" + PYODIDE_VERSION + "/full/",
@@ -120,7 +125,7 @@ async function initializePython(baseUrl) {
   await pyodide.runPythonAsync(setup);
 
   status("Importing graph runtime…");
-  pyodide.FS.writeFile("/flow_runtime.py", runtime);
+  pyodide.FS.writeFile("/flow_runtime.py", runtime);\n  pyodide.FS.writeFile("/python_importer_frontend.py", frontend);
   await pyodide.runPythonAsync(
     "import sys, importlib.util; " +
     "sys.path.insert(0, '/'); " +

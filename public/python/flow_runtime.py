@@ -2308,61 +2308,15 @@ def import_python_code(source):
     location instead of being silently dropped or evaluated.
     """
     import ast
+    from python_importer_frontend import analyze_source
 
-    if not isinstance(source, str) or not source.strip():
-        raise ValueError("Python source is empty")
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
-        raise ValueError("Python syntax error at line {}:{}: {}".format(
-            exc.lineno or 1, exc.offset or 1, exc.msg
-        )) from exc
-
-    aliases = {"build123d": "b3d"}
-    imported = {}
-    # ocp_vscode is a presentation adapter commonly appended to build123d
-    # scripts. Its display calls do not represent geometry operations and are
-    # intentionally omitted when converting source into a graph.
-    viewer_modules = {}
-    viewer_functions = set()
-    viewer_api = {"show", "show_object", "show_all", "reset_show", "set_defaults"}
-    for statement in tree.body:
-        if isinstance(statement, ast.Import):
-            for item in statement.names:
-                if item.name == "build123d":
-                    aliases[item.asname or item.name] = "b3d"
-                elif item.name == "ocp_vscode":
-                    viewer_modules[item.asname or item.name] = "ocp_vscode"
-                else:
-                    raise ValueError("Unsupported import at line {}: {}".format(
-                        statement.lineno, item.name))
-        elif isinstance(statement, ast.ImportFrom):
-            if statement.module == "build123d" or (statement.module and statement.module.startswith("build123d.")):
-                for item in statement.names:
-                    if item.name == "*":
-                        continue
-                    imported[item.asname or item.name] = item.name
-            elif statement.module == "ocp_vscode":
-                for item in statement.names:
-                    if item.name == "*":
-                        viewer_functions.update(viewer_api)
-                    elif item.name in viewer_api:
-                        viewer_functions.add(item.asname or item.name)
-                    else:
-                        raise ValueError("Unsupported ocp_vscode import at line {}: {}".format(
-                            statement.lineno, item.name))
-            else:
-                raise ValueError("Only build123d and ocp_vscode imports are supported (line {})".format(statement.lineno))
-
-    def is_viewer_call(node):
-        if not isinstance(node, ast.Call):
-            return False
-        function = node.func
-        if isinstance(function, ast.Name):
-            return function.id in viewer_functions
-        if isinstance(function, ast.Attribute) and isinstance(function.value, ast.Name):
-            return viewer_modules.get(function.value.id) == "ocp_vscode" and function.attr in viewer_api
-        return False
+    frontend = analyze_source(source)
+    tree = frontend.tree
+    aliases = frontend.imports.aliases
+    imported = frontend.imports.imported
+    viewer_modules = frontend.imports.viewer_modules
+    viewer_functions = frontend.imports.viewer_functions
+    is_viewer_call = frontend.imports.is_viewer_call
 
     # Import is an explicit action, so load the full API catalog lazily here.
     # This makes class methods/properties available without slowing normal startup.

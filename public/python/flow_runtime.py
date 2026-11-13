@@ -1200,11 +1200,9 @@ def discover(include_full=True):
     # Python's operator protocol is part of the native API, even though its
     # methods are dunder members rather than public module-level functions.
     for cls in api_classes:
-        # Discover members for every public class that is itself a supported
-        # build123d API candidate. This includes collection return types, not
-        # just shapes and a manually maintained list of geometry value classes.
-        if _candidate_rejection(cls):
-            continue
+        # Member discovery is independent of constructor discovery. A class
+        # such as ShapeList may have useful instance methods even when its
+        # constructor cannot be represented as a graph node.
         seen_members = set()
         for owner in getattr(cls, "__mro__", (cls,)):
             if getattr(owner, "__module__", "").split(".")[0] != "build123d":

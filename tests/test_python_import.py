@@ -270,6 +270,17 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("b3d.Location", serializer)
         self.assertIn("b3d.Vector", serializer)
 
+    def test_execution_scopes_preserve_python_tuple_values(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        encoder = ast.unparse(functions["encode_scope_value"])
+        runtime = ast.unparse(self.module)
+        self.assertIn('"__flow_tuple__"', encoder)
+        self.assertIn('"__flow_tuple__"', runtime)
+        self.assertIn("tuple(restore_scope_value(item)", runtime)
+
     def test_binary_expression_supports_every_python_binary_operator(self):
         functions = {
             node.name: node for node in self.importer.body

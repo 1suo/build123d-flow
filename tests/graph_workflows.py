@@ -460,8 +460,8 @@ def run_python_import_tests():
 def run_python_scope_tests():
     """BuildPart and nested Locations retain real context-manager lifecycles."""
     source = (
-        "from build123d import BuildPart, Locations, Box, Cylinder\\n"
-        "with BuildPart() as part:\\n"
+        "from build123d import BuildPart, Locations, Box, Cylinder, Mode\\n"
+        "with BuildPart(mode=Mode.ADD) as part:\\n"
         "    with Locations((0, 0, 0), (12, 0, 0)):\\n"
         "        Box(4, 4, 4)\\n"
         "        Cylinder(2, 6)\\n"

@@ -119,6 +119,26 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("value.position", source)
         self.assertIn("value.direction", source)
 
+    def test_importer_evaluates_unary_operators_on_literals(self):
+        functions = {
+            node.name: node for node in self.importer.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        source = ast.unparse(functions["expression"])
+        unary = next(
+            node for node in ast.walk(functions["expression"])
+            if isinstance(node, ast.If)
+            and isinstance(node.test, ast.Compare)
+            and isinstance(node.test.left, ast.Subscript)
+            and isinstance(node.test.left.value, ast.Name)
+            and node.test.left.value.id == "operand"
+        )
+        self.assertIn('operand[0] == "literal"', ast.unparse(unary))
+        self.assertIn("apply_operator(operand[1])", source)
+        self.assertIn("operator.neg", source)
+        self.assertIn("operator.pos", source)
+        self.assertIn("operator.invert", source)
+
     def test_importer_reports_unsupported_statements_with_location(self):
         source = ast.unparse(self.importer)
         self.assertIn("Unsupported statement", source)

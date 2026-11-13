@@ -85,6 +85,7 @@ const selectedNodeOutputs = computed(() => {
 const running = ref(false);
 const nodes = ref<Node[]>([]);
 const edges = ref<Edge[]>([]);
+const executionScopes = ref<NonNullable<GraphDocument["execution_scopes"]>>([]);
 const nodeTypes = { api: markRaw(ApiNode) } as any;
 const canvasSurface = ref<HTMLElement | null>(null);
 const palettePopover = ref<any>();
@@ -146,6 +147,9 @@ const graph = computed<GraphDocument>(() => JSON.parse(JSON.stringify({
       definition: node.data.definition,
       params: node.data.params,
       visible: node.data.visible,
+      execution_scope_path: node.data.execution_scope_path,
+      scope_binding: node.data.scope_binding,
+      scope_result: node.data.scope_result,
     },
   })),
   edges: edges.value.map((edge: any) => ({
@@ -155,6 +159,7 @@ const graph = computed<GraphDocument>(() => JSON.parse(JSON.stringify({
     sourceHandle: edge.sourceHandle,
     targetHandle: edge.targetHandle,
   })),
+  execution_scopes: executionScopes.value,
 })));
 
 function deleteSelectedFromDock() {
@@ -487,6 +492,7 @@ async function importPythonSource(source: string, sourceLabel: string) {
     // Commit the new graph only after parsing and conversion both succeed.
     nodes.value = importedNodes as Node[];
     edges.value = imported.edges as Edge[];
+    executionScopes.value = imported.execution_scopes ?? [];
     nextId = importedNodes.length + 1;
     previews.value = {};
     socketValues.value = {};

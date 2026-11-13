@@ -2345,6 +2345,28 @@ def import_python_code(source):
                         return ("literal", value.name)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            # build123d value objects are socket values, not graph operations.
+            # Preserve their constructor arguments as JSON-compatible values;
+            # the runtime's input coercion reconstructs the native object.
+            value_type = None
+            if isinstance(node.func, ast.Name):
+                value_type = imported.get(node.func.id, node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                parts = []
+                current = node.func
+                while isinstance(current, ast.Attribute):
+                    parts.append(current.attr)
+                    current = current.value
+                if isinstance(current, ast.Name) and current.id in aliases:
+                    value_type = ".".join(reversed(parts))
+            if value_type == "Color":
+                if node.keywords:
+                    raise ValueError("Color keyword arguments are not supported by graph import (line {})".format(node.lineno))
+                color_values = [expression(argument) for argument in node.args]
+                if not color_values or any(item[0] != "literal" for item in color_values):
+                    raise ValueError("Color requires literal constructor arguments (line {})".format(node.lineno))
+                return ("literal", [item[1] for item in color_values])
+
             definition_id = resolve_callable(node.func)
             receiver = None
             if not definition_id and isinstance(node.func, ast.Attribute):

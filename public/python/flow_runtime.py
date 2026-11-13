@@ -2269,16 +2269,27 @@ def import_python_code(source):
                 return ("literal", {"True": True, "False": False, "None": None}[node.id])
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
-            if isinstance(node.value, ast.Name):
-                root = node.value.id
-                if (root in aliases and aliases[root] == "b3d") or hasattr(b3d, root):
-                    enum_type = getattr(b3d, root, None)
-                    if inspect.isclass(enum_type):
-                        try:
-                            if issubclass(enum_type, enum.Enum):
-                                return ("literal", enum_type[node.attr])
-                        except (TypeError, KeyError):
-                            pass
+            path = []
+            current = node
+            while isinstance(current, ast.Attribute):
+                path.append(current.attr)
+                current = current.value
+            if isinstance(current, ast.Name):
+                root = current.id
+                if root in aliases and aliases[root] == "b3d":
+                    path = list(reversed(path))
+                    if path:
+                        value = getattr(b3d, path[0], None)
+                        for part in path[1:]:
+                            value = getattr(value, part, None)
+                        if isinstance(value, enum.Enum):
+                            return ("literal", value.name)
+                elif hasattr(b3d, root):
+                    value = getattr(b3d, root, None)
+                    for part in reversed(path):
+                        value = getattr(value, part, None)
+                    if isinstance(value, enum.Enum):
+                        return ("literal", value.name)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
             definition_id = resolve_callable(node.func)

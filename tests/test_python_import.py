@@ -151,7 +151,7 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("getattr(value, name)", helper)
 
         exporter = ast.unparse(functions["export_python_code"])
-        self.assertIn('definition["id"] == "core.python.attribute"', exporter)
+        self.assertIn("definition['id'] == 'core.python.attribute'", exporter)
         self.assertIn("getattr({}, {})", exporter)
 
     def test_catalog_discovers_typed_build123d_collection_members(self):

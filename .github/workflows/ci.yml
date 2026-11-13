@@ -46,12 +46,12 @@ jobs:
           echo "192b5864e6e6d30ab074861af800cb8b4acb0998ef0f9342c3367448aeb86645  /tmp/pyodide-314.0.7.tar.bz2" | sha256sum --check
           python scripts/prepare-pyodide.py /tmp/pyodide-314.0.7.tar.bz2 public/pyodide/v314.0.7/full public/python/setup.py
       - run: npm install
-      - run: npm run typecheck
-      - run: python -m unittest discover -s tests -p 'test_*.py'
-      - run: python -m py_compile public/python/flow_runtime.py tests/graph_workflows.py
       - run: npm run build
         env:
           GITHUB_PAGES: "true"
+      - run: npm run typecheck
+      - run: python -m unittest discover -s tests -p 'test_*.py'
+      - run: python -m py_compile public/python/flow_runtime.py tests/graph_workflows.py
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

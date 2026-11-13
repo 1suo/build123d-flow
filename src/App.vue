@@ -89,6 +89,7 @@ const nodeTypes = { api: markRaw(ApiNode) } as any;
 const canvasSurface = ref<HTMLElement | null>(null);
 const palettePopover = ref<any>();
 const settingsPopover = ref<any>();
+const pythonFileInput = ref<HTMLInputElement | null>(null);
 const isMobile = ref(false);
 let mobileMediaQuery: MediaQueryList | undefined;
 function updateMobileLayout() { isMobile.value = Boolean(mobileMediaQuery?.matches); }
@@ -463,6 +464,44 @@ async function downloadStep() {
   downloadStatusTimer = window.setTimeout(() => { downloadStatus.value = ""; }, 4500);
 }
 
+
+async function importPythonFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  if (!runtime.isReady) return;
+  downloadStatus.value = "Parsing Python source…";
+  logActivity("Importing Python source · " + file.name);
+  try {
+    const source = await file.text();
+    const imported = await runtime.importPython(source);
+    const importedNodes = imported.nodes.map((node: any) => ({
+      ...node, type: "api", data: {
+        ...node.data,
+        icon: nodeIcon(node.data.definition),
+        onParameter, onVisibility, onCollapse, onInspect,
+      }
+    }));
+    nodes.value = importedNodes as Node[];
+    edges.value = imported.edges as Edge[];
+    nextId = importedNodes.length + 1;
+    previews.value = {};
+    socketValues.value = {};
+    errors.value = [];
+    scheduleEvaluation();
+    fitView({ padding: 0.16 });
+    downloadStatus.value = "Python imported · " + importedNodes.length + " nodes";
+    logActivity("Python imported · " + importedNodes.length + " nodes / " + imported.edges.length + " connections", "success");
+    settingsPopover.value?.hide();
+  } catch (error) {
+    downloadStatus.value = "Python import failed";
+    errors.value = [String(error)];
+    logActivity("Python import failed · " + String(error), "error");
+  }
+  downloadStatusTimer = window.setTimeout(() => { downloadStatus.value = ""; }, 5000);
+}
+
 async function downloadPython() {
   if (downloadStatusTimer) clearTimeout(downloadStatusTimer);
   downloadStatus.value = "Generating build123d Python…";
@@ -566,6 +605,9 @@ async function downloadPython() {
               </label>
               <div class="settings-divider"></div>
               <div class="settings-export-actions">
+                <span>Python interchange</span>
+                <input ref="pythonFileInput" type="file" accept=".py,text/x-python,text/plain" hidden @change="importPythonFile" />
+                <Button icon="pi pi-file-import" label="Import Python script" text severity="secondary" @click="pythonFileInput?.click()" :disabled="!runtime.isReady" />
                 <span>Export</span>
                 <Button icon="pi pi-download" label="STEP model" text severity="secondary" @click="downloadStep(); settingsPopover?.hide()" :disabled="!runtime.isReady" />
                 <Button icon="pi pi-file-export" label="Python script" text severity="secondary" @click="downloadPython()" :disabled="!runtime.isReady || !nodes.length" />
@@ -647,6 +689,9 @@ async function downloadPython() {
               </label>
               <div class="settings-divider"></div>
               <div class="settings-export-actions">
+                <span>Python interchange</span>
+                <input ref="pythonFileInput" type="file" accept=".py,text/x-python,text/plain" hidden @change="importPythonFile" />
+                <Button icon="pi pi-file-import" label="Import Python script" text severity="secondary" @click="pythonFileInput?.click()" :disabled="!runtime.isReady" />
                 <span>Export</span>
                 <Button icon="pi pi-download" label="STEP model" text severity="secondary" @click="downloadStep(); settingsPopover?.hide()" />
                 <Button icon="pi pi-file-export" label="Python script" text severity="secondary" @click="downloadPython()" />

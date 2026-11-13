@@ -33,6 +33,7 @@ async function invoke(method,payload){
  if(method==="getDiscoveryReport")return JSON.parse(pyodide.runPython("flow_runtime.discovery_report_json()"));
  if(method==="evaluate"){const fn=pyodide.runPython("flow_runtime.evaluate_graph_json");try{const r=await fn(JSON.stringify(payload)),s=typeof r==="string"?r:r.toJs();if(typeof r!=="string")r.destroy();return JSON.parse(s);}finally{fn.destroy();}}
  if(method==="exportStep"){const r=pyodide.runPython("flow_runtime.export_step_bytes()");if(r===null)return null;try{return r.toJs();}finally{r.destroy();}}
+ if(method==="importPython"){const fn=pyodide.runPython("flow_runtime.import_python_code");try{const r=fn(payload);if(typeof r==="string")return JSON.parse(r);const s=r.toJs({dict_converter:Object.fromEntries});r.destroy();return s;}finally{fn.destroy();}}
  if(method==="exportPython"){const fn=pyodide.runPython("flow_runtime.export_python_code");try{const r=await fn(JSON.stringify(payload));if(typeof r==="string")return r;try{return r.toJs();}finally{r.destroy();}}finally{fn.destroy();}}
  throw Error("Unknown runtime method: "+method);
 }

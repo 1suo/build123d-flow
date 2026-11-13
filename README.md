@@ -85,3 +85,12 @@ Evaluation cache entries retain Python objects inside Pyodide (including exact B
 ## Findspot palettes
 
 The canvas theme selector uses the palettes from [1suo/findspot](https://github.com/1suo/findspot) as its source of truth: Alexandria, Babylon, Knossos, Petra, Tikal and Troy. Each palette also has a `-swapped` option that exchanges only its background and surface roles, matching the Findspot variants. The selected palette is persisted locally in the browser. Theme tokens drive the canvas, nodes, controls, status UI and 3D viewport; Tikal is the fallback.
+
+
+## Python ↔ graph interchange
+
+The settings menu can import .py files into the current graph and export the graph as a standalone build123d Python script. Import is performed inside the existing Pyodide worker but uses Python's ast module only: imported source is parsed and never executed.
+
+The importer resolves registered build123d constructors and supported instance methods against the discovered API catalog. It converts literal arguments, variable references and supported binary operators into graph nodes and socket edges. It loads full API discovery on explicit import so method definitions are available without adding startup cost to normal sessions. Unsupported imports, statements, expressions, ambiguous methods and unresolved names produce line-numbered errors; the current graph is not replaced unless the entire import succeeds.
+
+This is intentionally a conservative first roundtrip contract, not a general Python decompiler. Control flow, function definitions, comprehensions, arbitrary third-party imports, dynamic attribute access, builder context-manager blocks and opaque-source fallback are not yet converted into graph nodes. Python export is deterministic for supported graph nodes; semantic equivalence should be validated by executing the generated script and comparing evaluated geometry.

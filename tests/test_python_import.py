@@ -99,6 +99,16 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertNotIn("_candidate_rejection", member_loop_source)
         self.assertIn("for owner in getattr(cls, '__mro__'", member_loop_source)
 
+    def test_graph_evaluator_binds_discovered_instance_methods(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        evaluator = ast.unparse(functions["evaluate_graph_json"])
+        self.assertIn("bound_method = getattr(receiver_value, method_name)", evaluator)
+        self.assertIn("arguments = {name: value for name, value in mapped.items()", evaluator)
+        self.assertIn("bound_signature", evaluator)
+
     def test_importer_serializes_axis_class_constants(self):
         functions = {
             node.name: node for node in self.importer.body

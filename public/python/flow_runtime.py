@@ -1796,7 +1796,8 @@ def _graph_plan(nodes, edges):
             if indegree[target] == 0:
                 heapq.heappush(queue, (insertion_order[target], target))
     if len(order) != len(nodes):
-        raise ValueError("Graph contains a cycle")    return incoming, outgoing, order
+        raise ValueError("Graph contains a cycle")
+    return incoming, outgoing, order
 
 
 def evaluate_graph_json(payload):

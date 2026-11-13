@@ -91,19 +91,27 @@ async function importExample(page: Page, source: string) {
   // miss a valid import result and burn the full 120s timeout. The activity
   // log is the durable result channel and keeps the exact importer exception.
   await expect.poll(async () => {
-    const latest = await entries.first().textContent();
-    return latest ?? "";
-  }, { timeout: 180_000 }).toMatch(/Python imported|Python import failed/);
+    const messages = await entries.allTextContents();
+    return messages.some(message => /Python imported|Python import failed/.test(message));
+  }, { timeout: 180_000 }).toBeTruthy();
 
-  const latest = (await entries.first().textContent()) ?? "";
-  if (latest.includes("Python import failed")) {
-    throw new Error(latest);
+  const messages = await entries.allTextContents();
+  const importResult = messages.find(message => /Python imported|Python import failed/.test(message)) ?? "";
+  if (importResult.includes("Python import failed")) {
+    throw new Error(importResult);
   }
-  expect(latest).toContain("Python imported");
-  await expect.poll(async () => (await entries.first().textContent()) ?? "", {
-    timeout: 180_000
-  }).toContain("Evaluation complete");
+  expect(importResult).toContain("Python imported");
+
+  // "Python imported" can be immediately followed by "Evaluating graph".
+  // Search the bounded log for the import result, then wait for the evaluation
+  // to settle via its newest durable log entry or the viewport error state.
+  await expect.poll(async () => {
+    const latest = (await entries.first().textContent()) ?? "";
+    const state = await page.locator(".viewport-status-dot").getAttribute("class") ?? "";
+    return latest.includes("Evaluation complete") || /is-error/.test(state);
+  }, { timeout: 180_000 }).toBeTruthy();
   await expect(page.locator(".viewport-status-dot")).not.toHaveClass(/is-error/);
+  await expect(entries.first()).toContainText("Evaluation complete");
 }
 
 test("imports and evaluates the pinned upstream build123d examples corpus", async ({ page, request }) => {

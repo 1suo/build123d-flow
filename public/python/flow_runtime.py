@@ -1862,15 +1862,14 @@ def evaluate_graph_json(payload):
         node = nodes[node_id]
         data = node.get("data", {})
         scope_path = data.get("execution_scope_path", [])
+        if any(scope_id in failed_scopes for scope_id in scope_path):
+            errors[node_id] = "Execution skipped because an enclosing Python scope failed"
+            continue
         try:
             transition_scopes(scope_path)
         except Exception as exc:
             errors[node_id] = "Execution scope: " + type(exc).__name__ + ": " + str(exc)
             failed_scopes.update(scope_path)
-            continue
-
-        if any(scope_id in failed_scopes for scope_id in scope_path):
-            errors[node_id] = "Execution skipped because an enclosing Python scope failed"
             continue
 
         scope_binding = data.get("scope_binding")

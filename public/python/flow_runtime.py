@@ -2284,7 +2284,35 @@ def import_python_code(source):
             return None
         return None
 
-    def expression(node):
+    def resolve_value_constructor(function_node, expected_type):
+        """Resolve a build123d value class against the destination socket contract."""
+        if isinstance(function_node, ast.Name):
+            class_name = imported.get(function_node.id, function_node.id)
+            constructor = getattr(b3d, class_name, None)
+        elif isinstance(function_node, ast.Attribute):
+            parts = []
+            current = function_node
+            while isinstance(current, ast.Attribute):
+                parts.append(current.attr)
+                current = current.value
+            constructor = None
+            if isinstance(current, ast.Name) and current.id in aliases and aliases[current.id] == "b3d":
+                path = list(reversed(parts))
+                constructor = getattr(b3d, path[0], None) if len(path) == 1 else None
+        else:
+            return None
+        if not inspect.isclass(constructor):
+            return None
+        if getattr(constructor, "__module__", "").split(".")[0] != "build123d":
+            return None
+        constructor_type = _type_name(constructor)
+        if constructor_type not in _OBJECT_INPUT_TYPES:
+            return None
+        if expected_type not in (None, "Any", constructor_type):
+            return None
+        return constructor, constructor_type
+
+    def expression(node, expected_type=None):
         if isinstance(node, ast.Constant):
             return ("literal", node.value)
         if isinstance(node, ast.Set):
@@ -2345,27 +2373,36 @@ def import_python_code(source):
                         return ("literal", value.name)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
-            # build123d value objects are socket values, not graph operations.
-            # Preserve their constructor arguments as JSON-compatible values;
-            # the runtime's input coercion reconstructs the native object.
-            value_type = None
-            if isinstance(node.func, ast.Name):
-                value_type = imported.get(node.func.id, node.func.id)
-            elif isinstance(node.func, ast.Attribute):
-                parts = []
-                current = node.func
-                while isinstance(current, ast.Attribute):
-                    parts.append(current.attr)
-                    current = current.value
-                if isinstance(current, ast.Name) and current.id in aliases:
-                    value_type = ".".join(reversed(parts))
-            if value_type == "Color":
+            # Resolve build123d value constructors from the destination socket's
+            # declared type. This shares the runtime's type contract instead of
+            # maintaining one importer exception per value class.
+            value_constructor = resolve_value_constructor(node.func, expected_type)
+            if value_constructor is not None:
+                constructor, constructor_type = value_constructor
+                if constructor_type in {"Plane", "Location"} and node.keywords:
+                    if node.args:
+                        raise ValueError("{} cannot mix positional and keyword arguments at line {}".format(
+                            constructor_type, node.lineno))
+                    values = {}
+                    for keyword in node.keywords:
+                        if keyword.arg is None:
+                            raise ValueError("Expanded constructor arguments are unsupported at line {}".format(node.lineno))
+                        kind, value, *extra = expression(keyword.value)
+                        if kind != "literal":
+                            raise ValueError("{} requires literal constructor arguments (line {})".format(
+                                constructor_type, node.lineno))
+                        values[keyword.arg] = value
+                    if not values:
+                        raise ValueError("{} requires constructor arguments (line {})".format(constructor_type, node.lineno))
+                    return ("literal", values)
                 if node.keywords:
-                    raise ValueError("Color keyword arguments are not supported by graph import (line {})".format(node.lineno))
-                color_values = [expression(argument) for argument in node.args]
-                if not color_values or any(item[0] != "literal" for item in color_values):
-                    raise ValueError("Color requires literal constructor arguments (line {})".format(node.lineno))
-                return ("literal", [item[1] for item in color_values])
+                    raise ValueError("{} keyword arguments are not supported for graph values (line {})".format(
+                        constructor_type, node.lineno))
+                values = [expression(argument) for argument in node.args]
+                if not values or any(item[0] != "literal" for item in values):
+                    raise ValueError("{} requires literal constructor arguments (line {})".format(
+                        constructor_type, node.lineno))
+                return ("literal", [item[1] for item in values])
 
             definition_id = resolve_callable(node.func)
             receiver = None
@@ -2427,7 +2464,7 @@ def import_python_code(source):
                         raise ValueError("Missing '{}' for {} at line {}".format(
                             name, definition.get("name"), node.lineno))
                     continue
-                kind, value, *extra = expression(supplied[name])
+                kind, value, *extra = expression(supplied[name], socket.get("type"))
                 if kind == "literal":
                     params[name] = value
                 else:

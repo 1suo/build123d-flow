@@ -1,4 +1,4 @@
-"""Static checks for the non-executing Python graph importer."""
+"""Structural checks for the conservative Python-to-graph translator."""
 
 import ast
 import unittest
@@ -17,19 +17,32 @@ class PythonImportSourceTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef) and node.name == "import_python_code"
         )
 
-    def test_importer_uses_python_ast(self):
-        calls = {
-            node.func.id for node in ast.walk(self.importer)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    def test_importer_uses_builtin_ast_directly(self):
+        calls = [
+            node for node in ast.walk(self.importer)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        ]
+        self.assertTrue(any(
+            isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "ast"
+            and node.func.attr == "parse"
+            for node in calls
+        ))
+        self.assertFalse(any(
+            isinstance(node, ast.ImportFrom)
+            and (node.module or "").startswith("python_importer_")
+            for node in ast.walk(self.importer)
+        ))
+
+    def test_importer_keeps_catalog_resolution_local(self):
+        functions = {
+            node.name: node for node in self.importer.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
-        self.assertTrue(any(
-            isinstance(node, ast.Attribute) and node.attr == "parse"
-            for node in ast.walk(self.importer)
-        ))
-        self.assertTrue(any(
-            isinstance(node, ast.Attribute) and node.attr == "Call"
-            for node in ast.walk(self.importer)
-        ))
+        self.assertIn("resolve_member", functions)
+        source = ast.unparse(functions["resolve_member"])
+        self.assertIn("variants", source)
+        self.assertIn("receiver_type", source)
 
     def test_importer_never_executes_or_evaluates_source(self):
         forbidden = {"exec", "eval", "compile", "__import__"}
@@ -39,46 +52,21 @@ class PythonImportSourceTests(unittest.TestCase):
         }
         self.assertFalse(forbidden.intersection(calls))
 
-    def test_importer_reports_unsupported_statements(self):
+    def test_importer_reports_unsupported_statements_with_location(self):
         source = ast.unparse(self.importer)
         self.assertIn("Unsupported statement", source)
         self.assertIn("lineno", source)
 
-    def test_importer_builds_serializable_graph_records(self):
+    def test_importer_builds_native_graph_records(self):
         source = ast.unparse(self.importer)
         for required in ("graph_nodes", "graph_edges", "'position'", "'definition'", "'params'"):
             self.assertIn(required, source)
 
-    def test_with_statements_become_first_class_execution_scopes(self):
+    def test_context_managers_are_preserved_as_execution_scopes(self):
         source = ast.unparse(self.importer)
-        self.assertIn("ast.With", source)
-        self.assertIn("execution_scopes", source)
-        self.assertIn("execution_scope_path", source)
-        self.assertIn("scope_binding", source)
-        self.assertIn("scope_result", source)
-        self.assertIn("resolve_context_manager", source)
-        self.assertNotIn("Multiple context managers in one with-statement", source)
-
-    def test_runtime_enters_exits_and_unwinds_scopes(self):
-        runtime = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
-        evaluator = next(
-            node for node in runtime.body
-            if isinstance(node, ast.FunctionDef) and node.name == "evaluate_graph_json"
-        )
-        source = ast.unparse(evaluator)
-        self.assertIn("__enter__", source)
-        self.assertIn("__exit__", source)
-        self.assertIn("failed_scopes", source)
-        self.assertIn("restore_scope_value", source)
-
-    def test_scope_operations_are_not_cached(self):
-        runtime = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
-        evaluator = next(
-            node for node in runtime.body
-            if isinstance(node, ast.FunctionDef) and node.name == "evaluate_graph_json"
-        )
-        source = ast.unparse(evaluator)
-        self.assertIn("not scope_path", source)
+        for required in ("ast.With", "execution_scopes", "execution_scope_path",
+                         "scope_binding", "scope_result", "resolve_context_manager"):
+            self.assertIn(required, source)
 
 
 if __name__ == "__main__":

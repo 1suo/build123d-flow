@@ -436,16 +436,52 @@ def run_python_value_constructor_tests():
 
 
 def run_python_import_tests():
-    """Viewer-only ocp_vscode imports/calls must not block graph conversion."""
-    examples = [
+    """Exercise source parsing, graph construction, and actual graph execution."""
+    viewer_examples = [
         "from build123d import Box\\nfrom ocp_vscode import show\\nbox = Box(10, 10, 10)\\nshow(box)\\n",
         "import build123d as b3d\\nimport ocp_vscode as viewer\\nbox = b3d.Box(10, 10, 10)\\nviewer.show(box)\\n",
         "from build123d import Box\\nfrom ocp_vscode import *\\nbox = Box(10, 10, 10)\\nshow(box)\\n",
     ]
-    for source in examples:
+    for source in viewer_examples:
         graph = runtime.import_python_code(source)
         if len(graph.get("nodes", [])) != 1 or graph.get("edges"):
             raise AssertionError("ocp_vscode display code changed the geometry graph: " + json.dumps(graph))
+
+    # This is the important round-trip boundary: source -> native graph -> evaluator.
+    source = (
+        "from build123d import Box, Cylinder\\n"
+        "box = Box(10, 10, 10)\\n"
+        "cylinder = Cylinder(3, 12)\\n"
+        "result = box + cylinder\\n"
+    )
+    graph = runtime.import_python_code(source)
+    definitions = [node["data"]["definition"]["id"] for node in graph["nodes"]]
+    operator = _shape_operator("__add__")["id"]
+    if len(graph["nodes"]) != 3 or definitions[-1] != operator:
+        raise AssertionError("Python source did not become two constructors and native union: " + repr(definitions))
+    if len(graph["edges"]) != 2:
+        raise AssertionError("Python variable/operator dependencies were not wired: " + repr(graph["edges"]))
+    evaluated = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
+    if evaluated["errors"]:
+        raise AssertionError("Imported Python graph did not execute: " + json.dumps(evaluated["errors"]))
+    if not any(node["id"] in evaluated["previews"] for node in graph["nodes"][-1:]):
+        raise AssertionError("Imported Python graph produced no result preview")
+
+    # Inherited Shape members must resolve for concrete Solid outputs.
+    member_graph = runtime.import_python_code(
+        "from build123d import Box\\n"
+        "box = Box(10, 10, 10)\\n"
+        "faces = box.faces()\\n"
+        "volume = box.volume\\n"
+    )
+    member_ids = [node["data"]["definition"]["id"] for node in member_graph["nodes"]]
+    if len(member_ids) != 3 or not any(".faces" in item for item in member_ids) or not any(".volume" in item for item in member_ids):
+        raise AssertionError("Inherited method/property calls were not translated: " + repr(member_ids))
+    if len(member_graph["edges"]) != 2:
+        raise AssertionError("Inherited member receivers were not connected: " + repr(member_graph["edges"]))
+    member_result = json.loads(runtime.evaluate_graph_json(json.dumps(member_graph)))
+    if member_result["errors"]:
+        raise AssertionError("Imported inherited members did not execute: " + json.dumps(member_result["errors"]))
 
     try:
         runtime.import_python_code("import arbitrary_package\\n")
@@ -454,7 +490,24 @@ def run_python_import_tests():
             raise
     else:
         raise AssertionError("Importer unexpectedly allowed an unrelated third-party import")
-    return {"name": "Python import with ocp_vscode", "viewer_import_forms": 3, "viewer_calls_ignored": True}
+
+    try:
+        runtime.import_python_code("from build123d import Box\\nfor item in []:\\n    Box(1, 1, 1)\\n")
+    except ValueError as exc:
+        if "Unsupported statement" not in str(exc):
+            raise
+    else:
+        raise AssertionError("Importer silently accepted unsupported control flow")
+
+    return {
+        "name": "Python source to executable graph",
+        "viewer_import_forms": 3,
+        "constructor_nodes": 2,
+        "native_operator": True,
+        "graph_edges": 2,
+        "evaluation": True,
+        "unsupported_syntax_rejected": True,
+    }
 
 
 def run_python_scope_tests():

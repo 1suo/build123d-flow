@@ -2308,7 +2308,6 @@ def import_python_code(source):
     location instead of being silently dropped or evaluated.
     """
     import ast
-
     if not isinstance(source, str) or not source.strip():
         raise ValueError("Python source is empty")
     try:
@@ -2320,9 +2319,6 @@ def import_python_code(source):
 
     aliases = {"build123d": "b3d"}
     imported = {}
-    # ocp_vscode is a presentation adapter commonly appended to build123d
-    # scripts. Its display calls do not represent geometry operations and are
-    # intentionally omitted when converting source into a graph.
     viewer_modules = {}
     viewer_functions = set()
     viewer_api = {"show", "show_object", "show_all", "reset_show", "set_defaults"}
@@ -2339,9 +2335,8 @@ def import_python_code(source):
         elif isinstance(statement, ast.ImportFrom):
             if statement.module == "build123d" or (statement.module and statement.module.startswith("build123d.")):
                 for item in statement.names:
-                    if item.name == "*":
-                        continue
-                    imported[item.asname or item.name] = item.name
+                    if item.name != "*":
+                        imported[item.asname or item.name] = item.name
             elif statement.module == "ocp_vscode":
                 for item in statement.names:
                     if item.name == "*":
@@ -2369,6 +2364,50 @@ def import_python_code(source):
     if not _DISCOVERY_REPORT.get("include_full"):
         discover(include_full=True)
     definitions = _CATALOG
+    def resolve_member(member_name, receiver_type, property_only=False):
+        """Resolve one catalog method/property using its receiver socket contract."""
+        candidates = []
+        for candidate_id, candidate in definitions.items():
+            is_property = ".property." + member_name in candidate_id or ".field." + member_name in candidate_id
+            if property_only:
+                if not is_property:
+                    continue
+            elif candidate.get("name") != member_name:
+                continue
+            receiver = next((item for item in candidate.get("inputs", [])
+                             if item.get("name") in {"self", "cls"}), None)
+            if receiver is None:
+                continue
+            accepted = receiver.get("variants") or [receiver.get("type", "Any")]
+            if receiver_type in accepted:
+                score = 3
+            else:
+                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
+                compatible = False
+                if inspect.isclass(actual_class):
+                    for accepted_type in accepted:
+                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
+                        if inspect.isclass(expected_class):
+                            try:
+                                if issubclass(actual_class, expected_class):
+                                    compatible = True
+                                    break
+                            except TypeError:
+                                pass
+                if compatible:
+                    score = 2
+                elif "Any" in accepted:
+                    score = 1
+                else:
+                    continue
+            candidates.append((score, candidate_id))
+        if not candidates:
+            return None, ()
+        best_score = max(score for score, _ in candidates)
+        winners = tuple(sorted(
+            candidate_id for score, candidate_id in candidates if score == best_score
+        ))
+        return (winners[0], winners) if len(winners) == 1 else (None, winners)
 
     # Python's subscription protocol is a language-level operation, not a
     # build123d API member. Register it as a reusable graph primitive so
@@ -2522,19 +2561,23 @@ def import_python_code(source):
                     descriptor = next((item for item in execution_scopes if item.get("id") == scope_id), {})
                     if node.attr == descriptor.get("result_attribute"):
                         return receiver
-                candidates = []
-                for candidate_id, candidate in definitions.items():
-                    if not (".property." + node.attr in candidate_id or ".field." + node.attr in candidate_id):
-                        continue
-                    inputs = candidate.get("inputs", [])
-                    if inputs and inputs[0].get("name") in {"self", "cls"}:
-                        accepted = inputs[0].get("variants") or [inputs[0].get("type")]
-                        if receiver_type in accepted or "Any" in accepted or receiver_type == "Shape":
-                            candidates.append(candidate_id)
-                if len(candidates) == 1:
-                    definition_id = candidates[0]
-                    created = add_node(definition_id, {}, [(definitions[definition_id]["inputs"][0]["name"], receiver[1], receiver[2])], node.lineno)
+                definition_id, candidates = resolve_member(
+                    node.attr, receiver_type, property_only=True
+                )
+                if definition_id:
+                    receiver_socket = next(
+                        item for item in definitions[definition_id].get("inputs", [])
+                        if item.get("name") in {"self", "cls"}
+                    )
+                    created = add_node(
+                        definition_id, {},
+                        [(receiver_socket["name"], receiver[1], receiver[2])],
+                        node.lineno,
+                    )
                     return ("ref", created, definitions[definition_id].get("outputs", [{}])[0].get("name", "result"))
+                if candidates:
+                    raise ValueError("Ambiguous property '{}' at line {}: {}".format(
+                        node.attr, node.lineno, ", ".join(candidates)))
             path = []
             current = node
             while isinstance(current, ast.Attribute):
@@ -2598,21 +2641,10 @@ def import_python_code(source):
                     upstream = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
                     if upstream:
                         receiver_type = upstream["data"]["definition"].get("outputs", [{}])[0].get("type")
-                    candidates = []
-                    for candidate_id, candidate in definitions.items():
-                        inputs = candidate.get("inputs", [])
-                        if candidate.get("name") != node.func.attr or not inputs or inputs[0].get("name") not in {"self", "cls"}:
-                            continue
-                        accepted = inputs[0].get("variants") or [inputs[0].get("type")]
-                        if receiver_type in accepted or "Any" in accepted or receiver_type == "Shape":
-                            candidates.append(candidate_id)
-                    if len(candidates) == 1:
-                        definition_id = candidates[0]
-                    elif candidates:
-                        exact = [candidate_id for candidate_id in candidates
-                                 if definitions[candidate_id]["inputs"][0].get("type") == receiver_type]
-                        if len(exact) == 1:
-                            definition_id = exact[0]
+                    definition_id, candidates = resolve_member(node.func.attr, receiver_type)
+                    if candidates and definition_id is None:
+                        raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
+                            node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
             if not definition_id:
                 raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
                     node.lineno, ast.unparse(node.func)))

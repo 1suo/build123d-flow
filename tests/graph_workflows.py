@@ -483,6 +483,48 @@ def run_python_import_tests():
     if member_result["errors"]:
         raise AssertionError("Imported inherited members did not execute: " + json.dumps(member_result["errors"]))
 
+    # An Any-typed receiver can expose a property name shared by unrelated
+    # build123d classes. The importer must defer that lookup to the real object.
+    import types
+    ambiguous_id = "tests.python.ambiguous_property_receiver"
+    previous_definition = runtime._CATALOG.get(ambiguous_id)
+    previous_callable = runtime._CATALOG_CALLABLES.get(ambiguous_id)
+    runtime._CATALOG[ambiguous_id] = {
+        "id": ambiguous_id, "name": "AmbiguousPropertyReceiver",
+        "source": "build123d", "kind": "function",
+        "inputs": [], "outputs": [{"name": "result", "type": "Any"}],
+    }
+    runtime._CATALOG_CALLABLES[ambiguous_id] = lambda: types.SimpleNamespace(Y=42)
+    try:
+        ambiguous_graph = runtime.import_python_code(
+            "value = AmbiguousPropertyReceiver().Y\\n"
+        )
+        attribute_nodes = [
+            node for node in ambiguous_graph["nodes"]
+            if node["data"]["definition"]["id"] == "core.python.attribute"
+        ]
+        if len(attribute_nodes) != 1:
+            raise AssertionError(
+                "Ambiguous property did not become a generic Python attribute node: "
+                + repr([node["data"]["definition"]["id"] for node in ambiguous_graph["nodes"]])
+            )
+        ambiguous_result = json.loads(
+            runtime.evaluate_graph_json(json.dumps(ambiguous_graph))
+        )
+        if ambiguous_result["errors"]:
+            raise AssertionError(
+                "Runtime Python attribute lookup failed: " + json.dumps(ambiguous_result["errors"])
+            )
+    finally:
+        if previous_definition is None:
+            runtime._CATALOG.pop(ambiguous_id, None)
+        else:
+            runtime._CATALOG[ambiguous_id] = previous_definition
+        if previous_callable is None:
+            runtime._CATALOG_CALLABLES.pop(ambiguous_id, None)
+        else:
+            runtime._CATALOG_CALLABLES[ambiguous_id] = previous_callable
+
     try:
         runtime.import_python_code("import arbitrary_package\\n")
     except ValueError as exc:

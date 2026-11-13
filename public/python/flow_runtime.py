@@ -2273,6 +2273,23 @@ def import_python_code(source):
                 return ("literal", {"True": True, "False": False, "None": None}[node.id])
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
+            receiver = expression(node.value) if isinstance(node.value, (ast.Name, ast.Attribute)) else None
+            if receiver and receiver[0] == "ref":
+                receiver_node = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
+                receiver_type = receiver_node["data"]["definition"].get("outputs", [{}])[0].get("type") if receiver_node else None
+                candidates = []
+                for candidate_id, candidate in definitions.items():
+                    if not (".property." + node.attr in candidate_id or ".field." + node.attr in candidate_id):
+                        continue
+                    inputs = candidate.get("inputs", [])
+                    if inputs and inputs[0].get("name") in {"self", "cls"}:
+                        accepted = inputs[0].get("variants") or [inputs[0].get("type")]
+                        if receiver_type in accepted or "Any" in accepted or receiver_type == "Shape":
+                            candidates.append(candidate_id)
+                if len(candidates) == 1:
+                    definition_id = candidates[0]
+                    created = add_node(definition_id, {}, [(definitions[definition_id]["inputs"][0]["name"], receiver[1], receiver[2])], node.lineno)
+                    return ("ref", created, definitions[definition_id].get("outputs", [{}])[0].get("name", "result"))
             path = []
             current = node
             while isinstance(current, ast.Attribute):
@@ -2363,6 +2380,20 @@ def import_python_code(source):
                     links.append((name, value, extra[0]))
             created = add_node(definition_id, params, links, node.lineno)
             return ("ref", created, definition.get("outputs", [{}])[0].get("name", "result"))
+        if isinstance(node, ast.UnaryOp):
+            method = {ast.USub: "__neg__", ast.UAdd: "__pos__", ast.Invert: "__invert__"}.get(type(node.op))
+            if not method:
+                raise ValueError("Unsupported unary operator at line {}".format(node.lineno))
+            operand = expression(node.operand)
+            definition_id = next((key for key in definitions if ".operator." + method in key), None)
+            if not definition_id or operand[0] != "ref":
+                raise ValueError("No compatible graph node for unary operator at line {}".format(node.lineno))
+            definition = definitions[definition_id]
+            receiver_socket = next((item for item in definition.get("inputs", []) if item.get("name") in {"self", "cls"}), None)
+            if receiver_socket is None:
+                raise ValueError("Unary operator has no receiver socket")
+            created = add_node(definition_id, {}, [(receiver_socket["name"], operand[1], operand[2])], node.lineno)
+            return ("ref", created, "result")
         if isinstance(node, ast.BinOp):
             methods = {
                 ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",

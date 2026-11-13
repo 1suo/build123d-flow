@@ -22,7 +22,10 @@ class PythonImportSourceTests(unittest.TestCase):
             node.func.id for node in ast.walk(self.importer)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
-        self.assertIn("parse", calls)
+        self.assertTrue(any(
+            isinstance(node, ast.Attribute) and node.attr == "parse"
+            for node in ast.walk(self.importer)
+        ))
         self.assertTrue(any(
             isinstance(node, ast.Attribute) and node.attr == "Call"
             for node in ast.walk(self.importer)

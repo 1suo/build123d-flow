@@ -2059,6 +2059,7 @@ def evaluate_graph_json(payload):
         "socket_values": {
             node_id: {name: _inspect_value(value) for name, value in outputs.items()}
             for node_id, outputs in values.items()
+            if not nodes[node_id].get("data", {}).get("scope_binding")
         },
     }), allow_nan=False)
 

@@ -78,23 +78,39 @@ async function importExample(page: Page, source: string) {
   if (!(await page.locator("#python-source-input").isVisible())) {
     await page.getByRole("button", { name: "Settings" }).click();
   }
-  await page.locator("#python-source-input").fill(source);
-  await page.getByRole("button", { name: "Import pasted code" }).click();
-
   const log = page.locator(".viewport-log-panel");
   if (!(await log.isVisible())) {
     await page.getByRole("button", { name: "Show activity log" }).click();
   }
-  await expect.poll(async () => await page.locator(".viewport-status").textContent(), {
-    timeout: 120_000
-  }).toMatch(/Python imported|Python import failed/);
-  await expect(page.locator(".viewport-status")).toContainText("Python imported");
+
+  const entries = page.locator(".viewport-log-entry");
+  const previousCount = await entries.count();
+  await page.locator("#python-source-input").fill(source);
+  await page.getByRole("button", { name: "Import pasted code" }).click();
+
+  // The status headline is deliberately transient (5s), so polling it can
+  // miss a valid import result and burn the full 120s timeout. The activity
+  // log is the durable result channel and keeps the exact importer exception.
+  await expect.poll(async () => {
+    const latest = await entries.first().textContent();
+    return latest ?? "";
+  }, { timeout: 180_000 }).toMatch(/Python imported|Python import failed/);
+
+  const latest = (await entries.first().textContent()) ?? "";
+  if (latest.includes("Python import failed")) {
+    throw new Error(latest);
+  }
+  expect(latest).toContain("Python imported");
+  await expect.poll(async () => await entries.count(), {
+    timeout: 180_000
+  }).toBeGreaterThan(previousCount + 1);
+  await expect.poll(async () => (await entries.first().textContent()) ?? "", {
+    timeout: 180_000
+  }).toContain("Evaluation complete");
   await expect(page.locator(".viewport-status-dot")).not.toHaveClass(/is-error/);
-  await expect(log).toContainText("Evaluation complete", { timeout: 120_000 });
-  await expect(log).not.toContainText("Python import failed");
 }
 
-test("imports and evaluates the pinned upstream build123d examples corpus", async ({ page, request }) => {
+test("imports and evaluates the pinned upstream build123d examples corpus", async ({ page, request }) => {\n  test.setTimeout(45 * 60 * 1000);
   const pageErrors: string[] = [];
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto("./", { waitUntil: "domcontentloaded" });

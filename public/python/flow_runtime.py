@@ -3175,17 +3175,19 @@ def import_python_code(source):
                 if statement.orelse:
                     raise ValueError("for-else is not supported (line {})".format(statement.lineno))
                 if not isinstance(statement.target, ast.Name):
-                    raise ValueError("Only simple for-loop targets are supported (line {})".format(statement.lineno))
+                    raise ValueError("Only a simple for-loop target is supported (line {})".format(statement.lineno))
                 iterable = expression(statement.iter)
                 if iterable[0] != "ref":
                     raise ValueError(
-                        "A for-loop iterable must be a graph-produced collection (line {})".format(
-                            statement.lineno))
+                        "A for-loop iterable must be a graph output (line {}). "
+                        "Use a build123d collection or another list-producing node.".format(statement.lineno)
+                    )
                 previous = variables.get(statement.target.id)
                 had_previous = statement.target.id in variables
-                # Nodes in the body consume the iterable as a stream. The graph
-                # evaluator maps each operation over its items and collects the
-                # results; nested loops naturally propagate tree-shaped streams.
+                # Python for-loops express data mapping in this graph model.
+                # Bind the target to the collection output and translate the
+                # body once; evaluator stream propagation maps each operation
+                # over the items and collects its results (including nested trees).
                 variables[statement.target.id] = iterable
                 process_statements(statement.body)
                 if had_previous:

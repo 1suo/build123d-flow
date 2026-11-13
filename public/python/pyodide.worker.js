@@ -1,40 +1,231 @@
-/* Pyodide 314 requires an ES-module worker. Keep the loader same-origin. */
+/* Pyodide worker. Runtime source is versioned independently from the app shell. */
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
-const VERSION="314.0.7", MARKER=".build123d-flow-environment-v4";
-let pyodide=null;
-const status=message=>self.postMessage({type:"status",message});
-const sync=(FS,populate)=>new Promise((resolve,reject)=>FS.syncfs(populate,e=>e?reject(e):resolve()));
-function clear(FS,dir){for(const n of FS.readdir(dir)){if(n==="."||n==="..")continue;const p=dir+"/"+n,s=FS.stat(p);if(FS.isDir(s.mode)){clear(FS,p);FS.rmdir(p);}else FS.unlink(p);}}
-async function hash(s){try{const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));return [...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,"0")).join("");}catch{return "setup-revision-3";}}
-async function initialize(base){
- status("Preparing Python environment in background worker…");
- const [setup,runtime]=await Promise.all(["setup.py","flow_runtime.py"].map(async f=>{const r=await fetch(base+"python/"+f,{cache:"no-store"});if(!r.ok)throw Error("Could not load "+f+": "+r.status);return r.text();}));
- const key=VERSION+":"+await hash(setup+"\0"+runtime);
- const indexURL=new URL(base+"pyodide/v"+VERSION+"/full/",self.location.href).href;
- status("Loading local Pyodide runtime…");
- let persistent=false,restored=false;
- pyodide=await loadPyodide({indexURL,fsInit:async(FS,info)=>{
-  try{if(!FS.filesystems?.IDBFS)throw Error("IDBFS unavailable");FS.mount(FS.filesystems.IDBFS,{},info.sitePackages);persistent=true;status("Checking saved Python environment…");await sync(FS,true);
-   let saved="";try{saved=new TextDecoder().decode(FS.readFile(info.sitePackages+"/"+MARKER));}catch{}
-   if(saved===key){restored=true;status("Restored Python environment from this browser");}else{clear(FS,info.sitePackages);status("Preparing fresh Python environment…");}
-  }catch(e){persistent=false;status("Persistent cache unavailable; using temporary storage ("+e+")");}
- }});
- pyodide.setStdout({batched:s=>{if(s.trim())status(s.trim());}});pyodide.setStderr({batched:s=>{if(s.trim())status("Python: "+s.trim());}});
- status("Loading micropip from the local runtime…");await pyodide.loadPackage(["micropip"]);
- pyodide.runPython("import os; os.environ['BUILD123D_FLOW_ENV_RESTORED'] = '" + (restored ? "1" : "0") + "'");
- status(restored?"Using saved Python packages…":"Installing Python dependencies…");await pyodide.runPythonAsync(setup);
- status("Loading graph runtime…");pyodide.FS.writeFile("/flow_runtime.py",runtime);await pyodide.runPythonAsync("import sys, importlib.util; sys.path.insert(0, '/'); spec = importlib.util.spec_from_file_location('flow_runtime', '/flow_runtime.py'); module = importlib.util.module_from_spec(spec); sys.modules['flow_runtime'] = module; spec.loader.exec_module(module); globals()['flow_runtime'] = module"); const runtimeCheck=pyodide.runPython("import sys; m=sys.modules.get('flow_runtime'); (getattr(m, '__file__', None), callable(getattr(m, 'import_python_code', None)), callable(getattr(m, 'export_python_code', None)))"); if(!runtimeCheck[1] || !runtimeCheck[2])throw Error("Invalid graph runtime loaded from "+runtimeCheck[0]+" (import_python_code="+runtimeCheck[1]+", export_python_code="+runtimeCheck[2]+", fetched source defines importer="+runtime.includes("def import_python_code(")+")");
- if(persistent)try{status("Saving Python environment…");const dir=pyodide.runPython("import sysconfig; sysconfig.get_paths()['purelib']");pyodide.FS.writeFile(dir+"/"+MARKER,key);await sync(pyodide.FS,false);status(restored?"Python environment restored":"Python environment saved");}catch(e){status("Could not persist environment ("+e+")");}
- status("build123d ready");self.postMessage({type:"ready"});
+
+const PYODIDE_VERSION = "314.0.7";
+const RUNTIME_REVISION = "2026-11-13-r2";
+const ENV_MARKER = ".build123d-flow-environment-v5";
+
+let pyodide = null;
+let initialized = false;
+
+const status = (message) => self.postMessage({ type: "status", message });
+const syncFs = (FS, populate) => new Promise((resolve, reject) => {
+  FS.syncfs(populate, (error) => error ? reject(error) : resolve());
+});
+
+function clearDirectory(FS, directory) {
+  for (const name of FS.readdir(directory)) {
+    if (name === "." || name === "..") continue;
+    const path = directory + "/" + name;
+    const stat = FS.stat(path);
+    if (FS.isDir(stat.mode)) {
+      clearDirectory(FS, path);
+      FS.rmdir(path);
+    } else {
+      FS.unlink(path);
+    }
+  }
 }
-async function invoke(method,payload){
- if(method==="getCatalog")return JSON.parse(pyodide.runPython("flow_runtime.catalog_json()"));
- if(method==="discoverCatalog")return JSON.parse(await pyodide.runPythonAsync("flow_runtime.discover_full()"));
- if(method==="getDiscoveryReport")return JSON.parse(pyodide.runPython("flow_runtime.discovery_report_json()"));
- if(method==="evaluate"){const fn=pyodide.runPython("flow_runtime.evaluate_graph_json");try{const r=await fn(JSON.stringify(payload)),s=typeof r==="string"?r:r.toJs();if(typeof r!=="string")r.destroy();return JSON.parse(s);}finally{fn.destroy();}}
- if(method==="exportStep"){const r=pyodide.runPython("flow_runtime.export_step_bytes()");if(r===null)return null;try{return r.toJs();}finally{r.destroy();}}
- if(method==="importPython"){const fn=pyodide.runPython("flow_runtime.import_python_code");try{const r=fn(payload);if(typeof r==="string")return JSON.parse(r);const s=r.toJs({dict_converter:Object.fromEntries});r.destroy();return s;}finally{fn.destroy();}}
- if(method==="exportPython"){const fn=pyodide.runPython("flow_runtime.export_python_code");try{const r=await fn(JSON.stringify(payload));if(typeof r==="string")return r;try{return r.toJs();}finally{r.destroy();}}finally{fn.destroy();}}
- throw Error("Unknown runtime method: "+method);
+
+async function fetchText(url, label) {
+  const response = await fetch(url, { cache: "reload" });
+  if (!response.ok) throw new Error("Could not load " + label + " (" + response.status + "): " + url);
+  return response.text();
 }
-self.onmessage=async({data})=>{try{if(data.type==="initialize")await initialize(data.baseUrl);else if(data.type==="call"){const value=await invoke(data.method,data.payload);if(value instanceof Uint8Array)self.postMessage({type:"result",id:data.id,value},[value.buffer]);else self.postMessage({type:"result",id:data.id,value});}}catch(e){self.postMessage({type:"error",id:data.id,message:String(e),stack:e?.stack});}};
+
+function validateRuntimeSource(source, url) {
+  const required = ["import_python_code", "export_python_code", "evaluate_graph_json"];
+  const missing = required.filter((name) =>
+    !new RegExp("^def\\s+" + name + "\\s*\\(", "m").test(source)
+  );
+  if (missing.length) {
+    throw new Error(
+      "Refusing stale/incomplete graph runtime from " + url +
+      "; missing top-level definitions: " + missing.join(", ") +
+      "; source length: " + source.length +
+      "; revision: " + RUNTIME_REVISION
+    );
+  }
+}
+
+async function loadSources(baseUrl) {
+  const base = new URL(baseUrl, self.location.href);
+  const runtimeUrl = new URL("python/flow_runtime.py?v=" + RUNTIME_REVISION, base);
+  const setupUrl = new URL("python/setup.py?v=" + RUNTIME_REVISION, base);
+  const [setup, runtime] = await Promise.all([
+    fetchText(setupUrl, "Python dependency setup"),
+    fetchText(runtimeUrl, "graph runtime")
+  ]);
+  validateRuntimeSource(runtime, runtimeUrl.href);
+  return { setup, runtime };
+}
+
+async function initializePython(baseUrl) {
+  status("Fetching versioned Python runtime…");
+  // Validate the actual downloaded source before spending time loading Pyodide
+  // or installing build123d. This catches stale CDN/service-worker responses.
+  const { setup, runtime } = await loadSources(baseUrl);
+  const indexURL = new URL(
+    "pyodide/v" + PYODIDE_VERSION + "/full/",
+    new URL(baseUrl, self.location.href)
+  ).href;
+
+  let persistent = false;
+  let restored = false;
+
+  status("Starting Pyodide…");
+  pyodide = await loadPyodide({
+    indexURL,
+    fsInit: async (FS, info) => {
+      try {
+        if (!FS.filesystems || !FS.filesystems.IDBFS) throw new Error("IDBFS unavailable");
+        FS.mount(FS.filesystems.IDBFS, {}, info.sitePackages);
+        persistent = true;
+        status("Checking saved Python environment…");
+        await syncFs(FS, true);
+
+        let savedRevision = "";
+        try {
+          savedRevision = new TextDecoder().decode(FS.readFile(info.sitePackages + "/" + ENV_MARKER));
+        } catch {}
+        const expectedRevision = RUNTIME_REVISION + ":" + PYODIDE_VERSION;
+        if (savedRevision === expectedRevision) {
+          restored = true;
+        } else {
+          clearDirectory(FS, info.sitePackages);
+        }
+      } catch (error) {
+        persistent = false;
+        status("Using temporary Python storage: " + error);
+      }
+    }
+  });
+
+  pyodide.setStdout({ batched: (value) => value.trim() && status(value.trim()) });
+  pyodide.setStderr({ batched: (value) => value.trim() && status("Python: " + value.trim()) });
+
+  status("Loading micropip…");
+  await pyodide.loadPackage(["micropip"]);
+  pyodide.runPython(
+    "import os; os.environ['BUILD123D_FLOW_ENV_RESTORED'] = '" + (restored ? "1" : "0") + "'"
+  );
+
+  status(restored ? "Restoring Python dependencies…" : "Installing Python dependencies…");
+  await pyodide.runPythonAsync(setup);
+
+  status("Importing graph runtime…");
+  pyodide.FS.writeFile("/flow_runtime.py", runtime);
+  await pyodide.runPythonAsync(
+    "import sys, importlib.util; " +
+    "sys.path.insert(0, '/'); " +
+    "spec = importlib.util.spec_from_file_location('flow_runtime', '/flow_runtime.py'); " +
+    "module = importlib.util.module_from_spec(spec); " +
+    "sys.modules['flow_runtime'] = module; " +
+    "spec.loader.exec_module(module); " +
+    "globals()['flow_runtime'] = module"
+  );
+
+  const validation = pyodide.runPython(
+    "import sys; m=sys.modules['flow_runtime']; " +
+    "(m.__file__, " +
+    "callable(getattr(m, 'import_python_code', None)), " +
+    "callable(getattr(m, 'export_python_code', None)), " +
+    "callable(getattr(m, 'evaluate_graph_json', None)))"
+  );
+  if (!validation[1] || !validation[2] || !validation[3]) {
+    throw new Error("Loaded graph runtime failed API validation: " + JSON.stringify(validation));
+  }
+
+  if (persistent) {
+    try {
+      const sitePackages = pyodide.runPython("import sysconfig; sysconfig.get_paths()['purelib']");
+      pyodide.FS.writeFile(
+        sitePackages + "/" + ENV_MARKER,
+        RUNTIME_REVISION + ":" + PYODIDE_VERSION
+      );
+      await syncFs(pyodide.FS, false);
+    } catch (error) {
+      status("Could not save Python environment: " + error);
+    }
+  }
+
+  initialized = true;
+  status("build123d ready");
+  self.postMessage({ type: "ready" });
+}
+
+function toJs(value) {
+  if (typeof value === "string") return value;
+  try {
+    return value.toJs({ dict_converter: Object.fromEntries });
+  } finally {
+    value.destroy();
+  }
+}
+
+async function invoke(method, payload) {
+  if (!initialized || !pyodide) throw new Error("Python runtime is not initialized");
+
+  if (method === "getCatalog") {
+    return JSON.parse(pyodide.runPython("flow_runtime.catalog_json()"));
+  }
+  if (method === "discoverCatalog") {
+    return JSON.parse(await pyodide.runPythonAsync("flow_runtime.discover_full()"));
+  }
+  if (method === "getDiscoveryReport") {
+    return JSON.parse(pyodide.runPython("flow_runtime.discovery_report_json()"));
+  }
+  if (method === "evaluate") {
+    const fn = pyodide.runPython("flow_runtime.evaluate_graph_json");
+    try {
+      const result = await fn(JSON.stringify(payload));
+      return typeof result === "string" ? JSON.parse(result) : JSON.parse(toJs(result));
+    } finally {
+      fn.destroy();
+    }
+  }
+  if (method === "exportStep") {
+    const result = pyodide.runPython("flow_runtime.export_step_bytes()");
+    if (result === null) return null;
+    return toJs(result);
+  }
+  if (method === "importPython") {
+    const fn = pyodide.runPython("flow_runtime.import_python_code");
+    try {
+      return toJs(fn(payload));
+    } finally {
+      fn.destroy();
+    }
+  }
+  if (method === "exportPython") {
+    const fn = pyodide.runPython("flow_runtime.export_python_code");
+    try {
+      return toJs(await fn(JSON.stringify(payload)));
+    } finally {
+      fn.destroy();
+    }
+  }
+  throw new Error("Unknown Python runtime method: " + method);
+}
+
+self.onmessage = async ({ data }) => {
+  try {
+    if (data.type === "initialize") {
+      await initializePython(data.baseUrl);
+    } else if (data.type === "call") {
+      const value = await invoke(data.method, data.payload);
+      if (value instanceof Uint8Array) {
+        self.postMessage({ type: "result", id: data.id, value }, [value.buffer]);
+      } else {
+        self.postMessage({ type: "result", id: data.id, value });
+      }
+    }
+  } catch (error) {
+    self.postMessage({
+      type: "error",
+      id: data.id,
+      message: String(error),
+      stack: error && error.stack
+    });
+  }
+};

@@ -1854,7 +1854,17 @@ def evaluate_graph_json(payload):
             module = importlib.import_module(descriptor["module"])
             manager_type = getattr(module, descriptor["name"])
             manager = manager_type(*descriptor.get("args", []), **descriptor.get("kwargs", {}))
-            entered = manager.__enter__()
+            try:
+                entered = manager.__enter__()
+            except Exception as exc:
+                exception_info = (type(exc), exc, exc.__traceback__)
+                while active_scopes:
+                    try:
+                        close_scope(active_scopes[-1]["id"], exception_info)
+                    except Exception:
+                        # Continue unwinding outer managers even if one cleanup fails.
+                        pass
+                raise
             scope_values[scope_id] = entered
             active_scopes.append({"id": scope_id, "manager": manager, "entered": entered})
 
@@ -1967,7 +1977,7 @@ def evaluate_graph_json(payload):
                         close_scope(active_scopes[-1]["id"], exception_info)
                     except Exception as close_exc:
                         errors[node_id] += "; scope cleanup failed: " + str(close_exc)
-                        break
+                        continue
 
     while active_scopes:
         try:

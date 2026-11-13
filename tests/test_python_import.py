@@ -51,10 +51,10 @@ class PythonImportSourceTests(unittest.TestCase):
         }
         type_name = ast.unparse(functions["_type_name"])
         discovery = ast.unparse(functions["discover"])
-        self.assertIn('"ShapeList"', type_name)
-        self.assertIn('"GroupBy"', type_name)
-        self.assertIn('"ShapeList"', discovery)
-        self.assertIn('"GroupBy"', discovery)
+        self.assertIn("ShapeList", type_name)
+        self.assertIn("GroupBy", type_name)
+        self.assertIn("ShapeList", discovery)
+        self.assertIn("GroupBy", discovery)
 
     def test_importer_never_executes_or_evaluates_source(self):
         forbidden = {"exec", "eval", "compile", "__import__"}

@@ -2164,6 +2164,208 @@ def _python_import_reference(obj, imports, alias):
     return alias
 
 
+
+def import_python_code(source):
+    """Parse a conservative, non-executing Python subset into the native graph format.
+
+    Imports are inspected, never executed. Unsupported statements fail with a source
+    location instead of being silently dropped or evaluated.
+    """
+    import ast
+
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("Python source is empty")
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise ValueError("Python syntax error at line {}:{}: {}".format(
+            exc.lineno or 1, exc.offset or 1, exc.msg
+        )) from exc
+
+    aliases = {"build123d": "b3d"}
+    imported = {}
+    for statement in tree.body:
+        if isinstance(statement, ast.Import):
+            for item in statement.names:
+                if item.name == "build123d":
+                    aliases[item.asname or item.name] = "b3d"
+                else:
+                    raise ValueError("Unsupported import at line {}: {}".format(
+                        statement.lineno, item.name))
+        elif isinstance(statement, ast.ImportFrom):
+            if statement.module == "build123d" or (statement.module and statement.module.startswith("build123d.")):
+                for item in statement.names:
+                    if item.name == "*":
+                        continue
+                    imported[item.asname or item.name] = item.name
+            else:
+                raise ValueError("Only build123d imports are supported (line {})".format(statement.lineno))
+
+    definitions = _CATALOG
+    by_name = {}
+    for definition_id, definition in definitions.items():
+        by_name.setdefault(definition.get("name"), definition_id)
+        by_name.setdefault(definition_id.rsplit(".", 1)[-1], definition_id)
+
+    graph_nodes, graph_edges = [], []
+    variables = {}
+    counter = 0
+
+    def add_node(definition_id, params, links, line):
+        nonlocal counter
+        definition = definitions.get(definition_id)
+        if definition is None:
+            raise ValueError("No registered node for '{}' at line {}".format(definition_id, line))
+        counter += 1
+        node_id = "import_{}".format(counter)
+        graph_nodes.append({
+            "id": node_id, "type": "api",
+            "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
+            "data": {"definition": definition, "params": params, "visible": any(
+                socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
+                for socket in definition.get("outputs", [])
+            )}
+        })
+        for input_name, source_id, output_name in links:
+            graph_edges.append({
+                "id": "import_edge_{}".format(len(graph_edges) + 1),
+                "source": source_id, "target": node_id,
+                "sourceHandle": output_name, "targetHandle": input_name
+            })
+        return node_id
+
+    def resolve_callable(node):
+        if isinstance(node, ast.Name):
+            name = imported.get(node.id, node.id)
+            return by_name.get(name) or by_name.get(node.id)
+        if isinstance(node, ast.Attribute):
+            path = []
+            current = node
+            while isinstance(current, ast.Attribute):
+                path.append(current.attr)
+                current = current.value
+            if isinstance(current, ast.Name):
+                root = current.id
+                if root in aliases and aliases[root] == "b3d":
+                    return by_name.get(path[0]) if len(path) == 1 else None
+                if root in imported:
+                    return by_name.get(imported[root] + "." + ".".join(reversed(path)))
+            return None
+        return None
+
+    def expression(node):
+        if isinstance(node, ast.Constant):
+            return ("literal", node.value)
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            values = [expression(item) for item in node.elts]
+            if all(item[0] == "literal" for item in values):
+                raw = [item[1] for item in values]
+                return ("literal", raw if isinstance(node, ast.List) else tuple(raw) if isinstance(node, ast.Tuple) else set(raw))
+            raise ValueError("Connected collections are not yet importable (line {})".format(node.lineno))
+        if isinstance(node, ast.Name):
+            if node.id in variables:
+                return ("ref", variables[node.id], "result")
+            if node.id in {"True", "False", "None"}:
+                return ("literal", {"True": True, "False": False, "None": None}[node.id])
+            raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and node.value.id in aliases and aliases[node.value.id] == "b3d":
+                enum_name = node.attr
+                enum_type = getattr(b3d, enum_name, None)
+                if inspect.isclass(enum_type) and issubclass(enum_type, enum.Enum):
+                    return ("literal", enum_type)
+            raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
+        if isinstance(node, ast.Call):
+            definition_id = resolve_callable(node.func)
+            if not definition_id:
+                raise ValueError("Unsupported call at line {}: {}".format(
+                    node.lineno, ast.unparse(node.func)))
+            definition = definitions[definition_id]
+            sockets = definition.get("inputs", [])
+            params, links = {}, []
+            positional = [socket for socket in sockets if socket.get("kind") not in {"var_keyword"}]
+            if len(node.args) > len(positional):
+                raise ValueError("Too many positional arguments for {} at line {}".format(
+                    definition.get("name"), node.lineno))
+            supplied = {}
+            for index, value in enumerate(node.args):
+                supplied[positional[index]["name"]] = value
+            for keyword in node.keywords:
+                if keyword.arg is None:
+                    raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
+                supplied[keyword.arg] = keyword.value
+            known = {socket["name"] for socket in sockets}
+            unknown = set(supplied) - known
+            if unknown:
+                raise ValueError("Unknown argument(s) for {} at line {}: {}".format(
+                    definition.get("name"), node.lineno, ", ".join(sorted(unknown))))
+            for socket in sockets:
+                name = socket["name"]
+                if name not in supplied:
+                    if "default" in socket:
+                        params[name] = socket["default"]
+                    elif socket.get("required"):
+                        raise ValueError("Missing '{}' for {} at line {}".format(
+                            name, definition.get("name"), node.lineno))
+                    continue
+                kind, value, *extra = expression(supplied[name])
+                if kind == "literal":
+                    params[name] = value
+                else:
+                    links.append((name, value, extra[0]))
+            created = add_node(definition_id, params, links, node.lineno)
+            return ("ref", created, definition.get("outputs", [{}])[0].get("name", "result"))
+        if isinstance(node, ast.BinOp):
+            methods = {
+                ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",
+                ast.Div: "__truediv__", ast.FloorDiv: "__floordiv__",
+                ast.Mod: "__mod__", ast.Pow: "__pow__", ast.BitAnd: "__and__",
+                ast.BitOr: "__or__", ast.BitXor: "__xor__",
+            }
+            method = methods.get(type(node.op))
+            if not method:
+                raise ValueError("Unsupported binary operator at line {}".format(node.lineno))
+            left, right = expression(node.left), expression(node.right)
+            definition_id = next((key for key in definitions if ".operator." + method in key), None)
+            if not definition_id:
+                raise ValueError("No graph node registered for operator {} (line {})".format(method, node.lineno))
+            definition = definitions[definition_id]
+            params, links = {}, []
+            operands = [left, right]
+            for socket, operand in zip(definition.get("inputs", []), operands):
+                if operand[0] == "literal": params[socket["name"]] = operand[1]
+                else: links.append((socket["name"], operand[1], operand[2]))
+            created = add_node(definition_id, params, links, node.lineno)
+            return ("ref", created, "result")
+        raise ValueError("Unsupported expression '{}' at line {}".format(
+            type(node).__name__, getattr(node, "lineno", "?")))
+
+    for statement in tree.body:
+        if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            continue
+        if isinstance(statement, ast.Expr):
+            expression(statement.value)
+            continue
+        if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+            value_node = statement.value
+            if value_node is None:
+                continue
+            result = expression(value_node)
+            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+            for target in targets:
+                if not isinstance(target, ast.Name):
+                    raise ValueError("Only simple variable assignments are supported (line {})".format(statement.lineno))
+                variables[target.id] = result[1:] if result[0] == "ref" else result
+            continue
+        if isinstance(statement, ast.Pass):
+            continue
+        raise ValueError("Unsupported statement '{}' at line {}".format(
+            type(statement).__name__, getattr(statement, "lineno", "?")))
+
+    if not graph_nodes:
+        raise ValueError("No supported build123d operations were found")
+    return {"nodes": graph_nodes, "edges": graph_edges}
+
 def export_python_code(payload):
     """Compile a graph to standalone build123d Python using native API calls."""
     graph = json.loads(payload) if isinstance(payload, str) else payload

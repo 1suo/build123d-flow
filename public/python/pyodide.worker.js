@@ -57,25 +57,30 @@ async function loadSources(baseUrl) {
   const base = new URL(baseUrl, self.location.href);
   const runtimeUrl = new URL("python/flow_runtime.py?v=" + RUNTIME_REVISION, base);
   const frontendUrl = new URL("python/python_importer_frontend.py?v=" + RUNTIME_REVISION, base);
+  const semanticsUrl = new URL("python/python_importer_semantics.py?v=" + RUNTIME_REVISION, base);
   const setupUrl = new URL("python/setup.py?v=" + RUNTIME_REVISION, base);
-  const [setup, runtime, frontend] = await Promise.all([
+  const [setup, runtime, frontend, semantics] = await Promise.all([
     fetchText(setupUrl, "Python dependency setup"),
     fetchText(runtimeUrl, "graph runtime"),
-    fetchText(frontendUrl, "Python importer frontend")
+    fetchText(frontendUrl, "Python importer frontend"),
+    fetchText(semanticsUrl, "Python importer catalog semantics")
   ]);
   validateRuntimeSource(runtime, runtimeUrl.href);
   if (!/^def\s+analyze_source\s*\(/m.test(frontend)) {
     throw new Error("Refusing incomplete Python importer frontend from " + frontendUrl.href);
   }
-  const sourceRevision = await fingerprint(setup + "\\0" + runtime + "\\0" + frontend);
-  return { setup, runtime, frontend, sourceRevision };
+  if (!/^class\\s+CatalogResolver\\b/m.test(semantics)) {
+    throw new Error("Refusing incomplete Python importer semantics from " + semanticsUrl.href);
+  }
+  const sourceRevision = await fingerprint(setup + "\\0" + runtime + "\\0" + frontend + "\\0" + semantics);
+  return { setup, runtime, frontend, semantics, sourceRevision };
 }
 
 async function initializePython(baseUrl) {
   status("Fetching versioned Python runtime…");
   // Validate the actual downloaded source before spending time loading Pyodide
   // or installing build123d. This catches stale CDN/service-worker responses.
-  const { setup, runtime, frontend, sourceRevision } = await loadSources(baseUrl);
+  const { setup, runtime, frontend, semantics, sourceRevision } = await loadSources(baseUrl);
   const environmentRevision = RUNTIME_REVISION + ":" + PYODIDE_VERSION + ":" + sourceRevision;
   const indexURL = new URL(
     "pyodide/v" + PYODIDE_VERSION + "/full/",
@@ -127,6 +132,7 @@ async function initializePython(baseUrl) {
   status("Importing graph runtime…");
   pyodide.FS.writeFile("/flow_runtime.py", runtime);
   pyodide.FS.writeFile("/python_importer_frontend.py", frontend);
+  pyodide.FS.writeFile("/python_importer_semantics.py", semantics);
   await pyodide.runPythonAsync(
     "import sys, importlib.util; " +
     "sys.path.insert(0, '/'); " +

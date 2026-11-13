@@ -91,8 +91,9 @@ class PythonImportSourceTests(unittest.TestCase):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         source = ast.unparse(functions["resolve_member"])
-        self.assertIn("receiver_type in (None, 'Any')", source)
+        self.assertIn("if not candidates", source)
         self.assertIn("candidate_id.rsplit('.', 1)[-1] != member_name", source)
+        self.assertIn("Multiple", source)
         self.assertIn('candidates.append((0, candidate_id))', source)
 
     def test_catalog_discovers_typed_build123d_collection_members(self):

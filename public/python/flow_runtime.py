@@ -3176,28 +3176,18 @@ def import_python_code(source):
                     raise ValueError("for-else is not supported (line {})".format(statement.lineno))
                 if not isinstance(statement.target, ast.Name):
                     raise ValueError("Only simple for-loop targets are supported (line {})".format(statement.lineno))
-                iterable = None
-                if isinstance(statement.iter, (ast.List, ast.Tuple)):
-                    values = [expression(item) for item in statement.iter.elts]
-                    if all(item[0] == "literal" for item in values):
-                        iterable = [item[1] for item in values]
-                elif (isinstance(statement.iter, ast.Call)
-                      and isinstance(statement.iter.func, ast.Name)
-                      and statement.iter.func.id == "range"):
-                    args = [expression(item) for item in statement.iter.args]
-                    if len(args) not in (1, 2, 3) or any(item[0] != "literal" or not isinstance(item[1], int) for item in args):
-                        raise ValueError("range() loop bounds must be integer literals (line {})".format(statement.lineno))
-                    try:
-                        iterable = list(range(*(item[1] for item in args)))
-                    except (TypeError, ValueError) as exc:
-                        raise ValueError("Invalid range() at line {}: {}".format(statement.lineno, exc))
-                if iterable is None:
-                    raise ValueError("For-loops require a literal list, tuple, or range() (line {})".format(statement.lineno))
+                iterable = expression(statement.iter)
+                if iterable[0] != "ref":
+                    raise ValueError(
+                        "A for-loop iterable must be a graph-produced collection (line {})".format(
+                            statement.lineno))
                 previous = variables.get(statement.target.id)
                 had_previous = statement.target.id in variables
-                for item in iterable:
-                    variables[statement.target.id] = ("literal", item)
-                    process_statements(statement.body)
+                # Nodes in the body consume the iterable as a stream. The graph
+                # evaluator maps each operation over its items and collects the
+                # results; nested loops naturally propagate tree-shaped streams.
+                variables[statement.target.id] = iterable
+                process_statements(statement.body)
                 if had_previous:
                     variables[statement.target.id] = previous
                 else:

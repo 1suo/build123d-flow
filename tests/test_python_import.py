@@ -270,6 +270,18 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("b3d.Location", serializer)
         self.assertIn("b3d.Vector", serializer)
 
+    def test_binary_expression_supports_every_python_binary_operator(self):
+        functions = {
+            node.name: node for node in self.importer.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        source = ast.unparse(functions["expression"])
+        for operator_name in (
+            "MatMult", "LShift", "RShift", "operator.matmul",
+            "operator.lshift", "operator.rshift",
+        ):
+            self.assertIn(operator_name, source)
+
     def test_importer_reports_unsupported_statements_with_location(self):
         source = ast.unparse(self.importer)
         self.assertIn("Unsupported statement", source)

@@ -1828,6 +1828,11 @@ def evaluate_graph_json(payload):
         if isinstance(value, list):
             return [restore_scope_value(item) for item in value]
         if isinstance(value, dict):
+            if "__flow_ref__" in value:
+                source_id, output_name = value["__flow_ref__"]
+                if source_id not in values:
+                    raise ValueError("Context argument depends on unavailable node " + str(source_id))
+                return values[source_id].get(output_name)
             if "__flow_enum__" in value:
                 module_name, class_name, member_name = value["__flow_enum__"]
                 enum_type = getattr(importlib.import_module(module_name), class_name)
@@ -2686,6 +2691,12 @@ def import_python_code(source):
     def scope_argument(node):
         if isinstance(node, ast.Constant):
             return node.value
+        if isinstance(node, ast.Name) and node.id in variables:
+            kind, value, *extra = variables[node.id]
+            if kind == "literal":
+                return value
+            if kind == "ref":
+                return {"__flow_ref__": [value, extra[0]]}
         if isinstance(node, (ast.List, ast.Tuple)):
             values = [scope_argument(item) for item in node.elts]
             return values if isinstance(node, ast.List) else values
@@ -2902,6 +2913,9 @@ def export_python_code(payload):
                 if isinstance(value, list):
                     return "[" + ", ".join(scope_code_value(item) for item in value) + "]"
                 if isinstance(value, dict):
+                    if "__flow_ref__" in value:
+                        source_id, output_name = value["__flow_ref__"]
+                        return variables[source_id] + ("" if output_name == "result" else "." + output_name)
                     if "__flow_enum__" in value:
                         _, class_name, member_name = value["__flow_enum__"]
                         return "b3d.{}.{}".format(class_name, member_name)

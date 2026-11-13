@@ -59,6 +59,14 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("resolve_context_manager", source)
         self.assertNotIn("Multiple context managers in one with-statement", source)
 
+    def test_importer_uses_one_receiver_contract_resolver(self):
+        source = ast.unparse(self.importer)
+        self.assertIn("def output_contract", source)
+        self.assertIn("def receiver_score", source)
+        self.assertIn("def resolve_member", source)
+        self.assertIn("call_node=node", source)
+        self.assertIn("property_only=True", source)
+
     def test_runtime_enters_exits_and_unwinds_scopes(self):
         runtime = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
         evaluator = next(

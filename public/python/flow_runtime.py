@@ -897,8 +897,7 @@ def _register_flow_nodes(found, callables):
               lambda a, b: set(a) | set(b), [("a", "Set"), ("b", "Set")], "Set")
     _add_node(found, callables, "core.set.intersection", "Set Intersection", "Collections",
               lambda a, b: set(a) & set(b), [("a", "Set"), ("b", "Set")], "Set")
-    _add_node(found, callables, "core.set.difference", "Set Difference", "Collections",
-              lambda a, b: set(a) - set(b), [("a", "Set"), ("b", "Set")], "Set")
+    _add_node(found, callables, "core.set.difference", "Set Difference", "Collections",              lambda a, b: set(a) - set(b), [("a", "Set"), ("b", "Set")], "Set")
     _add_node(found, callables, "core.set.symmetric_difference", "Symmetric Difference", "Collections",
               lambda a, b: set(a) ^ set(b), [("a", "Set"), ("b", "Set")], "Set")
     _add_node(found, callables, "core.set.add", "Set Add", "Collections",
@@ -1797,8 +1796,7 @@ def _graph_plan(nodes, edges):
             if indegree[target] == 0:
                 heapq.heappush(queue, (insertion_order[target], target))
     if len(order) != len(nodes):
-        raise ValueError("Graph contains a cycle")
-    return incoming, outgoing, order
+        raise ValueError("Graph contains a cycle")    return incoming, outgoing, order
 
 
 def evaluate_graph_json(payload):
@@ -2697,8 +2695,7 @@ def import_python_code(source):
             if len(node.args) > len(argument_sockets):
                 raise ValueError("Too many positional arguments for {} at line {}".format(
                     definition.get("name"), node.lineno))
-            supplied = {}
-            for index, value in enumerate(node.args):
+            supplied = {}            for index, value in enumerate(node.args):
                 supplied[argument_sockets[index]["name"]] = value
             for keyword in node.keywords:
                 if keyword.arg is None:
@@ -2760,10 +2757,26 @@ def import_python_code(source):
             created = add_node(_PYTHON_SUBSCRIPT_ID, params, links, node.lineno)
             return ("ref", created, "result")
         if isinstance(node, ast.UnaryOp):
-            method = {ast.USub: "__neg__", ast.UAdd: "__pos__", ast.Invert: "__invert__"}.get(type(node.op))
-            if not method:
+            methods = {
+                ast.USub: ("__neg__", operator.neg),
+                ast.UAdd: ("__pos__", operator.pos),
+                ast.Invert: ("__invert__", operator.invert),
+            }
+            operation = methods.get(type(node.op))
+            if operation is None:
                 raise ValueError("Unsupported unary operator at line {}".format(node.lineno))
+            method, apply_operator = operation
             operand = expression(node.operand)
+            # Unary operators on Python literals are ordinary compile-time values,
+            # not graph operations. This is required for common syntax such as
+            # items[-1], negative dimensions, and signed numeric arguments.
+            if operand[0] == "literal":
+                try:
+                    return ("literal", apply_operator(operand[1]))
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ValueError(
+                        "Invalid {} operand at line {}: {}".format(method, node.lineno, exc)
+                    )
             definition_id = next((key for key in definitions if ".operator." + method in key), None)
             if not definition_id or operand[0] != "ref":
                 raise ValueError("No compatible graph node for unary operator at line {}".format(node.lineno))

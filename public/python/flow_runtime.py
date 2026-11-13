@@ -2264,16 +2264,21 @@ def import_python_code(source):
             raise ValueError("Connected collections are not yet importable (line {})".format(node.lineno))
         if isinstance(node, ast.Name):
             if node.id in variables:
-                return ("ref", variables[node.id], "result")
+                return variables[node.id]
             if node.id in {"True", "False", "None"}:
                 return ("literal", {"True": True, "False": False, "None": None}[node.id])
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
-            if isinstance(node.value, ast.Name) and node.value.id in aliases and aliases[node.value.id] == "b3d":
-                enum_name = node.attr
-                enum_type = getattr(b3d, enum_name, None)
-                if inspect.isclass(enum_type) and issubclass(enum_type, enum.Enum):
-                    return ("literal", enum_type)
+            if isinstance(node.value, ast.Name):
+                root = node.value.id
+                if (root in aliases and aliases[root] == "b3d") or hasattr(b3d, root):
+                    enum_type = getattr(b3d, root, None)
+                    if inspect.isclass(enum_type):
+                        try:
+                            if issubclass(enum_type, enum.Enum):
+                                return ("literal", enum_type[node.attr])
+                        except (TypeError, KeyError):
+                            pass
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
             definition_id = resolve_callable(node.func)
@@ -2355,7 +2360,7 @@ def import_python_code(source):
             for target in targets:
                 if not isinstance(target, ast.Name):
                     raise ValueError("Only simple variable assignments are supported (line {})".format(statement.lineno))
-                variables[target.id] = result[1:] if result[0] == "ref" else result
+                variables[target.id] = result
             continue
         if isinstance(statement, ast.Pass):
             continue

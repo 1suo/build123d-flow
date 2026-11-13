@@ -2917,11 +2917,14 @@ def import_python_code(source):
             created = add_node(definition_id, {}, [(receiver_socket["name"], operand[1], operand[2])], node.lineno)
             return ("ref", created, "result")
         if isinstance(node, ast.BinOp):
+            # Keep this table aligned with Python's complete binary-operator AST.
+            # The importer must not silently assume arithmetic means only + - * /.
             methods = {
                 ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",
                 ast.Div: "__truediv__", ast.FloorDiv: "__floordiv__",
-                ast.Mod: "__mod__", ast.Pow: "__pow__", ast.BitAnd: "__and__",
-                ast.BitOr: "__or__", ast.BitXor: "__xor__",
+                ast.Mod: "__mod__", ast.Pow: "__pow__", ast.MatMult: "__matmul__",
+                ast.BitAnd: "__and__", ast.BitOr: "__or__", ast.BitXor: "__xor__",
+                ast.LShift: "__lshift__", ast.RShift: "__rshift__",
             }
             method = methods.get(type(node.op))
             if not method:
@@ -2931,8 +2934,9 @@ def import_python_code(source):
                 operations = {
                     ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
                     ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
-                    ast.Mod: operator.mod, ast.Pow: operator.pow, ast.BitAnd: operator.and_,
-                    ast.BitOr: operator.or_, ast.BitXor: operator.xor,
+                    ast.Mod: operator.mod, ast.Pow: operator.pow, ast.MatMult: operator.matmul,
+                    ast.BitAnd: operator.and_, ast.BitOr: operator.or_, ast.BitXor: operator.xor,
+                    ast.LShift: operator.lshift, ast.RShift: operator.rshift,
                 }
                 try:
                     return ("literal", operations[type(node.op)](

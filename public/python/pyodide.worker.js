@@ -2,8 +2,8 @@
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
 
 const PYODIDE_VERSION = "314.0.7";
-const RUNTIME_REVISION = "2026-11-13-r12";
-const ENV_MARKER = ".build123d-flow-environment-v5";
+const RUNTIME_REVISION = "2026-11-13-r13";
+const ENV_MARKER = ".build123d-flow-environment-v6";
 
 let pyodide = null;
 let initialized = false;
@@ -25,6 +25,21 @@ function clearDirectory(FS, directory) {
       FS.unlink(path);
     }
   }
+}
+
+// IndexedDB implementations impose a per-value/transaction size limit. The
+// complete build123d/OCP environment can exceed that limit, so avoid a doomed
+// IDBFS sync and run from the in-memory filesystem instead.
+const MAX_PERSISTED_ENV_BYTES = 110 * 1024 * 1024;
+function directorySize(FS, directory) {
+  let total = 0;
+  for (const name of FS.readdir(directory)) {
+    if (name === "." || name === "..") continue;
+    const path = directory + "/" + name;
+    const stat = FS.stat(path);
+    total += FS.isDir(stat.mode) ? directorySize(FS, path) : stat.size;
+  }
+  return total;
 }
 
 async function fetchText(url, label) {
@@ -145,13 +160,23 @@ async function initializePython(baseUrl) {
   if (persistent) {
     try {
       const sitePackages = pyodide.runPython("import sysconfig; sysconfig.get_paths()['purelib']");
-      pyodide.FS.writeFile(
-        sitePackages + "/" + ENV_MARKER,
-        environmentRevision
-      );
-      await syncFs(pyodide.FS, false);
+      const size = directorySize(pyodide.FS, sitePackages);
+      if (size > MAX_PERSISTED_ENV_BYTES) {
+        persistent = false;
+        status(
+          "Python environment is " + (size / (1024 * 1024)).toFixed(1) +
+          " MB; browser cache limit is 110 MB. Using temporary storage."
+        );
+      } else {
+        pyodide.FS.writeFile(
+          sitePackages + "/" + ENV_MARKER,
+          environmentRevision
+        );
+        await syncFs(pyodide.FS, false);
+      }
     } catch (error) {
-      status("Could not save Python environment: " + error);
+      persistent = false;
+      status("Using temporary Python storage: " + error);
     }
   }
 

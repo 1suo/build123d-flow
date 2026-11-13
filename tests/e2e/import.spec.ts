@@ -67,7 +67,10 @@ test("browser imports and evaluates build123d Python", async ({ page }) => {
   expect(runtime.source).toContain("_PYTHON_ATTRIBUTE_ID");
   expect(runtime.source).toContain("def _python_getattr");
 
-  const runtimeError = await page.locator(".runtime-error").textContent().catch(() => null);
+  const runtimeErrorLocator = page.locator(".runtime-error");
+  const runtimeError = await runtimeErrorLocator.count()
+    ? await runtimeErrorLocator.textContent()
+    : null;
   if (runtimeError) {
     await test.info().attach("runtime-error.txt", { body: runtimeError });
     await test.info().attach("runtime-console.txt", { body: consoleErrors.join("\n") });

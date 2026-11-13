@@ -187,6 +187,18 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("arguments = {name: value for name, value in mapped.items()", evaluator)
         self.assertIn("bound_signature", evaluator)
 
+    def test_graph_evaluator_restores_serialized_value_receivers(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        evaluator = ast.unparse(functions["evaluate_graph_json"])
+        receiver = ast.unparse(functions["_coerce_graph_receiver"])
+        self.assertIn("_coerce_graph_receiver", evaluator)
+        self.assertIn('"Vector3": b3d.Vector', receiver)
+        self.assertIn('"Location": b3d.Location', receiver)
+        self.assertIn("_coerce_annotation(value, annotation)", receiver)
+
     def test_importer_serializes_axis_class_constants(self):
         functions = {
             node.name: node for node in self.importer.body

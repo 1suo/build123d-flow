@@ -52,6 +52,19 @@ class PythonImportSourceTests(unittest.TestCase):
         }
         self.assertFalse(forbidden.intersection(calls))
 
+    def test_catalog_discovers_typed_build123d_collection_members(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        type_name = ast.unparse(functions["_type_name"])
+        discovery = ast.unparse(functions["discover"])
+        self.assertIn('getattr(origin, "__module__", "")', type_name)
+        self.assertIn('return annotation.__name__', type_name)
+        self.assertIn("_candidate_rejection(cls)", discovery)
+        self.assertNotIn('"ShapeList"', discovery)
+        self.assertNotIn('"GroupBy"', discovery)
+
     def test_importer_reports_unsupported_statements_with_location(self):
         source = ast.unparse(self.importer)
         self.assertIn("Unsupported statement", source)

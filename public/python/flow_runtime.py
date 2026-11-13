@@ -2585,7 +2585,10 @@ def import_python_code(source):
             receiver_root = node.value
             while isinstance(receiver_root, ast.Attribute):
                 receiver_root = receiver_root.value
-            receiver = expression(node.value) if isinstance(receiver_root, ast.Name) and receiver_root.id in variables else None
+            receiver = None
+            if ((isinstance(receiver_root, ast.Name) and receiver_root.id in variables)
+                    or isinstance(node.value, (ast.Call, ast.Subscript, ast.BinOp, ast.UnaryOp))):
+                receiver = expression(node.value)
             if receiver and receiver[0] == "ref":
                 receiver_node = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
                 receiver_type = receiver_node["data"]["definition"].get("outputs", [{}])[0].get("type") if receiver_node else None
@@ -2675,12 +2678,13 @@ def import_python_code(source):
             if not definition_id and isinstance(node.func, ast.Attribute):
                 receiver = expression(node.func.value)
                 if receiver[0] == "ref":
-                    receiver_type = None
                     upstream = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
                     if upstream:
                         receiver_type = upstream["data"]["definition"].get("outputs", [{}])[0].get("type")
-                    definition_id, candidates = resolve_member(node.func.attr, receiver_type)
-                    if candidates and definition_id is None:
+                elif receiver[0] == "literal":
+                    receiver_type = _type_name(type(materialize_literal(receiver[1])))
+                definition_id, candidates = resolve_member(node.func.attr, receiver_type)
+                if candidates and definition_id is None:
                         raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
                             node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
             if not definition_id:
@@ -2691,7 +2695,10 @@ def import_python_code(source):
             params, links = {}, []
             receiver_socket = next((item for item in sockets if item.get("name") in {"self", "cls"}), None)
             if receiver is not None and receiver_socket is not None:
-                links.append((receiver_socket["name"], receiver[1], receiver[2]))
+                if receiver[0] == "ref":
+                    links.append((receiver_socket["name"], receiver[1], receiver[2]))
+                else:
+                    params[receiver_socket["name"]] = literal_json_value(receiver[1])
             argument_sockets = [socket for socket in sockets if socket is not receiver_socket and socket.get("kind") != "var_keyword"]
             if len(node.args) > len(argument_sockets):
                 raise ValueError("Too many positional arguments for {} at line {}".format(

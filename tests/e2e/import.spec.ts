@@ -33,6 +33,25 @@ with BuildPart():
 `
   },
   {
+    name: "for-loop maps one operation over a dynamic face stream",
+    source: `from build123d import *
+
+box = Box(10, 10, 10)
+for face in box.faces():
+    face.area
+`
+  },
+  {
+    name: "nested for-loops preserve the collection tree",
+    source: `from build123d import *
+
+box = Box(10, 10, 10)
+for face in box.faces():
+    for edge in face.edges():
+        edge.length
+`
+  },
+  {
     name: "ambiguous Y property under unary negation",
     source: `from build123d import *
 

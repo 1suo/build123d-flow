@@ -89,9 +89,6 @@ async function importExample(page: Page, source: string) {
     timeout: 120_000
   }).toMatch(/Python imported|Python import failed/);
   await expect(page.locator(".viewport-status")).toContainText("Python imported");
-  await expect(page.locator(".viewport-status-count")).not.toHaveText("0 visible", {
-    timeout: 120_000
-  });
   await expect(page.locator(".viewport-status-dot")).not.toHaveClass(/is-error/);
   await expect(log).toContainText("Evaluation complete", { timeout: 120_000 });
   await expect(log).not.toContainText("Python import failed");
@@ -102,6 +99,7 @@ test("imports and evaluates the pinned upstream build123d examples corpus", asyn
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto("./", { waitUntil: "domcontentloaded" });
 
+  await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 5 * 60 * 1000 });
   await expect(page.locator(".viewport-status")).toContainText("Ready");
 

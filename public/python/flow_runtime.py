@@ -32,6 +32,11 @@ def _type_name(annotation):
         return "Any"
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
+    # Preserve build123d's typed collection classes instead of collapsing them
+    # to Any: their instance methods are part of the public modeling API.
+    origin_name = getattr(origin, "__name__", "")
+    if origin_name in {"ShapeList", "GroupBy"}:
+        return origin_name
     if origin in (typing.Union, types.UnionType):
         union_args = [arg for arg in args if arg is not type(None)]
         shape_base = getattr(b3d, "Shape", None)
@@ -1196,6 +1201,7 @@ def discover(include_full=True):
         # Instance methods are useful as nodes on shapes and value-like geometry objects.
         if cls not in shape_classes and cls.__name__ not in {
             "Vector", "Vector2D", "Plane", "Location", "Rotation", "Axis", "Color",
+            "ShapeList", "GroupBy",
         }:
             continue
         seen_members = set()

@@ -82,7 +82,7 @@ class PythonImportSourceTests(unittest.TestCase):
 
 
     def test_importer_expression_path_consumes_kernel_neutral_ir(self):
-        source = inspect.getsource(self.importer)
+        source = ast.unparse(self.importer)
         self.assertIn("from python_importer_ir import", source)
         self.assertIn("expression_from_ir", source)
 

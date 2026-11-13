@@ -74,8 +74,8 @@ async function loadSources(baseUrl) {
   if (!/^class\s+CatalogResolver\b/m.test(semantics)) {
     throw new Error("Refusing incomplete Python importer semantics from " + semanticsUrl.href);
   }
-  const sourceRevision = await fingerprint(setup + "\0" + runtime + "\0" + frontend + "\0" + semantics);
-  return { setup, runtime, frontend, semantics, sourceRevision };
+  const sourceRevision = await fingerprint(setup + "\0" + runtime + "\0" + frontend + "\0" + semantics + "\0" + ir);
+  return { setup, runtime, frontend, semantics, ir, sourceRevision };
 }
 
 async function initializePython(baseUrl) {
@@ -134,7 +134,8 @@ async function initializePython(baseUrl) {
   status("Importing graph runtime…");
   pyodide.FS.writeFile("/flow_runtime.py", runtime);
   pyodide.FS.writeFile("/python_importer_frontend.py", frontend);
-  pyodide.FS.writeFile("/python_importer_semantics.py", semantics);\n  pyodide.FS.writeFile("/python_importer_ir.py", ir);
+  pyodide.FS.writeFile("/python_importer_semantics.py", semantics);
+  pyodide.FS.writeFile("/python_importer_ir.py", ir);
   await pyodide.runPythonAsync(
     "import sys, importlib.util; " +
     "sys.path.insert(0, '/'); " +

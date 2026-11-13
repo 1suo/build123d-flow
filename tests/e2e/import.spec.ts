@@ -77,12 +77,13 @@ test("browser imports and evaluates build123d Python", async ({ page }) => {
   // The status text is presentation, not a reliable readiness hook. The
   // importer textarea is disabled until the worker has initialized and the
   // catalog has loaded; assert that actual user capability instead.
+  await page.getByRole("button", { name: "Settings" }).click();
   await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 5 * 60 * 1000 });
   await expect(page.locator(".viewport-status")).toContainText("Ready");
 
-  for (const scenario of cases) {
+  for (const [index, scenario] of cases.entries()) {
     await test.step(scenario.name, async () => {
-      await page.getByRole("button", { name: "Settings" }).click();
+      if (index > 0) await page.getByRole("button", { name: "Settings" }).click();
       await page.locator("#python-source-input").fill(scenario.source);
       await page.getByRole("button", { name: "Import pasted code" }).click();
 

@@ -2308,23 +2308,95 @@ def import_python_code(source):
     location instead of being silently dropped or evaluated.
     """
     import ast
-    from python_importer_frontend import analyze_source
-    from python_importer_semantics import CatalogResolver
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("Python source is empty")
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise ValueError("Python syntax error at line {}:{}: {}".format(
+            exc.lineno or 1, exc.offset or 1, exc.msg
+        )) from exc
 
-    frontend = analyze_source(source)
-    tree = frontend.tree
-    aliases = frontend.imports.aliases
-    imported = frontend.imports.imported
-    viewer_modules = frontend.imports.viewer_modules
-    viewer_functions = frontend.imports.viewer_functions
-    is_viewer_call = frontend.imports.is_viewer_call
+    aliases = {"build123d": "b3d"}
+    imported = {}
+    viewer_modules = {}
+    viewer_functions = set()
+    viewer_api = {"show", "show_object", "show_all", "reset_show", "set_defaults"}
+    for statement in tree.body:
+        if isinstance(statement, ast.Import):
+            for item in statement.names:
+                if item.name == "build123d":
+                    aliases[item.asname or item.name] = "b3d"
+                elif item.name == "ocp_vscode":
+                    viewer_modules[item.asname or item.name] = "ocp_vscode"
+                else:
+                    raise ValueError("Unsupported import at line {}: {}".format(
+                        statement.lineno, item.name))
+        elif isinstance(statement, ast.ImportFrom):
+            if statement.module == "build123d" or (statement.module and statement.module.startswith("build123d.")):
+                for item in statement.names:
+                    if item.name != "*":
+                        imported[item.asname or item.name] = item.name
+            elif statement.module == "ocp_vscode":
+                for item in statement.names:
+                    if item.name == "*":
+                        viewer_functions.update(viewer_api)
+                    elif item.name in viewer_api:
+                        viewer_functions.add(item.asname or item.name)
+                    else:
+                        raise ValueError("Unsupported ocp_vscode import at line {}: {}".format(
+                            statement.lineno, item.name))
+            else:
+                raise ValueError("Only build123d and ocp_vscode imports are supported (line {})".format(statement.lineno))
+
+    def is_viewer_call(node):
+        if not isinstance(node, ast.Call):
+            return False
+        function = node.func
+        if isinstance(function, ast.Name):
+            return function.id in viewer_functions
+        if isinstance(function, ast.Attribute) and isinstance(function.value, ast.Name):
+            return viewer_modules.get(function.value.id) == "ocp_vscode" and function.attr in viewer_api
+        return False
 
     # Import is an explicit action, so load the full API catalog lazily here.
     # This makes class methods/properties available without slowing normal startup.
     if not _DISCOVERY_REPORT.get("include_full"):
         discover(include_full=True)
     definitions = _CATALOG
-    catalog_resolver = CatalogResolver(definitions)
+    def resolve_member(member_name, receiver_type, property_only=False):
+        """Resolve one catalog method/property using its receiver socket contract."""
+        candidates = []
+        for candidate_id, candidate in definitions.items():
+            is_property = ".property." + member_name in candidate_id or ".field." + member_name in candidate_id
+            if property_only:
+                if not is_property:
+                    continue
+            elif candidate.get("name") != member_name:
+                continue
+            receiver = next((item for item in candidate.get("inputs", [])
+                             if item.get("name") in {"self", "cls"}), None)
+            if receiver is None:
+                continue
+            accepted = receiver.get("variants") or [receiver.get("type", "Any")]
+            if receiver_type in accepted:
+                score = 3
+            elif receiver_type == "Shape" and any(
+                item in {"Shape", "Solid", "Part", "Compound"} for item in accepted
+            ):
+                score = 2
+            elif "Any" in accepted:
+                score = 1
+            else:
+                continue
+            candidates.append((score, candidate_id))
+        if not candidates:
+            return None, ()
+        best_score = max(score for score, _ in candidates)
+        winners = tuple(sorted(
+            candidate_id for score, candidate_id in candidates if score == best_score
+        ))
+        return (winners[0], winners) if len(winners) == 1 else (None, winners)
 
     # Python's subscription protocol is a language-level operation, not a
     # build123d API member. Register it as a reusable graph primitive so
@@ -2478,11 +2550,10 @@ def import_python_code(source):
                     descriptor = next((item for item in execution_scopes if item.get("id") == scope_id), {})
                     if node.attr == descriptor.get("result_attribute"):
                         return receiver
-                resolution = catalog_resolver.resolve_member(
+                definition_id, candidates = resolve_member(
                     node.attr, receiver_type, property_only=True
                 )
-                if resolution.definition_id:
-                    definition_id = resolution.definition_id
+                if definition_id:
                     receiver_socket = next(
                         item for item in definitions[definition_id].get("inputs", [])
                         if item.get("name") in {"self", "cls"}
@@ -2493,12 +2564,9 @@ def import_python_code(source):
                         node.lineno,
                     )
                     return ("ref", created, definitions[definition_id].get("outputs", [{}])[0].get("name", "result"))
-                if resolution.reason:
-                    raise ValueError(
-                        "Ambiguous property '{}' at line {}: {}".format(
-                            node.attr, node.lineno, ", ".join(resolution.candidates)
-                        )
-                    )
+                if candidates:
+                    raise ValueError("Ambiguous property '{}' at line {}: {}".format(
+                        node.attr, node.lineno, ", ".join(candidates)))
             path = []
             current = node
             while isinstance(current, ast.Attribute):
@@ -2562,17 +2630,10 @@ def import_python_code(source):
                     upstream = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
                     if upstream:
                         receiver_type = upstream["data"]["definition"].get("outputs", [{}])[0].get("type")
-                    resolution = catalog_resolver.resolve_member(
-                        node.func.attr, receiver_type
-                    )
-                    definition_id = resolution.definition_id
-                    if resolution.reason:
-                        raise ValueError(
-                            "Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
-                                node.func.attr, receiver_type, node.lineno,
-                                ", ".join(resolution.candidates),
-                            )
-                        )
+                    definition_id, candidates = resolve_member(node.func.attr, receiver_type)
+                    if candidates and definition_id is None:
+                        raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
+                            node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
             if not definition_id:
                 raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
                     node.lineno, ast.unparse(node.func)))

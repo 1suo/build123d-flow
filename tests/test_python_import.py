@@ -46,7 +46,7 @@ class PythonImportSourceTests(unittest.TestCase):
 
     def test_importer_builds_serializable_graph_records(self):
         source = ast.unparse(self.importer)
-        for required in ('"nodes"', '"edges"', '"position"', '"definition"', '"params"'):
+        for required in ("graph_nodes", "graph_edges", "'position'", "'definition'", "'params'"):
             self.assertIn(required, source)
 
 

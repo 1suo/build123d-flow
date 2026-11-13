@@ -1636,7 +1636,7 @@ def _stream_item_kind(value):
     return "object"
 
 
-_GEOMETRY_INPUT_TYPES = {"Shape", "Solid", "Compound", "Face", "Edge", "Wire", "Shell", "Part", "Sketch"}
+_GEOMETRY_INPUT_TYPES = {"Shape", "Solid", "Compound", "Face", "Edge", "Vertex", "Wire", "Shell", "Part", "Sketch"}
 _SCALAR_INPUT_TYPES = {"Number", "Boolean", "String", "Code"}
 _OBJECT_INPUT_TYPES = {
     "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis", "Color", "Matrix", "Enum",

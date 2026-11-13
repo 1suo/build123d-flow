@@ -3179,21 +3179,64 @@ def import_python_code(source):
                 iterable = expression(statement.iter)
                 if iterable[0] != "ref":
                     raise ValueError(
-                        "A for-loop iterable must be a graph output (line {}). "
-                        "Use a build123d collection or another list-producing node.".format(statement.lineno)
+                        "A for-loop iterable must be a graph output (line {})".format(statement.lineno)
                     )
-                previous = variables.get(statement.target.id)
-                had_previous = statement.target.id in variables
-                # Python for-loops express data mapping in this graph model.
-                # Bind the target to the collection output and translate the
-                # body once; evaluator stream propagation maps each operation
-                # over the items and collects its results (including nested trees).
-                variables[statement.target.id] = iterable
+                target_name = statement.target.id
+                had_previous = target_name in variables
+                previous = variables.get(target_name)
+                # A loop variable is a stream alias. The body is translated exactly
+                # once; the evaluator maps each consuming node over the iterable and
+                # collects the results, preserving nested collection structure.
+                variables[target_name] = iterable
                 process_statements(statement.body)
                 if had_previous:
-                    variables[statement.target.id] = previous
+                    variables[target_name] = previous
                 else:
-                    variables.pop(statement.target.id, None)
+                    variables.pop(target_name, None)
+                continue
+            if isinstance(statement, ast.AugAssign):
+                if not isinstance(statement.target, ast.Name):
+                    raise ValueError("Only simple augmented assignments are supported (line {})".format(statement.lineno))
+                current = variables.get(statement.target.id)
+                if current is None:
+                    raise ValueError("Unresolved augmented-assignment target '{}' at line {}".format(
+                        statement.target.id, statement.lineno))
+                combined = ast.BinOp(
+                    left=ast.Constant(value=None), op=statement.op, right=statement.value
+                )
+                ast.copy_location(combined, statement)
+                # Reuse the normal operator lowering without synthesizing source text.
+                left_expr = expression(statement.value)
+                if current[0] == "literal" and left_expr[0] == "literal":
+                    methods = {
+                        ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+                        ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
+                        ast.Mod: operator.mod, ast.Pow: operator.pow,
+                    }
+                    operation = methods.get(type(statement.op))
+                    if operation is None:
+                        raise ValueError("Unsupported augmented operator at line {}".format(statement.lineno))
+                    variables[statement.target.id] = ("literal", operation(
+                        materialize_literal(current[1]), materialize_literal(left_expr[1])))
+                else:
+                    methods = {
+                        ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",
+                        ast.Div: "__truediv__", ast.FloorDiv: "__floordiv__",
+                        ast.Mod: "__mod__", ast.Pow: "__pow__",
+                    }
+                    method = methods.get(type(statement.op))
+                    definition_id = next((key for key in definitions if ".operator." + str(method) in key), None)
+                    if not definition_id:
+                        raise ValueError("No graph node registered for augmented operator at line {}".format(statement.lineno))
+                    definition = definitions[definition_id]
+                    params, links = {}, []
+                    for socket, operand in zip(definition.get("inputs", []), (current, left_expr)):
+                        if operand[0] == "literal":
+                            params[socket["name"]] = literal_json_value(operand[1])
+                        else:
+                            links.append((socket["name"], operand[1], operand[2]))
+                    created = add_node(definition_id, params, links, statement.lineno)
+                    variables[statement.target.id] = ("ref", created, "result")
                 continue
             if isinstance(statement, ast.If):
                 condition = expression(statement.test)

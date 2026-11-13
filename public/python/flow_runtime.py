@@ -2201,6 +2201,10 @@ def import_python_code(source):
             else:
                 raise ValueError("Only build123d imports are supported (line {})".format(statement.lineno))
 
+    # Import is an explicit action, so load the full API catalog lazily here.
+    # This makes class methods/properties available without slowing normal startup.
+    if not _DISCOVERY_REPORT.get("include_full"):
+        discover(include_full=True)
     definitions = _CATALOG
     by_name = {}
     for definition_id, definition in definitions.items():
@@ -2293,19 +2297,45 @@ def import_python_code(source):
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
             definition_id = resolve_callable(node.func)
+            receiver = None
+            if not definition_id and isinstance(node.func, ast.Attribute):
+                receiver = expression(node.func.value)
+                if receiver[0] == "ref":
+                    receiver_type = None
+                    upstream = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
+                    if upstream:
+                        receiver_type = upstream["data"]["definition"].get("outputs", [{}])[0].get("type")
+                    candidates = []
+                    for candidate_id, candidate in definitions.items():
+                        inputs = candidate.get("inputs", [])
+                        if candidate.get("name") != node.func.attr or not inputs or inputs[0].get("name") not in {"self", "cls"}:
+                            continue
+                        accepted = inputs[0].get("variants") or [inputs[0].get("type")]
+                        if receiver_type in accepted or "Any" in accepted or receiver_type == "Shape":
+                            candidates.append(candidate_id)
+                    if len(candidates) == 1:
+                        definition_id = candidates[0]
+                    elif candidates:
+                        exact = [candidate_id for candidate_id in candidates
+                                 if definitions[candidate_id]["inputs"][0].get("type") == receiver_type]
+                        if len(exact) == 1:
+                            definition_id = exact[0]
             if not definition_id:
-                raise ValueError("Unsupported call at line {}: {}".format(
+                raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
                     node.lineno, ast.unparse(node.func)))
             definition = definitions[definition_id]
             sockets = definition.get("inputs", [])
             params, links = {}, []
-            positional = [socket for socket in sockets if socket.get("kind") not in {"var_keyword"}]
-            if len(node.args) > len(positional):
+            receiver_socket = next((item for item in sockets if item.get("name") in {"self", "cls"}), None)
+            if receiver is not None and receiver_socket is not None:
+                links.append((receiver_socket["name"], receiver[1], receiver[2]))
+            argument_sockets = [socket for socket in sockets if socket is not receiver_socket and socket.get("kind") != "var_keyword"]
+            if len(node.args) > len(argument_sockets):
                 raise ValueError("Too many positional arguments for {} at line {}".format(
                     definition.get("name"), node.lineno))
             supplied = {}
             for index, value in enumerate(node.args):
-                supplied[positional[index]["name"]] = value
+                supplied[argument_sockets[index]["name"]] = value
             for keyword in node.keywords:
                 if keyword.arg is None:
                     raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
@@ -2317,6 +2347,8 @@ def import_python_code(source):
                     definition.get("name"), node.lineno, ", ".join(sorted(unknown))))
             for socket in sockets:
                 name = socket["name"]
+                if socket is receiver_socket:
+                    continue
                 if name not in supplied:
                     if "default" in socket:
                         params[name] = socket["default"]

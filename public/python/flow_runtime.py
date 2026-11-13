@@ -1909,7 +1909,10 @@ def evaluate_graph_json(payload):
             continue
         scope_result = data.get("scope_result")
         if scope_result:
-            values[node_id] = {"result": scope_results.get(scope_result)}
+            if scope_result in failed_scopes:
+                errors[node_id] = "Scope result unavailable because its body failed"
+            else:
+                values[node_id] = {"result": scope_results.get(scope_result)}
             continue
 
         definition_id = data.get("definition", {}).get("id")

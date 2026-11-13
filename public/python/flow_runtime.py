@@ -1974,11 +1974,38 @@ def evaluate_graph_json(payload):
             callable_obj = _resolve_callable(definition_id)
             signature = _CATALOG_SIGNATURES.get(definition_id)
             hint_target = _CATALOG_HINT_TARGETS.get(definition_id)
-            invoke = lambda mapped: _call_with_coercion(
-                callable_obj, mapped,
-                signature=signature,
-                hint_target=hint_target,
+            receiver_socket = next((item for item in definition.get("inputs", [])
+                                    if item.get("name") in {"self", "cls"}), None)
+            signature_parameters = list(signature.parameters.values()) if signature else []
+            is_instance_method = (
+                receiver_socket is not None
+                and signature_parameters
+                and signature_parameters[0].name == receiver_socket["name"]
+                and ".operator." not in definition_id
             )
+            if is_instance_method:
+                receiver_name = receiver_socket["name"]
+                method_name = definition_id.rsplit(".", 1)[-1]
+                bound_signature = signature.replace(parameters=signature_parameters[1:])
+
+                def invoke(mapped):
+                    receiver_value = mapped.get(receiver_name)
+                    if receiver_value is None:
+                        raise TypeError("Method {} requires a receiver".format(method_name))
+                    bound_method = getattr(receiver_value, method_name)
+                    arguments = {name: value for name, value in mapped.items()
+                                 if name != receiver_name}
+                    return _call_with_coercion(
+                        bound_method, arguments,
+                        signature=bound_signature,
+                        hint_target=hint_target,
+                    )
+            else:
+                invoke = lambda mapped: _call_with_coercion(
+                    callable_obj, mapped,
+                    signature=signature,
+                    hint_target=hint_target,
+                )
             stream_shapes = {}
             shape_memo = {}
             for input_name, (source_id, source_output) in incoming.get(node_id, {}).items():

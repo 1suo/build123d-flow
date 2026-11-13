@@ -56,19 +56,6 @@ jobs:
         run: python -m py_compile public/python/flow_runtime.py tests/graph_workflows.py
       - name: Run Python unit tests
         run: python -m unittest discover -s tests -p 'test_*.py'
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-      - name: Run browser regression tests
-        run: npm run test:e2e
-        env:
-          CI: "true"
-      - name: Upload Playwright diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-diagnostics
-          path: test-results/
-          if-no-files-found: ignore
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

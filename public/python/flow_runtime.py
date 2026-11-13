@@ -1775,17 +1775,21 @@ def _graph_plan(nodes, edges):
         outgoing[source].append(target)
         indegree[target] += 1
 
-    queue = [node_id for node_id, degree in indegree.items() if degree == 0]
+    # Stable topological ordering preserves source order for imported Python graphs
+    # while still respecting explicit data dependencies.
+    import heapq
+    insertion_order = {node_id: index for index, node_id in enumerate(nodes)}
+    queue = [(insertion_order[node_id], node_id)
+             for node_id, degree in indegree.items() if degree == 0]
+    heapq.heapify(queue)
     order = []
-    queue_index = 0
-    while queue_index < len(queue):
-        node_id = queue[queue_index]
-        queue_index += 1
+    while queue:
+        _, node_id = heapq.heappop(queue)
         order.append(node_id)
         for target in outgoing[node_id]:
             indegree[target] -= 1
             if indegree[target] == 0:
-                queue.append(target)
+                heapq.heappush(queue, (insertion_order[target], target))
     if len(order) != len(nodes):
         raise ValueError("Graph contains a cycle")
     return incoming, outgoing, order
@@ -1808,9 +1812,77 @@ def evaluate_graph_json(payload):
     values, previews, errors, node_keys = {}, {}, {}, {}
     evaluated_params = {}
     cache_hits = cache_misses = 0
+
+    # Imported Python context managers are represented as graph-level execution
+    # scopes. The graph remains ordinary dataflow; this stack supplies the dynamic
+    # context required by build123d builders and Locations-style managers.
+    scope_definitions = {
+        item.get("id"): item for item in graph.get("execution_scopes", [])
+    }
+    active_scopes = []
+    scope_values = {}
+    scope_results = {}
+    failed_scopes = set()
+
+    def close_scope(scope_id, exception_info=(None, None, None)):
+        entry = active_scopes.pop()
+        manager = entry["manager"]
+        descriptor = scope_definitions[scope_id]
+        try:
+            manager.__exit__(*exception_info)
+        finally:
+            output_attr = descriptor.get("result_attribute")
+            if output_attr:
+                scope_results[scope_id] = getattr(manager, output_attr, None)
+            elif descriptor.get("has_binding"):
+                scope_results[scope_id] = entry.get("entered")
+            else:
+                scope_results[scope_id] = None
+
+    def transition_scopes(target_path):
+        common = 0
+        while common < len(active_scopes) and common < len(target_path):
+            if active_scopes[common]["id"] != target_path[common]:
+                break
+            common += 1
+        while len(active_scopes) > common:
+            close_scope(active_scopes[-1]["id"])
+        for scope_id in target_path[common:]:
+            descriptor = scope_definitions.get(scope_id)
+            if descriptor is None:
+                raise ValueError("Unknown Python execution scope: " + str(scope_id))
+            module = importlib.import_module(descriptor["module"])
+            manager_type = getattr(module, descriptor["name"])
+            manager = manager_type(*descriptor.get("args", []), **descriptor.get("kwargs", {}))
+            entered = manager.__enter__()
+            scope_values[scope_id] = entered
+            active_scopes.append({"id": scope_id, "manager": manager, "entered": entered})
+
     for node_id in order:
         node = nodes[node_id]
-        definition_id = node.get("data", {}).get("definition", {}).get("id")
+        data = node.get("data", {})
+        scope_path = data.get("execution_scope_path", [])
+        try:
+            transition_scopes(scope_path)
+        except Exception as exc:
+            errors[node_id] = "Execution scope: " + type(exc).__name__ + ": " + str(exc)
+            failed_scopes.update(scope_path)
+            continue
+
+        if any(scope_id in failed_scopes for scope_id in scope_path):
+            errors[node_id] = "Execution skipped because an enclosing Python scope failed"
+            continue
+
+        scope_binding = data.get("scope_binding")
+        if scope_binding:
+            values[node_id] = {"result": scope_values.get(scope_binding)}
+            continue
+        scope_result = data.get("scope_result")
+        if scope_result:
+            values[node_id] = {"result": scope_results.get(scope_result)}
+            continue
+
+        definition_id = data.get("definition", {}).get("id")
         definition = _CATALOG.get(definition_id)
         if definition is None:
             errors[node_id] = "Unknown or unavailable API node: " + str(definition_id)
@@ -1886,6 +1958,24 @@ def evaluate_graph_json(payload):
                 node_keys[node_id] = key
         except Exception as exc:
             errors[node_id] = type(exc).__name__ + ": " + str(exc)
+            # A failed operation aborts its active with-blocks and runs every
+            # context manager's cleanup with the original exception information.
+            if active_scopes:
+                exception_info = (type(exc), exc, exc.__traceback__)
+                failed_scopes.update(entry["id"] for entry in active_scopes)
+                while active_scopes:
+                    try:
+                        close_scope(active_scopes[-1]["id"], exception_info)
+                    except Exception as close_exc:
+                        errors[node_id] += "; scope cleanup failed: " + str(close_exc)
+                        break
+
+    while active_scopes:
+        try:
+            close_scope(active_scopes[-1]["id"])
+        except Exception as exc:
+            errors["scope_cleanup"] = type(exc).__name__ + ": " + str(exc)
+            break
 
     source_nodes = {edge.get("source") for edge in edges}
     # Preview Style replaces the upstream viewport representation to avoid coplanar z-fighting.
@@ -2240,6 +2330,9 @@ def import_python_code(source):
 
     graph_nodes, graph_edges = [], []
     variables = {}
+    active_scope_ids = []
+    execution_scopes = []
+    scope_counter = 0
     counter = 0
 
     def add_node(definition_id, params, links, line):
@@ -2252,7 +2345,9 @@ def import_python_code(source):
         graph_nodes.append({
             "id": node_id, "type": "api",
             "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
-            "data": {"definition": definition, "params": params, "visible": any(
+            "data": {"definition": definition, "params": params,
+                     "execution_scope_path": list(active_scope_ids),
+                     "visible": any(
                 socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
                 for socket in definition.get("outputs", [])
             )}
@@ -2517,33 +2612,162 @@ def import_python_code(source):
         raise ValueError("Unsupported expression '{}' at line {}".format(
             type(node).__name__, getattr(node, "lineno", "?")))
 
-    for statement in tree.body:
-        if isinstance(statement, (ast.Import, ast.ImportFrom)):
-            continue
-        if isinstance(statement, ast.Expr):
-            if is_viewer_call(statement.value):
-                continue
-            expression(statement.value)
-            continue
-        if isinstance(statement, (ast.Assign, ast.AnnAssign)):
-            value_node = statement.value
-            if value_node is None:
-                continue
-            result = expression(value_node)
-            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
-            for target in targets:
-                if not isinstance(target, ast.Name):
-                    raise ValueError("Only simple variable assignments are supported (line {})".format(statement.lineno))
-                variables[target.id] = result
-            continue
-        if isinstance(statement, ast.Pass):
-            continue
-        raise ValueError("Unsupported statement '{}' at line {}".format(
-            type(statement).__name__, getattr(statement, "lineno", "?")))
+    def scope_argument(node):
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, (ast.List, ast.Tuple)):
+            values = [scope_argument(item) for item in node.elts]
+            return values if isinstance(node, ast.List) else tuple(values)
+        if isinstance(node, ast.Dict):
+            return {scope_argument(key): scope_argument(value)
+                    for key, value in zip(node.keys, node.values)}
+        if isinstance(node, ast.Attribute):
+            kind, value, *extra = expression(node)
+            if kind == "literal":
+                return value
+        if isinstance(node, ast.UnaryOp):
+            try:
+                return ast.literal_eval(node)
+            except Exception:
+                pass
+        if isinstance(node, ast.Call):
+            constructor = resolve_value_constructor(node.func, None)
+            if constructor is not None:
+                kind, value, *extra = expression(node)
+                if kind == "literal":
+                    return value
+        raise ValueError(
+            "Context-manager arguments must currently be literal build123d values "
+            "(line {})".format(getattr(node, "lineno", "?"))
+        )
 
+    def resolve_context_manager(node):
+        if not isinstance(node, ast.Call):
+            raise ValueError("A with-block must call a build123d context manager (line {})".format(node.lineno))
+        function = node.func
+        manager = None
+        if isinstance(function, ast.Name):
+            manager_name = imported.get(function.id, function.id)
+            manager = getattr(b3d, manager_name, None)
+        elif isinstance(function, ast.Attribute):
+            parts = []
+            current = function
+            while isinstance(current, ast.Attribute):
+                parts.append(current.attr)
+                current = current.value
+            if isinstance(current, ast.Name) and current.id in aliases and aliases[current.id] == "b3d":
+                path = list(reversed(parts))
+                if len(path) == 1:
+                    manager = getattr(b3d, path[0], None)
+        if not inspect.isclass(manager) or getattr(manager, "__module__", "").split(".")[0] != "build123d":
+            raise ValueError("Unsupported build123d context manager at line {}: {}".format(
+                node.lineno, ast.unparse(function)))
+        supports_context = any(
+            "__enter__" in vars(owner) and "__exit__" in vars(owner)
+            for owner in getattr(manager, "__mro__", (manager,))
+        )
+        if not supports_context:
+            raise ValueError("{} is not a context manager (line {})".format(
+                manager.__name__, node.lineno))
+        args = [scope_argument(argument) for argument in node.args]
+        kwargs = {}
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                raise ValueError("Expanded context-manager arguments are unsupported (line {})".format(node.lineno))
+            kwargs[keyword.arg] = scope_argument(keyword.value)
+        return manager, args, kwargs
+
+    def add_scope_node(scope_id, role, line, output_type="Any", visible=False):
+        nonlocal counter
+        counter += 1
+        node_id = "import_{}".format(counter)
+        definition = {
+            "id": "core.python.scope." + role,
+            "name": "Python Scope " + role.title(),
+            "source": "python", "kind": "value",
+            "inputs": [], "outputs": [{"name": "result", "type": output_type}],
+        }
+        data = {
+            "definition": definition, "params": {},
+            "execution_scope_path": list(active_scope_ids),
+            "visible": visible,
+        }
+        data["scope_binding" if role == "binding" else "scope_result"] = scope_id
+        graph_nodes.append({
+            "id": node_id, "type": "api",
+            "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
+            "data": data,
+        })
+        return node_id
+
+    def process_statements(statements):
+        nonlocal scope_counter
+        for statement in statements:
+            if isinstance(statement, (ast.Import, ast.ImportFrom)):
+                continue
+            if isinstance(statement, ast.With):
+                if len(statement.items) != 1:
+                    raise ValueError("Multiple context managers in one with-statement must be nested explicitly (line {})".format(statement.lineno))
+                manager, args, kwargs = resolve_context_manager(statement.items[0].context_expr)
+                scope_counter += 1
+                scope_id = "python_scope_{}".format(scope_counter)
+                manager_name = manager.__name__
+                result_attribute = {
+                    "BuildPart": "part", "BuildSketch": "sketch", "BuildLine": "line",
+                }.get(manager_name)
+                descriptor = {
+                    "id": scope_id, "module": manager.__module__,
+                    "name": manager_name, "args": args, "kwargs": kwargs,
+                    "result_attribute": result_attribute,
+                    "has_binding": statement.items[0].optional_vars is not None,
+                }
+                execution_scopes.append(descriptor)
+                active_scope_ids.append(scope_id)
+                optional = statement.items[0].optional_vars
+                if optional is not None:
+                    if not isinstance(optional, ast.Name):
+                        raise ValueError("Only a simple name is supported after 'as' (line {})".format(statement.lineno))
+                    binding_node = add_scope_node(scope_id, "binding", statement.lineno)
+                    variables[optional.id] = ("ref", binding_node, "result")
+                process_statements(statement.body)
+                active_scope_ids.pop()
+                output_type = {
+                    "BuildPart": "Shape", "BuildSketch": "Sketch", "BuildLine": "Wire",
+                }.get(manager_name, "Any")
+                should_emit_result = optional is not None or manager_name in {"BuildPart", "BuildSketch", "BuildLine"}
+                if should_emit_result:
+                    result_node = add_scope_node(
+                        scope_id, "result", statement.lineno, output_type,
+                        output_type in {"Shape", "Sketch", "Wire"}
+                    )
+                    if optional is not None:
+                        variables[optional.id] = ("ref", result_node, "result")
+                continue
+            if isinstance(statement, ast.Expr):
+                if is_viewer_call(statement.value):
+                    continue
+                expression(statement.value)
+                continue
+            if isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                value_node = statement.value
+                if value_node is None:
+                    continue
+                result = expression(value_node)
+                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+                for target in targets:
+                    if not isinstance(target, ast.Name):
+                        raise ValueError("Only simple variable assignments are supported (line {})".format(statement.lineno))
+                    variables[target.id] = result
+                continue
+            if isinstance(statement, ast.Pass):
+                continue
+            raise ValueError("Unsupported statement '{}' at line {}".format(
+                type(statement).__name__, getattr(statement, "lineno", "?")))
+
+    process_statements(tree.body)
     if not graph_nodes:
         raise ValueError("No supported build123d operations were found")
-    return {"nodes": graph_nodes, "edges": graph_edges}
+    return {"nodes": graph_nodes, "edges": graph_edges, "execution_scopes": execution_scopes}
 
 def export_python_code(payload):
     """Compile a graph to standalone build123d Python using native API calls."""

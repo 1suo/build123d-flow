@@ -51,6 +51,12 @@ export interface GraphNode {
     definition: NodeDefinition;
     params: Record<string, unknown>;
     visible?: boolean;
+    /** Imported Python lexical execution scope path, outermost first. */
+    execution_scope_path?: string[];
+    /** Virtual node exposing a context manager's __enter__ value. */
+    scope_binding?: string;
+    /** Virtual node exposing the context manager's completed result. */
+    scope_result?: string;
     collapsed?: boolean;
     icon?: string;
     onVisibility?: (nodeId: string, visible: boolean) => void;

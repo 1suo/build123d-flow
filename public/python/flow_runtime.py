@@ -2779,6 +2779,9 @@ def import_python_code(source):
             "id": "core.python.scope." + role,
             "name": "Python Scope " + role.title(),
             "source": "python", "kind": "value",
+            "category": "Python", "palette_category": "Scripting",
+            "palette_section": "Execution",
+            "description": "Internal value node used to preserve a Python context-manager scope.",
             "inputs": [], "outputs": [{"name": "result", "type": output_type}],
         }
         data = {

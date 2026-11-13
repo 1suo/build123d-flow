@@ -67,18 +67,18 @@ test("browser imports and evaluates build123d Python", async ({ page }) => {
   expect(runtime.source).toContain("_PYTHON_ATTRIBUTE_ID");
   expect(runtime.source).toContain("def _python_getattr");
 
-  await page.waitForFunction(() => {
-    const status = document.querySelector(".viewport-status-label")?.textContent?.trim();
-    return status === "Ready" || Boolean(document.querySelector(".runtime-error"));
-  }, undefined, { timeout: 10 * 60 * 1000 });
-
   const runtimeError = await page.locator(".runtime-error").textContent().catch(() => null);
   if (runtimeError) {
     await test.info().attach("runtime-error.txt", { body: runtimeError });
     await test.info().attach("runtime-console.txt", { body: consoleErrors.join("\n") });
   }
   expect(runtimeError, "Pyodide and build123d initialization must complete").toBeNull();
-  await expect(page.locator(".viewport-status-label")).toHaveText("Ready");
+
+  // The status text is presentation, not a reliable readiness hook. The
+  // importer textarea is disabled until the worker has initialized and the
+  // catalog has loaded; assert that actual user capability instead.
+  await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 5 * 60 * 1000 });
+  await expect(page.locator(".viewport-status")).toContainText("Ready");
 
   for (const scenario of cases) {
     await test.step(scenario.name, async () => {
@@ -86,7 +86,7 @@ test("browser imports and evaluates build123d Python", async ({ page }) => {
       await page.locator("#python-source-input").fill(scenario.source);
       await page.getByRole("button", { name: "Import pasted code" }).click();
 
-      await expect(page.locator(".viewport-status-label")).toContainText("Python imported", {
+      await expect(page.locator(".viewport-status")).toContainText("Python imported", {
         timeout: 120_000
       });
       await expect(page.locator(".viewport-status-count")).not.toHaveText("0 visible", {

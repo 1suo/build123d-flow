@@ -2368,6 +2368,33 @@ def import_python_code(source):
     if not _DISCOVERY_REPORT.get("include_full"):
         discover(include_full=True)
     definitions = _CATALOG
+
+    # Python's subscription protocol is a language-level operation, not a
+    # build123d API member. Register it as a reusable graph primitive so
+    # indexing works for sequences, mappings, and geometry collections alike.
+    _PYTHON_SUBSCRIPT_ID = "core.python.subscript"
+    _PYTHON_SLICE_ID = "core.python.slice"
+    definitions[_PYTHON_SUBSCRIPT_ID] = {
+        "id": _PYTHON_SUBSCRIPT_ID, "name": "Python Subscript",
+        "source": "build123d", "kind": "function", "category": "Python",
+        "inputs": [
+            {"name": "value", "type": "Any", "required": True},
+            {"name": "index", "type": "Any", "required": True},
+        ],
+        "outputs": [{"name": "result", "type": "Any"}],
+    }
+    definitions[_PYTHON_SLICE_ID] = {
+        "id": _PYTHON_SLICE_ID, "name": "Python Slice",
+        "source": "build123d", "kind": "function", "category": "Python",
+        "inputs": [
+            {"name": "start", "type": "Any", "required": False, "default": None},
+            {"name": "stop", "type": "Any", "required": False, "default": None},
+            {"name": "step", "type": "Any", "required": False, "default": None},
+        ],
+        "outputs": [{"name": "result", "type": "Any"}],
+    }
+    _CATALOG_CALLABLES[_PYTHON_SUBSCRIPT_ID] = __import__("operator").getitem
+    _CATALOG_CALLABLES[_PYTHON_SLICE_ID] = slice
     by_name = {}
     for definition_id, definition in definitions.items():
         by_name.setdefault(definition.get("name"), definition_id)
@@ -2628,6 +2655,38 @@ def import_python_code(source):
                     links.append((name, value, extra[0]))
             created = add_node(definition_id, params, links, node.lineno)
             return ("ref", created, definition.get("outputs", [{}])[0].get("name", "result"))
+        if isinstance(node, ast.Subscript):
+            # Preserve Python's native __getitem__ semantics. The receiver and
+            # index are ordinary graph dependencies, so this also handles
+            # geometry collections and values produced by earlier API calls.
+            receiver = expression(node.value)
+            index_node = node.slice
+            if isinstance(index_node, ast.Slice):
+                slice_params, slice_links = {}, []
+                for socket_name, component in (
+                    ("start", index_node.lower), ("stop", index_node.upper),
+                    ("step", index_node.step),
+                ):
+                    if component is None:
+                        slice_params[socket_name] = None
+                        continue
+                    kind, value, *extra = expression(component)
+                    if kind == "literal":
+                        slice_params[socket_name] = value
+                    else:
+                        slice_links.append((socket_name, value, extra[0]))
+                index_node_id = add_node(_PYTHON_SLICE_ID, slice_params, slice_links, node.lineno)
+                index = ("ref", index_node_id, "result")
+            else:
+                index = expression(index_node)
+            params, links = {}, []
+            for socket_name, operand in (("value", receiver), ("index", index)):
+                if operand[0] == "literal":
+                    params[socket_name] = operand[1]
+                else:
+                    links.append((socket_name, operand[1], operand[2]))
+            created = add_node(_PYTHON_SUBSCRIPT_ID, params, links, node.lineno)
+            return ("ref", created, "result")
         if isinstance(node, ast.UnaryOp):
             method = {ast.USub: "__neg__", ast.UAdd: "__pos__", ast.Invert: "__invert__"}.get(type(node.op))
             if not method:

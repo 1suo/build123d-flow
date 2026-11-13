@@ -2508,8 +2508,15 @@ def import_python_code(source):
         output = output_contract(receiver)
         ranked = []
         for candidate_id, candidate in definitions.items():
-            is_property = ".property." + member_name in candidate_id or ".field." + member_name in candidate_id
-            is_method = candidate.get("name") == member_name
+            is_property = candidate_id.endswith(".property." + member_name) or candidate_id.endswith(".field." + member_name)
+            # Discovered method display names are qualified (e.g. ShapeList.group_by);
+            # the stable API identity is the final path segment, not the label.
+            is_method = (
+                candidate_id.endswith("." + member_name)
+                and ".operator." not in candidate_id
+                and ".property." not in candidate_id
+                and ".field." not in candidate_id
+            )
             if property_only and not is_property:
                 continue
             if not property_only and not (is_property if call_node is None else is_method):

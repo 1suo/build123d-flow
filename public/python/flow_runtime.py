@@ -2262,6 +2262,11 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
             keywords[name] = value
     return callable_obj(*positional, **keywords)
 
+def _python_getattr(value, name):
+    """Apply Python's native attribute lookup to a runtime graph value."""
+    return getattr(value, name)
+
+
 def _resolve_callable(path):
     if path in _CATALOG_CALLABLES:
         return _CATALOG_CALLABLES[path]
@@ -2486,6 +2491,7 @@ def import_python_code(source):
     # indexing works for sequences, mappings, and geometry collections alike.
     _PYTHON_SUBSCRIPT_ID = "core.python.subscript"
     _PYTHON_SLICE_ID = "core.python.slice"
+    _PYTHON_ATTRIBUTE_ID = "core.python.attribute"
     definitions[_PYTHON_SUBSCRIPT_ID] = {
         "id": _PYTHON_SUBSCRIPT_ID, "name": "Python Subscript",
         "source": "build123d", "kind": "function", "category": "Python",
@@ -2505,8 +2511,18 @@ def import_python_code(source):
         ],
         "outputs": [{"name": "result", "type": "Any"}],
     }
+    definitions[_PYTHON_ATTRIBUTE_ID] = {
+        "id": _PYTHON_ATTRIBUTE_ID, "name": "Python Attribute",
+        "source": "build123d", "kind": "function", "category": "Python",
+        "inputs": [
+            {"name": "value", "type": "Any", "required": True},
+            {"name": "name", "type": "String", "required": True},
+        ],
+        "outputs": [{"name": "result", "type": "Any"}],
+    }
     _CATALOG_CALLABLES[_PYTHON_SUBSCRIPT_ID] = operator.getitem
     _CATALOG_CALLABLES[_PYTHON_SLICE_ID] = slice
+    _CATALOG_CALLABLES[_PYTHON_ATTRIBUTE_ID] = _python_getattr
     by_name = {}
     for definition_id, definition in definitions.items():
         by_name.setdefault(definition.get("name"), definition_id)
@@ -2695,8 +2711,15 @@ def import_python_code(source):
                     )
                     return ("ref", created, definitions[definition_id].get("outputs", [{}])[0].get("name", "result"))
                 if candidates:
-                    raise ValueError("Ambiguous property '{}' at line {}: {}".format(
-                        node.attr, node.lineno, ", ".join(candidates)))
+                    # When static receiver typing cannot distinguish same-named
+                    # properties (for example Axis.Y, Vector.Y and Vertex.Y),
+                    # preserve Python semantics and defer attribute lookup to
+                    # the actual runtime object instead of guessing a class.
+                    created = add_node(
+                        _PYTHON_ATTRIBUTE_ID, {"name": node.attr},
+                        [("value", receiver[1], receiver[2])], node.lineno,
+                    )
+                    return ("ref", created, "result")
             path = []
             current = node
             while isinstance(current, ast.Attribute):
@@ -3254,6 +3277,10 @@ def export_python_code(payload):
                     if not operands or operands[0] is None:
                         raise ValueError("Operator {} is missing its operand".format(method_name))
                     expression = "({} {} {})".format(receiver, symbol, operands[0])
+            elif definition["id"] == "core.python.attribute":
+                receiver = value_expression(next(item for item in definition["inputs"] if item["name"] == "value"))
+                member_name = params.get("name")
+                expression = "getattr({}, {})".format(receiver, repr(member_name))
             elif ".property." in api_id or ".field." in api_id:
                 marker = ".property." if ".property." in api_id else ".field."
                 _, member_name = api_id.split(marker, 1)

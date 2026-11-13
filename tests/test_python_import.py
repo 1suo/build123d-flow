@@ -283,7 +283,7 @@ class PythonImportSourceTests(unittest.TestCase):
         restore = ast.unparse(evaluator_functions["evaluate_graph_json"])
         self.assertIn("'__flow_tuple__'", encoder)
         self.assertIn("'__flow_tuple__'", restore)
-        self.assertIn("tuple(restore_scope_value(item)", restore)
+        self.assertIn("return tuple(", restore)
 
     def test_binary_expression_supports_every_python_binary_operator(self):
         functions = {

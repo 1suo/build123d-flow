@@ -1835,6 +1835,10 @@ def evaluate_graph_json(payload):
             if "__flow_object__" in value:
                 object_type = value["__flow_object__"]
                 constructor = getattr(b3d, object_type)
+                if "args" in value or "kwargs" in value:
+                    args = restore_scope_value(value.get("args", []))
+                    kwargs = restore_scope_value(value.get("kwargs", {}))
+                    return constructor(*args, **kwargs)
                 if object_type == "Plane":
                     return constructor(origin=value["origin"], x_dir=value["x_dir"], z_dir=value["z_dir"])
                 if object_type == "Location":
@@ -2713,11 +2717,19 @@ def import_python_code(source):
             except Exception:
                 pass
         if isinstance(node, ast.Call):
-            constructor = resolve_value_constructor(node.func, None)
-            if constructor is not None:
-                kind, value, *extra = expression(node)
-                if kind == "literal":
-                    return value
+            resolved = resolve_value_constructor(node.func, None)
+            if resolved is not None:
+                constructor, constructor_type = resolved
+                args = [scope_argument(argument) for argument in node.args]
+                kwargs = {}
+                for keyword in node.keywords:
+                    if keyword.arg is None:
+                        raise ValueError("Expanded value constructor arguments are unsupported (line {})".format(node.lineno))
+                    kwargs[keyword.arg] = scope_argument(keyword.value)
+                return {
+                    "__flow_object__": constructor.__name__,
+                    "args": args, "kwargs": kwargs,
+                }
         raise ValueError(
             "Context-manager arguments must be literal build123d values or "
             "named build123d constants (line {})".format(getattr(node, "lineno", "?"))
@@ -2892,6 +2904,11 @@ def export_python_code(payload):
                         return "b3d.{}.{}".format(class_name, member_name)
                     if "__flow_object__" in value:
                         object_type = value["__flow_object__"]
+                        if "args" in value or "kwargs" in value:
+                            args = [scope_code_value(item) for item in value.get("args", [])]
+                            kwargs = ["{}={}".format(key, scope_code_value(item))
+                                      for key, item in value.get("kwargs", {}).items()]
+                            return "b3d.{}({})".format(object_type, ", ".join(args + kwargs))
                         if object_type == "Plane":
                             fields = ["{}={}".format(key, scope_code_value(value[key]))
                                       for key in ("origin", "x_dir", "z_dir")]

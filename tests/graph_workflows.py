@@ -467,6 +467,22 @@ def run_python_import_tests():
     if not any(node["id"] in evaluated["previews"] for node in graph["nodes"][-1:]):
         raise AssertionError("Imported Python graph produced no result preview")
 
+    # Inherited Shape members must resolve for concrete Solid outputs.
+    member_graph = runtime.import_python_code(
+        "from build123d import Box\\n"
+        "box = Box(10, 10, 10)\\n"
+        "faces = box.faces()\\n"
+        "volume = box.volume\\n"
+    )
+    member_ids = [node["data"]["definition"]["id"] for node in member_graph["nodes"]]
+    if len(member_ids) != 3 or not any(".faces" in item for item in member_ids) or not any(".volume" in item for item in member_ids):
+        raise AssertionError("Inherited method/property calls were not translated: " + repr(member_ids))
+    if len(member_graph["edges"]) != 2:
+        raise AssertionError("Inherited member receivers were not connected: " + repr(member_graph["edges"]))
+    member_result = json.loads(runtime.evaluate_graph_json(json.dumps(member_graph)))
+    if member_result["errors"]:
+        raise AssertionError("Imported inherited members did not execute: " + json.dumps(member_result["errors"]))
+
     try:
         runtime.import_python_code("import arbitrary_package\\n")
     except ValueError as exc:

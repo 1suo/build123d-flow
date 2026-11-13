@@ -132,6 +132,28 @@ class PythonImportSourceTests(unittest.TestCase):
             (unique_id, (unique_id,)),
         )
 
+    def test_ambiguous_properties_defer_to_native_python_lookup(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        importer = functions["import_python_code"]
+        expression = next(
+            node for node in ast.walk(importer)
+            if isinstance(node, ast.FunctionDef) and node.name == "expression"
+        )
+        source = ast.unparse(expression)
+        self.assertIn("_PYTHON_ATTRIBUTE_ID", source)
+        self.assertIn('params["name"]', source)
+        self.assertIn('[( "value"', source.replace(" ", ""))
+        self.assertIn("return ('ref', created, 'result')", source)
+        helper = ast.unparse(functions["_python_getattr"])
+        self.assertIn("getattr(value, name)", helper)
+
+        exporter = ast.unparse(functions["export_python_code"])
+        self.assertIn('definition["id"] == "core.python.attribute"', exporter)
+        self.assertIn("getattr({}, {})", exporter)
+
     def test_catalog_discovers_typed_build123d_collection_members(self):
         functions = {
             node.name: node for node in self.module.body

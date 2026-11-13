@@ -64,7 +64,7 @@ async function loadSources(baseUrl) {
     fetchText(frontendUrl, "Python importer frontend")
   ]);
   validateRuntimeSource(runtime, runtimeUrl.href);
-  if (!/^def\\s+analyze_source\\s*\\(/m.test(frontend)) {
+  if (!/^def\s+analyze_source\s*\(/m.test(frontend)) {
     throw new Error("Refusing incomplete Python importer frontend from " + frontendUrl.href);
   }
   const sourceRevision = await fingerprint(setup + "\\0" + runtime + "\\0" + frontend);

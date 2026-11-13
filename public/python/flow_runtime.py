@@ -2284,6 +2284,13 @@ def import_python_code(source):
             return None
         return None
 
+    def literal_json_value(value):
+        if isinstance(value, (list, tuple)):
+            return [literal_json_value(item) for item in value]
+        if isinstance(value, dict):
+            return {key: literal_json_value(item) for key, item in value.items()}
+        return value
+
     def resolve_value_constructor(function_node, expected_type):
         """Resolve a build123d value class against the destination socket contract."""
         if isinstance(function_node, ast.Name):
@@ -2391,7 +2398,7 @@ def import_python_code(source):
                         if kind != "literal":
                             raise ValueError("{} requires literal constructor arguments (line {})".format(
                                 constructor_type, node.lineno))
-                        values[keyword.arg] = value
+                        values[keyword.arg] = literal_json_value(value)
                     if not values:
                         raise ValueError("{} requires constructor arguments (line {})".format(constructor_type, node.lineno))
                     return ("literal", values)
@@ -2402,7 +2409,7 @@ def import_python_code(source):
                 if not values or any(item[0] != "literal" for item in values):
                     raise ValueError("{} requires literal constructor arguments (line {})".format(
                         constructor_type, node.lineno))
-                return ("literal", [item[1] for item in values])
+                return ("literal", [literal_json_value(item[1]) for item in values])
 
             definition_id = resolve_callable(node.func)
             receiver = None

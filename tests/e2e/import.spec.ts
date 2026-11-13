@@ -95,8 +95,10 @@ test("browser imports and evaluates build123d Python", async ({ page }) => {
       });
       await expect(page.locator(".viewport-status-dot")).not.toHaveClass(/is-error/);
 
-      await page.getByRole("button", { name: "Show activity log" }).click();
       const log = page.locator(".viewport-log-panel");
+      if (!(await log.isVisible())) {
+        await page.getByRole("button", { name: "Show activity log" }).click();
+      }
       await expect(log).toContainText("Python imported", { timeout: 30_000 });
       await expect(log).toContainText("Evaluation complete", { timeout: 120_000 });
       await expect(log).not.toContainText("Python import failed");

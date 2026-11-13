@@ -2639,6 +2639,7 @@ def import_python_code(source):
 
             definition_id = resolve_callable(node.func)
             receiver = None
+            receiver_type = None
             if not definition_id and isinstance(node.func, ast.Attribute):
                 receiver = expression(node.func.value)
                 if receiver[0] == "ref":

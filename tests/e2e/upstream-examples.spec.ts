@@ -78,14 +78,16 @@ async function importExample(page: Page, source: string) {
   if (!(await page.locator("#python-source-input").isVisible())) {
     await page.getByRole("button", { name: "Settings" }).click();
   }
+  // Import while the Settings popover is open. Opening the activity log
+  // first would click outside that popover and dismiss the Python editor.
+  await page.locator("#python-source-input").fill(source);
+  await page.getByRole("button", { name: "Import pasted code" }).click();
+
   const log = page.locator(".viewport-log-panel");
   if (!(await log.isVisible())) {
     await page.getByRole("button", { name: "Show activity log" }).click();
   }
-
   const entries = page.locator(".viewport-log-entry");
-  await page.locator("#python-source-input").fill(source);
-  await page.getByRole("button", { name: "Import pasted code" }).click();
 
   // The status headline is deliberately transient (5s), so polling it can
   // miss a valid import result and burn the full 120s timeout. The activity

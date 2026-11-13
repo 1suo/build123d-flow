@@ -68,9 +68,20 @@ export interface GraphEdge {
   targetHandle: string | null;
 }
 
+export interface PythonExecutionScope {
+  id: string;
+  module: string;
+  name: string;
+  args: unknown[];
+  kwargs: Record<string, unknown>;
+  result_attribute?: string;
+  has_binding?: boolean;
+}
+
 export interface GraphDocument {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  execution_scopes?: PythonExecutionScope[];
 }
 
 export interface MeshPreview {

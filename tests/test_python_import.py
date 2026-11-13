@@ -49,6 +49,37 @@ class PythonImportSourceTests(unittest.TestCase):
         for required in ("graph_nodes", "graph_edges", "'position'", "'definition'", "'params'"):
             self.assertIn(required, source)
 
+    def test_with_statements_become_first_class_execution_scopes(self):
+        source = ast.unparse(self.importer)
+        self.assertIn("ast.With", source)
+        self.assertIn("execution_scopes", source)
+        self.assertIn("execution_scope_path", source)
+        self.assertIn("scope_binding", source)
+        self.assertIn("scope_result", source)
+        self.assertIn("resolve_context_manager", source)
+        self.assertNotIn("Multiple context managers in one with-statement", source)
+
+    def test_runtime_enters_exits_and_unwinds_scopes(self):
+        runtime = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
+        evaluator = next(
+            node for node in runtime.body
+            if isinstance(node, ast.FunctionDef) and node.name == "evaluate_graph_json"
+        )
+        source = ast.unparse(evaluator)
+        self.assertIn("__enter__", source)
+        self.assertIn("__exit__", source)
+        self.assertIn("failed_scopes", source)
+        self.assertIn("restore_scope_value", source)
+
+    def test_scope_operations_are_not_cached(self):
+        runtime = ast.parse(RUNTIME_PATH.read_text(encoding="utf-8"))
+        evaluator = next(
+            node for node in runtime.body
+            if isinstance(node, ast.FunctionDef) and node.name == "evaluate_graph_json"
+        )
+        source = ast.unparse(evaluator)
+        self.assertIn("not scope_path", source)
+
 
 if __name__ == "__main__":
     unittest.main()

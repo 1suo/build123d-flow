@@ -68,6 +68,14 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertNotIn("candidate.get('name')", source)
         self.assertNotIn('candidate.get("name")', source)
 
+    def test_build123d_vector_class_matches_vector3_socket_type(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        source = ast.unparse(functions["_type_name"])
+        self.assertIn('"Vector": "Vector3"', source)
+
     def test_shape_subclasses_keep_distinct_receiver_types(self):
         functions = {
             node.name: node for node in self.module.body

@@ -89,7 +89,9 @@ def _type_name(annotation):
         except TypeError:
             pass
         if getattr(annotation, "__module__", "").split(".")[0] == "build123d":
-            return annotation.__name__
+            # Runtime class names must map to the catalog's semantic socket types.
+            # build123d exposes Vector as a class; the graph contract calls it Vector3.
+            return {"Vector": "Vector3"}.get(annotation.__name__, annotation.__name__)
     if isinstance(annotation, str):
         name = annotation.strip().strip("'\\\"").split(".")[-1].lower()
     else:

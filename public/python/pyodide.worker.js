@@ -1,6 +1,6 @@
 /* Pyodide 314 requires an ES-module worker. Keep the loader same-origin. */
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
-const VERSION="314.0.7", MARKER=".build123d-flow-environment-v3";
+const VERSION="314.0.7", MARKER=".build123d-flow-environment-v4";
 let pyodide=null;
 const status=message=>self.postMessage({type:"status",message});
 const sync=(FS,populate)=>new Promise((resolve,reject)=>FS.syncfs(populate,e=>e?reject(e):resolve()));
@@ -8,8 +8,8 @@ function clear(FS,dir){for(const n of FS.readdir(dir)){if(n==="."||n==="..")cont
 async function hash(s){try{const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));return [...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,"0")).join("");}catch{return "setup-revision-3";}}
 async function initialize(base){
  status("Preparing Python environment in background worker…");
- const [setup,runtime]=await Promise.all(["setup.py","flow_runtime.py"].map(async f=>{const r=await fetch(base+"python/"+f);if(!r.ok)throw Error("Could not load "+f+": "+r.status);return r.text();}));
- const key=VERSION+":"+await hash(setup);
+ const [setup,runtime]=await Promise.all(["setup.py","flow_runtime.py"].map(async f=>{const r=await fetch(base+"python/"+f,{cache:"no-store"});if(!r.ok)throw Error("Could not load "+f+": "+r.status);return r.text();}));
+ const key=VERSION+":"+await hash(setup+"\0"+runtime);
  const indexURL=new URL(base+"pyodide/v"+VERSION+"/full/",self.location.href).href;
  status("Loading local Pyodide runtime…");
  let persistent=false,restored=false;

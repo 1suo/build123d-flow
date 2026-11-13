@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, markRaw, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 import { VueFlow, useVueFlow, type Connection, type Edge, type Node } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import ApiNode from "./components/ApiNode.vue";
@@ -491,6 +491,9 @@ async function importPythonSource(source: string, sourceLabel: string) {
     }));
     // Commit the new graph only after parsing and conversion both succeed.
     nodes.value = importedNodes as Node[];
+    // Vue Flow resolves edge handles against mounted node handles. Wait for
+    // the imported nodes to render before installing edges that target them.
+    await nextTick();
     edges.value = imported.edges as Edge[];
     executionScopes.value = imported.execution_scopes ?? [];
     nextId = importedNodes.length + 1;

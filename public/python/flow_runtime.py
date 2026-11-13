@@ -2785,42 +2785,44 @@ def import_python_code(source):
             if isinstance(statement, (ast.Import, ast.ImportFrom)):
                 continue
             if isinstance(statement, ast.With):
-                if len(statement.items) != 1:
-                    raise ValueError("Multiple context managers in one with-statement must be nested explicitly (line {})".format(statement.lineno))
-                manager, args, kwargs = resolve_context_manager(statement.items[0].context_expr)
-                scope_counter += 1
-                scope_id = "python_scope_{}".format(scope_counter)
-                manager_name = manager.__name__
-                result_attribute = {
-                    "BuildPart": "part", "BuildSketch": "sketch", "BuildLine": "line",
-                }.get(manager_name)
-                descriptor = {
-                    "id": scope_id, "module": manager.__module__,
-                    "name": manager_name, "args": args, "kwargs": kwargs,
-                    "result_attribute": result_attribute,
-                    "has_binding": statement.items[0].optional_vars is not None,
-                }
-                execution_scopes.append(descriptor)
-                active_scope_ids.append(scope_id)
-                optional = statement.items[0].optional_vars
-                if optional is not None:
-                    if not isinstance(optional, ast.Name):
+                entered_contexts = []
+                for item in statement.items:
+                    manager, args, kwargs = resolve_context_manager(item.context_expr)
+                    scope_counter += 1
+                    scope_id = "python_scope_{}".format(scope_counter)
+                    manager_name = manager.__name__
+                    result_attribute = {
+                        "BuildPart": "part", "BuildSketch": "sketch", "BuildLine": "line",
+                    }.get(manager_name)
+                    optional = item.optional_vars
+                    if optional is not None and not isinstance(optional, ast.Name):
                         raise ValueError("Only a simple name is supported after 'as' (line {})".format(statement.lineno))
-                    binding_node = add_scope_node(scope_id, "binding", statement.lineno)
-                    variables[optional.id] = ("ref", binding_node, "result")
-                process_statements(statement.body)
-                active_scope_ids.pop()
-                output_type = {
-                    "BuildPart": "Shape", "BuildSketch": "Sketch", "BuildLine": "Wire",
-                }.get(manager_name, "Any")
-                should_emit_result = optional is not None or manager_name in {"BuildPart", "BuildSketch", "BuildLine"}
-                if should_emit_result:
-                    result_node = add_scope_node(
-                        scope_id, "result", statement.lineno, output_type,
-                        output_type in {"Shape", "Sketch", "Wire"}
-                    )
+                    descriptor = {
+                        "id": scope_id, "module": manager.__module__,
+                        "name": manager_name, "args": args, "kwargs": kwargs,
+                        "result_attribute": result_attribute,
+                        "has_binding": optional is not None,
+                    }
+                    execution_scopes.append(descriptor)
+                    active_scope_ids.append(scope_id)
                     if optional is not None:
-                        variables[optional.id] = ("ref", result_node, "result")
+                        binding_node = add_scope_node(scope_id, "binding", statement.lineno)
+                        variables[optional.id] = ("ref", binding_node, "result")
+                    entered_contexts.append((scope_id, manager_name, optional))
+                process_statements(statement.body)
+                for scope_id, manager_name, optional in reversed(entered_contexts):
+                    active_scope_ids.pop()
+                    output_type = {
+                        "BuildPart": "Shape", "BuildSketch": "Sketch", "BuildLine": "Wire",
+                    }.get(manager_name, "Any")
+                    should_emit_result = optional is not None or manager_name in {"BuildPart", "BuildSketch", "BuildLine"}
+                    if should_emit_result:
+                        result_node = add_scope_node(
+                            scope_id, "result", statement.lineno, output_type,
+                            output_type in {"Shape", "Sketch", "Wire"}
+                        )
+                        if optional is not None:
+                            variables[optional.id] = ("ref", result_node, "result")
                 continue
             if isinstance(statement, ast.Expr):
                 if is_viewer_call(statement.value):

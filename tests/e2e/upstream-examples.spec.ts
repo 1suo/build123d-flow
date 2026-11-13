@@ -90,13 +90,18 @@ async function importExample(page: Page, source: string) {
   // The status headline is deliberately transient (5s), so polling it can
   // miss a valid import result and burn the full 120s timeout. The activity
   // log is the durable result channel and keeps the exact importer exception.
-  await expect.poll(async () => {
-    const messages = await entries.allTextContents();
-    return messages.some(message => /Python imported|Python import failed/.test(message));
-  }, { timeout: 180_000 }).toBeTruthy();
+  const isNewImportResult = (messages: string[]) => {
+    const importStart = messages.findIndex(message => message.includes("Importing Python source"));
+    const importResult = messages.findIndex(message => /Python imported|Python import failed/.test(message));
+    return importStart >= 0 && importResult >= 0 && importResult < importStart;
+  };
+  await expect.poll(async () => isNewImportResult(await entries.allTextContents()), {
+    timeout: 180_000
+  }).toBeTruthy();
 
   const messages = await entries.allTextContents();
-  const importResult = messages.find(message => /Python imported|Python import failed/.test(message)) ?? "";
+  const importStart = messages.findIndex(message => message.includes("Importing Python source"));
+  const importResult = messages.slice(0, importStart).find(message => /Python imported|Python import failed/.test(message)) ?? "";
   if (importResult.includes("Python import failed")) {
     throw new Error(importResult);
   }

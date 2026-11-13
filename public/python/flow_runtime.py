@@ -1915,7 +1915,9 @@ def evaluate_graph_json(payload):
             continue
         evaluated_params[node_id] = params
 
-        can_cache = _cacheable(definition) and upstream_cacheable
+        # Builder operations have side effects on the active context and must
+        # never be replayed from the stateless node cache.
+        can_cache = not scope_path and _cacheable(definition) and upstream_cacheable
         try:
             key = _cache_key(
                 definition_id, node.get("data", {}).get("params", {}), upstream_keys
@@ -2351,12 +2353,17 @@ def import_python_code(source):
             raise ValueError("No registered node for '{}' at line {}".format(definition_id, line))
         counter += 1
         node_id = "import_{}".format(counter)
+        builder_scope_active = any(
+            next((scope.get("name") for scope in execution_scopes if scope.get("id") == scope_id), None)
+            in {"BuildPart", "BuildSketch", "BuildLine"}
+            for scope_id in active_scope_ids
+        )
         graph_nodes.append({
             "id": node_id, "type": "api",
             "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
             "data": {"definition": definition, "params": params,
                      "execution_scope_path": list(active_scope_ids),
-                     "visible": any(
+                     "visible": not builder_scope_active and any(
                 socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
                 for socket in definition.get("outputs", [])
             )}

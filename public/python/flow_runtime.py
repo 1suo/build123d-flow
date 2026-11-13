@@ -79,6 +79,9 @@ def _type_name(annotation):
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
+            if (getattr(annotation, "__module__", "").split(".")[0] == "build123d"
+                    and issubclass(annotation, collections.abc.Collection)):
+                return annotation.__name__
             for shape_name in ("Solid", "Compound", "Face", "Wire", "Edge", "Shell", "Sketch", "Part"):
                 shape_class = getattr(b3d, shape_name, None)
                 if inspect.isclass(shape_class) and issubclass(annotation, shape_class):
@@ -98,7 +101,6 @@ def _type_name(annotation):
         "matrix": "Matrix",
         "shape": "Shape", "solid": "Solid", "compound": "Compound", "face": "Face",
         "edge": "Edge", "wire": "Wire", "shell": "Shell", "part": "Part",
-        "shapelist": "ShapeList", "groupby": "GroupBy",
         "sketch": "Sketch", "code": "Code", "callable": "Code",
     }
     return mapping.get(name, "Any")

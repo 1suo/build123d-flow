@@ -125,13 +125,13 @@ async function initializePython(baseUrl) {
     "globals()['flow_runtime'] = module"
   );
 
-  const validation = pyodide.runPython(
-    "import sys; m=sys.modules['flow_runtime']; " +
-    "(m.__file__, " +
+  const validation = JSON.parse(pyodide.runPython(
+    "import sys, json; m=sys.modules['flow_runtime']; json.dumps((" +
+    "m.__file__, " +
     "callable(getattr(m, 'import_python_code', None)), " +
     "callable(getattr(m, 'export_python_code', None)), " +
-    "callable(getattr(m, 'evaluate_graph_json', None)))"
-  );
+    "callable(getattr(m, 'evaluate_graph_json', None))))"
+  ));
   if (!validation[1] || !validation[2] || !validation[3]) {
     throw new Error("Loaded graph runtime failed API validation: " + JSON.stringify(validation));
   }

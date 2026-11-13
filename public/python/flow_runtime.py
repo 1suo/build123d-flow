@@ -1859,6 +1859,8 @@ def evaluate_graph_json(payload):
         if isinstance(value, list):
             return [restore_scope_value(item) for item in value]
         if isinstance(value, dict):
+            if "__flow_tuple__" in value:
+                return tuple(restore_scope_value(item) for item in value["__flow_tuple__"])
             if "__flow_ref__" in value:
                 source_id, output_name = value["__flow_ref__"]
                 if source_id not in values:
@@ -2975,7 +2977,9 @@ def import_python_code(source):
         if isinstance(value, b3d.Axis):
             return {"__flow_object__": "Axis",
                     "args": [list(value.position), list(value.direction)], "kwargs": {}}
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, tuple):
+            return {"__flow_tuple__": [encode_scope_value(item) for item in value]}
+        if isinstance(value, list):
             return [encode_scope_value(item) for item in value]
         if isinstance(value, dict):
             return {key: encode_scope_value(item) for key, item in value.items()}

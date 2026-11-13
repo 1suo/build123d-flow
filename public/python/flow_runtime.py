@@ -2457,6 +2457,102 @@ def import_python_code(source):
             return None
         return None
 
+    def output_contract(reference):
+        """Return the declared semantic contract for a graph value reference."""
+        if not reference or reference[0] != "ref":
+            return {}
+        upstream = next((item for item in graph_nodes if item["id"] == reference[1]), None)
+        if upstream is None:
+            return {}
+        definition = upstream["data"]["definition"]
+        output = next((item for item in definition.get("outputs", [])
+                       if item.get("name") == reference[2]), None)
+        return output or {}
+
+    def receiver_score(output, receiver_socket):
+        """Score a catalog receiver socket against a complete output contract."""
+        if not output or not receiver_socket:
+            return -1
+        source_types = set(output.get("variants") or [output.get("type", "Any")])
+        target_types = set(receiver_socket.get("variants") or [receiver_socket.get("type", "Any")])
+        source_item = output.get("item_type")
+        target_item = receiver_socket.get("item_type")
+        if source_item:
+            source_types.add(source_item)
+        if target_item:
+            target_types.add(target_item)
+        if "Any" in source_types or "Any" in target_types:
+            return 1
+        exact = source_types.intersection(target_types)
+        if exact:
+            return 100 if output.get("type") in target_types else 80
+        # Shape is the common public contract for build123d shape subclasses.
+        if "Shape" in target_types and source_types.intersection(
+            {"Solid", "Compound", "Part", "Sketch", "Face", "Edge", "Wire", "Shell"}
+        ):
+            return 60
+        # Collection contracts are distinct from their element contracts.
+        if output.get("data_structure") and receiver_socket.get("data_structure"):
+            if output.get("data_structure") == receiver_socket.get("data_structure"):
+                if source_item and target_item and source_item == target_item:
+                    return 90
+        return -1
+
+    def resolve_member(receiver, member_name, line, call_node=None, property_only=False):
+        """Resolve a member using receiver type, catalog metadata and call shape.
+
+        This is deliberately catalog-driven: no build123d class or method names
+        are special-cased here. Chained receivers work because their output
+        contract is obtained from the already-lowered receiver expression.
+        """
+        output = output_contract(receiver)
+        ranked = []
+        for candidate_id, candidate in definitions.items():
+            is_property = ".property." + member_name in candidate_id or ".field." + member_name in candidate_id
+            is_method = candidate.get("name") == member_name
+            if property_only and not is_property:
+                continue
+            if not property_only and not (is_property if call_node is None else is_method):
+                continue
+            sockets = candidate.get("inputs", [])
+            receiver_socket = next((item for item in sockets
+                                    if item.get("name") in {"self", "cls"}), None)
+            if receiver_socket is None:
+                continue
+            score = receiver_score(output, receiver_socket)
+            if score < 0:
+                continue
+            if call_node is not None:
+                arguments = [item for item in sockets if item is not receiver_socket
+                             and item.get("kind") != "var_keyword"]
+                if len(call_node.args) > len(arguments):
+                    continue
+                supplied = {item.arg for item in call_node.keywords if item.arg is not None}
+                names = {item.get("name") for item in arguments}
+                if not supplied.issubset(names):
+                    continue
+                positional_names = {item.get("name") for item in arguments[:len(call_node.args)]}
+                if supplied.intersection(positional_names):
+                    continue
+                required = {
+                    item.get("name") for item in arguments
+                    if item.get("required") and "default" not in item
+                }
+                bound = positional_names | supplied
+                if not required.issubset(bound):
+                    continue
+                score += 10
+            ranked.append((score, candidate_id))
+        if not ranked:
+            return None
+        best_score = max(item[0] for item in ranked)
+        best = [item[1] for item in ranked if item[0] == best_score]
+        if len(best) != 1:
+            raise ValueError("Ambiguous {} '{}' for receiver type '{}' at line {}: {}".format(
+                "property" if property_only or call_node is None else "method",
+                member_name, output.get("type", "unknown"), line, ", ".join(sorted(best))))
+        return best[0]
+
     def literal_json_value(value):
         if isinstance(value, (list, tuple)):
             return [literal_json_value(item) for item in value]
@@ -2510,31 +2606,30 @@ def import_python_code(source):
                 return ("literal", {"True": True, "False": False, "None": None}[node.id])
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
-            receiver_root = node.value
-            while isinstance(receiver_root, ast.Attribute):
-                receiver_root = receiver_root.value
-            receiver = expression(node.value) if isinstance(receiver_root, ast.Name) and receiver_root.id in variables else None
+            # First resolve the complete receiver expression. It may itself be
+            # a call or another property access (e.g. solid.faces().sort_by...).
+            receiver = None
+            try:
+                receiver = expression(node.value)
+            except ValueError:
+                receiver = None
             if receiver and receiver[0] == "ref":
                 receiver_node = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
-                receiver_type = receiver_node["data"]["definition"].get("outputs", [{}])[0].get("type") if receiver_node else None
                 if receiver_node and receiver_node.get("data", {}).get("scope_result"):
                     scope_id = receiver_node["data"]["scope_result"]
                     descriptor = next((item for item in execution_scopes if item.get("id") == scope_id), {})
                     if node.attr == descriptor.get("result_attribute"):
                         return receiver
-                candidates = []
-                for candidate_id, candidate in definitions.items():
-                    if not (".property." + node.attr in candidate_id or ".field." + node.attr in candidate_id):
-                        continue
-                    inputs = candidate.get("inputs", [])
-                    if inputs and inputs[0].get("name") in {"self", "cls"}:
-                        accepted = inputs[0].get("variants") or [inputs[0].get("type")]
-                        if receiver_type in accepted or "Any" in accepted or receiver_type == "Shape":
-                            candidates.append(candidate_id)
-                if len(candidates) == 1:
-                    definition_id = candidates[0]
-                    created = add_node(definition_id, {}, [(definitions[definition_id]["inputs"][0]["name"], receiver[1], receiver[2])], node.lineno)
-                    return ("ref", created, definitions[definition_id].get("outputs", [{}])[0].get("name", "result"))
+                definition_id = resolve_member(receiver, node.attr, node.lineno, property_only=True)
+                if definition_id:
+                    definition = definitions[definition_id]
+                    receiver_socket = next(item for item in definition["inputs"]
+                                           if item.get("name") in {"self", "cls"})
+                    created = add_node(definition_id, {}, [
+                        (receiver_socket["name"], receiver[1], receiver[2])
+                    ], node.lineno)
+                    output = next(iter(definition.get("outputs", [])), {})
+                    return ("ref", created, output.get("name", "result"))
             path = []
             current = node
             while isinstance(current, ast.Attribute):
@@ -2594,25 +2689,9 @@ def import_python_code(source):
             if not definition_id and isinstance(node.func, ast.Attribute):
                 receiver = expression(node.func.value)
                 if receiver[0] == "ref":
-                    receiver_type = None
-                    upstream = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
-                    if upstream:
-                        receiver_type = upstream["data"]["definition"].get("outputs", [{}])[0].get("type")
-                    candidates = []
-                    for candidate_id, candidate in definitions.items():
-                        inputs = candidate.get("inputs", [])
-                        if candidate.get("name") != node.func.attr or not inputs or inputs[0].get("name") not in {"self", "cls"}:
-                            continue
-                        accepted = inputs[0].get("variants") or [inputs[0].get("type")]
-                        if receiver_type in accepted or "Any" in accepted or receiver_type == "Shape":
-                            candidates.append(candidate_id)
-                    if len(candidates) == 1:
-                        definition_id = candidates[0]
-                    elif candidates:
-                        exact = [candidate_id for candidate_id in candidates
-                                 if definitions[candidate_id]["inputs"][0].get("type") == receiver_type]
-                        if len(exact) == 1:
-                            definition_id = exact[0]
+                    definition_id = resolve_member(
+                        receiver, node.func.attr, node.lineno, call_node=node
+                    )
             if not definition_id:
                 raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
                     node.lineno, ast.unparse(node.func)))

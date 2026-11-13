@@ -387,6 +387,54 @@ def run_preview_style_test():
     return {"name": "preview style and topology", "faces": True, "edges": True, "vertices": True}
 
 
+def run_python_value_constructor_tests():
+    """All declared build123d object socket types share generic constructor import."""
+    cases = [
+        ("Vector3", "Vector", "Vector(1, 2, 3)", [1, 2, 3]),
+        ("Vector2", "Vector2", "Vector2(1, 2)", [1, 2]),
+        ("Rotation", "Rotation", "Rotation(0, 0, 0)", [0, 0, 0]),
+        ("Plane", "Plane", "Plane(origin=(0, 0, 0), x_dir=(1, 0, 0), z_dir=(0, 0, 1))",
+         {"origin": [0, 0, 0], "x_dir": [1, 0, 0], "z_dir": [0, 0, 1]}),
+        ("Location", "Location", "Location((0, 0, 0))", [[0, 0, 0]]),
+        ("Axis", "Axis", "Axis((0, 0, 0), (0, 0, 1))", [[0, 0, 0], [0, 0, 1]]),
+        ("Color", "Color", "Color(1, 0, 0)", [1, 0, 0]),
+        ("Matrix", "Matrix", "Matrix([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]])",
+         [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]]),
+    ]
+    results = []
+    for index, (socket_type, class_name, constructor, expected) in enumerate(cases):
+        if not hasattr(runtime.b3d, class_name):
+            continue
+        definition_id = "tests.value_constructor." + socket_type.lower()
+        definition = {
+            "id": definition_id, "name": "ValueSink" + str(index), "kind": "test",
+            "inputs": [{"name": "value", "type": socket_type, "required": True}],
+            "outputs": [{"name": "result", "type": "Any"}],
+        }
+        previous = runtime._CATALOG.get(definition_id)
+        runtime._CATALOG[definition_id] = definition
+        try:
+            source = (
+                "from build123d import " + class_name + " as ValueCtor\\n"
+                + "ValueSink" + str(index) + "(value=" + constructor + ")\\n"
+            )
+            graph = runtime.import_python_code(source)
+            params = graph["nodes"][0]["data"]["params"]
+            if params.get("value") != expected:
+                raise AssertionError(
+                    socket_type + " constructor was not preserved: " + repr(params.get("value"))
+                )
+            results.append(socket_type)
+        finally:
+            if previous is None:
+                runtime._CATALOG.pop(definition_id, None)
+            else:
+                runtime._CATALOG[definition_id] = previous
+    if not results:
+        raise AssertionError("No build123d value constructors were exercised")
+    return {"name": "Python value constructors", "types": results}
+
+
 def run_python_import_tests():
     """Viewer-only ocp_vscode imports/calls must not block graph conversion."""
     examples = [
@@ -495,7 +543,7 @@ def run_graph_plan_validation_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_value_constructor_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

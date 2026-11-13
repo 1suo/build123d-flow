@@ -20,7 +20,7 @@ export default defineConfig({
     }
   },
   webServer: {
-    command: "npm run preview -- --host 127.0.0.1 --port 4173 --strictPort",
+    command: "node scripts/serve-pages-preview.mjs",
     url: "http://127.0.0.1:4173/build123d-flow/",
     reuseExistingServer: !process.env.CI,
     timeout: 30_000

@@ -68,6 +68,15 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertNotIn("candidate.get('name')", source)
         self.assertNotIn('candidate.get("name")', source)
 
+    def test_shape_subclasses_keep_distinct_receiver_types(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        source = ast.unparse(functions["_type_name"])
+        self.assertIn('"Vertex"', source)
+        self.assertIn('return shape_name', source)
+
     def test_catalog_discovers_typed_build123d_collection_members(self):
         functions = {
             node.name: node for node in self.module.body

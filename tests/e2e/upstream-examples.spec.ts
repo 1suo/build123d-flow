@@ -124,7 +124,7 @@ async function importExample(page: Page, source: string) {
     const hook = await page.evaluateHandle(() => (window as any).__build123dFlowTest);
     await page.evaluate(async ({ url }) => {
       const testHook = (window as any).__build123dFlowTest;
-      await testHook.downloadFile("/low_poly_benchy.stl", url);
+      await testHook.downloadFile("low_poly_benchy.stl", url);
     }, { url: `https://raw.githubusercontent.com/gumyr/build123d/${UPSTREAM_COMMIT}/examples/low_poly_benchy.stl` });
     await hook.dispose();
   }

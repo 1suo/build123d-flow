@@ -523,10 +523,19 @@ async function importPythonSource(source: string, sourceLabel: string) {
       addEdges(missingEdges);
       await nextTick();
     }
-    const finalEdgeIds = new Set(edges.value.map((edge: any) => edge.id));
-    const stillMissing = (imported.edges as Edge[]).filter((edge: any) => !finalEdgeIds.has(edge.id));
+    let finalEdgeIds = new Set(edges.value.map((edge: any) => edge.id));
+    let stillMissing = (imported.edges as Edge[]).filter((edge: any) => !finalEdgeIds.has(edge.id));
     if (stillMissing.length) {
-      throw new Error("Vue Flow did not retain imported connections: " + stillMissing.map((edge: any) => edge.id).join(", "));
+      // Vue Flow's mutation helper can reject a programmatic edge while its
+      // internal handle registry is catching up. At this point every node has
+      // rendered, so synchronize the bound model as a final lossless fallback.
+      edges.value = imported.edges as Edge[];
+      await nextTick();
+      finalEdgeIds = new Set(edges.value.map((edge: any) => edge.id));
+      stillMissing = (imported.edges as Edge[]).filter((edge: any) => !finalEdgeIds.has(edge.id));
+    }
+    if (stillMissing.length) {
+      throw new Error("Vue Flow did not retain imported connections: " + JSON.stringify(stillMissing));
     }
     executionScopes.value = imported.execution_scopes ?? [];
     nextId = importedNodes.length + 1;

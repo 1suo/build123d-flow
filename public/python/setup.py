@@ -42,6 +42,18 @@ micropip.add_mock_package("pillow", "12.2.0", modules={
 micropip.add_mock_package("cadquery-ocp-novtk", OCP_VERSION, modules={})
 micropip.add_mock_package("cadquery-ocp", OCP_VERSION, modules={})
 
+# build123d imports this package only for optional GLTF PBR material injection.
+# The app has its own Three.js renderer and does not expose build123d's GLTF
+# material pipeline. Keep ordinary build123d imports lightweight; fail explicitly
+# if that unsupported export path is invoked with PBR materials.
+micropip.add_mock_package("threejs-materials", "1.2.5", modules={
+    "threejs_materials": (
+        "class PbrProperties: pass\n"
+        "def inject_materials(*args, **kwargs):\n"
+        "    raise NotImplementedError('GLTF PBR material injection is not available in build123d-flow')\n"
+    ),
+})
+
 # build123d imports Mesher at package import time; 3MF is unused here, so
 # register the same import-only stub each session and install it only once.
 micropip.add_mock_package("lib3mf", "2.4.1", modules={

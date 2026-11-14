@@ -544,15 +544,43 @@ def run_python_loop_lowering_tests():
         "for length in [1, 2]:\n"
         "    for width in [3, 4]:\n"
         "        box = Box(length, width, 1)\n"
-        "result = box\n"
+        "    last_inner_box = box\n"
+        "result = last_inner_box\n"
     )
-    try:
-        runtime.import_python_code(nested_post_loop)
-    except ValueError as exc:
-        if "nested loop-result grouping" not in str(exc):
-            raise
-    else:
-        raise AssertionError("A nested loop's final binding must not be silently replaced or dropped")
+    nested_post_graph = runtime.import_python_code(nested_post_loop)
+    nested_post_boxes = [
+        node for node in nested_post_graph["nodes"]
+        if node["data"]["definition"]["id"].endswith(".Box")
+    ]
+    nested_post_last = [
+        node for node in nested_post_graph["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.loop_last"
+    ]
+    if len(nested_post_boxes) != 1 or len(nested_post_last) < 2:
+        raise AssertionError("Nested post-loop bindings must compose loop_last nodes without unrolling")
+    nested_post_result = json.loads(runtime.evaluate_graph_json(json.dumps(nested_post_graph)))
+    if nested_post_result["errors"]:
+        raise AssertionError("Nested post-loop grouping failed: " + json.dumps(nested_post_result["errors"]))
+    final_nested_box = nested_post_result["socket_values"][nested_post_last[-1]["id"]]["result"]
+    if final_nested_box.get("type") not in {"Box", "Solid", "Compound"}:
+        raise AssertionError("The outer loop must retain the last inner-loop result: " + repr(final_nested_box))
+
+    nested_inner_binding = runtime.import_python_code(
+        "from build123d import Box\n"
+        "for length in [1, 2]:\n"
+        "    for width in [3, 4]:\n"
+        "        box = Box(length, width, 1)\n"
+        "    result = box\n"
+    )
+    inner_last_nodes = [
+        node for node in nested_inner_binding["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.loop_last"
+    ]
+    inner_binding_result = json.loads(runtime.evaluate_graph_json(json.dumps(nested_inner_binding)))
+    if inner_binding_result["errors"]:
+        raise AssertionError("An inner post-loop binding inside the outer loop failed: " + json.dumps(inner_binding_result["errors"]))
+    if not inner_last_nodes:
+        raise AssertionError("An inner loop's last value must be available inside its enclosing loop")
 
     unpacked = runtime.import_python_code(
         "from build123d import Box\n"
@@ -622,7 +650,7 @@ def run_python_loop_lowering_tests():
         "scalar_loop_arithmetic": True,
         "dependent_nested_loops": True,
         "mixed_mapping_rejected": True,
-        "nested_post_loop_binding_rejected": True,
+        "nested_post_loop_grouping": True,
         "tuple_unpacking": True,
         "list_comprehension": True,
         "literal_comprehension": True,

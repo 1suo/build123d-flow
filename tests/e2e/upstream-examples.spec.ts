@@ -139,31 +139,16 @@ async function importExample(page: Page, source: string) {
   await expect(sourceInput).toBeVisible({ timeout: 1_000 });
   await expect(sourceInput).toHaveValue("");
 
-  const entries = page.locator(".viewport-log-entry");
-  const previousMessages = await entries.allTextContents();
-  const previousImportStarts = previousMessages.filter(message => message.includes("Importing Python source")).length;
-  const previousImported = previousMessages.filter(message => message.includes("Python imported")).length;
-  const previousImportFailures = previousMessages.filter(message => message.includes("Python import failed")).length;
   const evaluationBeforeImport = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
   await sourceInput.fill(source);
   await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
   await page.getByRole("button", { name: "Import pasted code" }).click();
 
-  // Count deltas instead of relying on DOM or visual ordering: the log uses
-  // reversed presentation and its rendered order differs across layouts.
-  await expect.poll(async () => {
-    const messages = await entries.allTextContents();
-    return messages.filter(message => message.includes("Importing Python source")).length > previousImportStarts;
-  }, { timeout: 2_000, intervals: [25, 50, 100] }).toBe(true);
+  // Successful import closes the Settings popover. This signal is independent
+  // of the activity log, which is intentionally capped to its 40 newest rows.
+  await expect(sourceInput).toBeHidden({ timeout: 10_000 });
 
   await expect.poll(async () => {
-    const messages = await entries.allTextContents();
-    if (messages.filter(message => message.includes("Python import failed")).length > previousImportFailures) return "import-failed";
-    if (messages.filter(message => message.includes("Python imported")).length > previousImported) return "imported";
-    return "pending";
-  }, { timeout: 5_000, intervals: [50, 100, 150] }).toBe("imported");
-
-  const evaluationAfterImport = await expect.poll(async () => {
     const state = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
     if (state.revision <= evaluationBeforeImport.revision || state.running) return null;
     return state;
@@ -175,11 +160,6 @@ async function importExample(page: Page, source: string) {
 
   await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9][0-9]* visible/, { timeout: 500 });
   await expect(page.locator(".geometry-viewport canvas")).toBeVisible({ timeout: 500 });
-
-  // A successful import closes the Settings popover and clears the v-model.
-  // Wait for both effects to finish before the next iteration; visibility
-  // during PrimeVue's closing transition is not a stable open/closed signal.
-  await expect(sourceInput).toBeHidden({ timeout: 2_000 });
 }
 
 test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {

@@ -220,6 +220,13 @@ function toJs(value) {
 async function invoke(method, payload) {
   if (!initialized || !pyodide) throw new Error("Python runtime is not initialized");
 
+  if (method === "downloadFile") {
+    const response = await fetch(payload.url);
+    if (!response.ok) throw new Error("File download failed: " + response.status + " " + payload.url);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    pyodide.FS.writeFile(payload.path, bytes);
+    return bytes.byteLength;
+  }
   if (method === "getCatalog") {
     return JSON.parse(pyodide.runPython("flow_runtime.catalog_json()"));
   }

@@ -835,7 +835,8 @@ def run_instance_method_receiver_tests():
         "from build123d import *\n"
         "with BuildPart() as part:\n"
         "    Box(10, 10, 10)\n"
-        "edge_groups = part.part.edges().group_by(Axis.Z)\n"
+        "fender_edges = part.part.edges()\n"
+        "edge_groups = fender_edges.group_by(Axis.Z)\n"
         "vertex_groups = part.part.vertices().group_by(Axis.Z)\n"
     )
     method_nodes = [

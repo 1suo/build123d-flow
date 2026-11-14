@@ -460,6 +460,55 @@ def run_python_loop_lowering_tests():
     if nested_boxes_value.get("length") != 4:
         raise AssertionError("Independent nested loops must map to the four Cartesian pairs: " + repr(nested_boxes_value))
 
+    repeated = runtime.import_python_code(
+        "from build123d import Box\\n"
+        "for length in [1, 2]:\\n"
+        "    for width in [3, 4]:\\n"
+        "        box = Box(1, 1, 1)\\n"
+    )
+    repeated_boxes = [
+        node for node in repeated["nodes"]
+        if node["data"]["definition"]["id"].endswith(".Box")
+    ]
+    if len(repeated_boxes) != 1:
+        raise AssertionError("A loop body that ignores its targets must still compile only once")
+    repeated_result = json.loads(runtime.evaluate_graph_json(json.dumps(repeated)))
+    if repeated_result["errors"]:
+        raise AssertionError("Synthetic loop dependencies failed: " + json.dumps(repeated_result["errors"]))
+    repeated_value = repeated_result["socket_values"][repeated_boxes[0]["id"]]["result"]
+    if repeated_value.get("length") != 4:
+        raise AssertionError("A body independent of loop variables must still execute for all four pairs: " + repr(repeated_value))
+
+    mixed_loops = (
+        "from build123d import Box\\n"
+        "for length in [1, 2]:\\n"
+        "    for width in [3, 4]:\\n"
+        "        for depth in [width, width + 1]:\\n"
+        "            box = Box(length, width, depth)\\n"
+    )
+    try:
+        runtime.import_python_code(mixed_loops)
+    except ValueError as exc:
+        if "Mixed independent and dependent nested loops" not in str(exc):
+            raise
+    else:
+        raise AssertionError("Mixed nested mapping modes must be rejected rather than evaluated incorrectly")
+
+    nested_post_loop = (
+        "from build123d import Box\\n"
+        "for length in [1, 2]:\\n"
+        "    for width in [3, 4]:\\n"
+        "        box = Box(length, width, 1)\\n"
+        "result = box\\n"
+    )
+    try:
+        runtime.import_python_code(nested_post_loop)
+    except ValueError as exc:
+        if "nested loop-result grouping" not in str(exc):
+            raise
+    else:
+        raise AssertionError("A nested loop's final binding must not be silently replaced or dropped")
+
     unpacked = runtime.import_python_code(
         "from build123d import Box\n"
         "for length, width in [(1, 2), (3, 4)]:\n"
@@ -499,6 +548,9 @@ def run_python_loop_lowering_tests():
         "name": "Python loop lowering",
         "single_body_node": True,
         "nested_cross_product": True,
+        "synthetic_loop_dependencies": True,
+        "mixed_mapping_rejected": True,
+        "nested_post_loop_binding_rejected": True,
         "tuple_unpacking": True,
         "list_comprehension": True,
         "literal_comprehension": True,

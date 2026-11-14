@@ -2966,11 +2966,14 @@ def import_python_code(source):
         created = add_node(definition_id, params, links, line)
         return ("ref", created, "result", result_type)
 
-    def resolve_callable(node):
+    def resolve_callable(node, call_node=None):
+        symbol_name = None
+        definition_id = None
         if isinstance(node, ast.Name):
             name = imported.get(node.id, node.id)
-            return by_name.get(name) or by_name.get(node.id)
-        if isinstance(node, ast.Attribute):
+            definition_id = by_name.get(name) or by_name.get(node.id)
+            symbol_name = name
+        elif isinstance(node, ast.Attribute):
             path = []
             current = node
             while isinstance(current, ast.Attribute):
@@ -2979,13 +2982,70 @@ def import_python_code(source):
             if isinstance(current, ast.Name):
                 root = current.id
                 if root in aliases and aliases[root] == "b3d":
-                    return by_name.get(path[0]) if len(path) == 1 else by_name.get(".".join(reversed(path)))
-                if root in imported:
-                    return by_name.get(imported[root] + "." + ".".join(reversed(path)))
-                if hasattr(b3d, root):
-                    return by_name.get(root + "." + ".".join(reversed(path)))
+                    symbol_name = path[0] if len(path) == 1 else None
+                    definition_id = (
+                        by_name.get(path[0]) if len(path) == 1
+                        else by_name.get(".".join(reversed(path)))
+                    )
+                elif root in imported:
+                    qualified_name = imported[root] + "." + ".".join(reversed(path))
+                    definition_id = by_name.get(qualified_name)
+                elif hasattr(b3d, root):
+                    qualified_name = root + "." + ".".join(reversed(path))
+                    definition_id = by_name.get(qualified_name)
+        if definition_id:
+            return definition_id
+
+        # Public build123d aliases (for example Pos) can refer to an overloaded
+        # class whose catalog entries are named Pos(v) / Pos(X, Y, Z), rather
+        # than a single Pos node. Resolve the alias to its canonical class and
+        # choose the overload that accepts this call's positional/keyword form.
+        candidate = getattr(b3d, symbol_name, None) if symbol_name else None
+        if candidate is None and isinstance(node, ast.Name):
+            candidate = getattr(b3d, imported.get(node.id, node.id), None)
+        if candidate is None or not inspect.isclass(candidate):
             return None
-        return None
+        canonical_name = getattr(candidate, "__name__", "")
+        prefix = getattr(candidate, "__module__", "") + "." + canonical_name + ".overload-"
+        overload_ids = sorted(
+            definition_id for definition_id in definitions
+            if definition_id.startswith(prefix)
+        )
+        if not overload_ids:
+            return by_name.get(canonical_name)
+
+        if call_node is None:
+            return overload_ids[0]
+        keyword_names = {
+            keyword.arg for keyword in call_node.keywords if keyword.arg is not None
+        }
+        for overload_id in overload_ids:
+            sockets = definitions[overload_id].get("inputs", [])
+            positional_sockets = [
+                socket for socket in sockets
+                if socket.get("kind") in {"positional_only", "positional_or_keyword"}
+            ]
+            has_var_positional = any(socket.get("kind") == "var_positional" for socket in sockets)
+            if len(call_node.args) > len(positional_sockets) and not has_var_positional:
+                continue
+            supplied = {
+                positional_sockets[index]["name"]
+                for index in range(min(len(call_node.args), len(positional_sockets)))
+            }
+            if supplied.intersection(keyword_names):
+                continue
+            known = {socket["name"] for socket in sockets}
+            if keyword_names - known:
+                continue
+            required = {
+                socket["name"] for socket in sockets
+                if socket.get("required")
+                and socket.get("kind") not in {"var_positional", "var_keyword"}
+            }
+            if required - supplied - keyword_names:
+                continue
+            return overload_id
+        return overload_ids[0]
 
     def safe_stdlib_value(module_name, attribute):
         module = importlib.import_module(module_name)
@@ -3744,7 +3804,7 @@ def import_python_code(source):
             if class_callable is not None:
                 return add_build123d_class_call(*class_callable, node)
 
-            definition_id = resolve_callable(node.func)
+            definition_id = resolve_callable(node.func, node)
             receiver = None
             receiver_type = None
             if isinstance(node.func, ast.Attribute):

@@ -119,6 +119,8 @@ async function importExample(page: Page, source: string) {
   }, { timeout: 180_000 }).toBeTruthy();
   await expect(page.locator(".viewport-status-dot")).not.toHaveClass(/is-error/);
   await expect(entries.first()).toContainText("Evaluation complete");
+  await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9]\\d* visible/);
+  await expect(page.locator(".geometry-viewport canvas")).toBeVisible();
 }
 
 test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {

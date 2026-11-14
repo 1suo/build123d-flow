@@ -505,9 +505,14 @@ def run_python_loop_lowering_tests():
     dependent_boxes = [
         node for node in dependent_loops["nodes"]
         if node["data"]["definition"]["id"].endswith(".Box")
+        and len(node["data"].get("python_loop_sources", [])) == 2
     ]
-    if len(dependent_boxes) != 1 or len(dependent_boxes[0]["data"].get("python_loop_sources", [])) != 2:
-        raise AssertionError("Dependent nested loops must retain both scopes on one body node")
+    if len(dependent_boxes) != 1:
+        raise AssertionError("Dependent nested loops must retain both scopes on one body node: " + repr([
+            (node["id"], node["data"].get("python_loop_sources"))
+            for node in dependent_loops["nodes"]
+            if node["data"]["definition"]["id"].endswith(".Box")
+        ]))
     dependent_result = json.loads(runtime.evaluate_graph_json(json.dumps(dependent_loops)))
     if dependent_result["errors"]:
         raise AssertionError("Dependent nested loops failed: " + json.dumps(dependent_result["errors"]))
@@ -589,6 +594,8 @@ def run_python_loop_lowering_tests():
         "single_body_node": True,
         "nested_cross_product": True,
         "synthetic_loop_dependencies": True,
+        "scalar_loop_arithmetic": True,
+        "dependent_nested_loops": True,
         "mixed_mapping_rejected": True,
         "nested_post_loop_binding_rejected": True,
         "tuple_unpacking": True,

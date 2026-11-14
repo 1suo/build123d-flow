@@ -92,6 +92,7 @@ const palettePopover = ref<any>();
 const settingsPopover = ref<any>();
 const pythonFileInput = ref<HTMLInputElement | null>(null);
 const pythonSource = ref("");
+const isImportingPythonEdges = ref(false);
 const isMobile = ref(false);
 let mobileMediaQuery: MediaQueryList | undefined;
 function updateMobileLayout() { isMobile.value = Boolean(mobileMediaQuery?.matches); }
@@ -158,6 +159,7 @@ const graph = computed<GraphDocument>(() => JSON.parse(JSON.stringify({
     target: edge.target,
     sourceHandle: edge.sourceHandle,
     targetHandle: edge.targetHandle,
+    pythonImported: edge.pythonImported,
   })),
   execution_scopes: executionScopes.value,
 })));
@@ -341,7 +343,7 @@ function onGlobalKeydown(event: KeyboardEvent) {
 }
 
 function isValidConnection(connection: Connection) {
-  return canConnect(graph.value, connection);
+  return isImportingPythonEdges.value || canConnect(graph.value, connection);
 }
 
 function onConnect(connection: Connection) {
@@ -509,15 +511,21 @@ async function importPythonSource(source: string, sourceLabel: string) {
     updateNodeInternals(importedNodes.map((node: any) => node.id));
     await nextTick();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    // All imported node handles are now mounted. Assign the complete edge
-    // model in one transaction rather than calling addEdges, whose connection
-    // validator can reject valid Python receiver links before inferred socket
-    // metadata has settled.
-    edges.value = imported.edges as Edge[];
-    await nextTick();
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    // Imported Python links are generated from the Python API's actual
+    // signatures and type annotations. The editor's conservative socket
+    // compatibility heuristic must not discard valid collection receivers.
+    const importedEdges = (imported.edges as Edge[]).map((edge: any) => ({
+      ...edge, pythonImported: true,
+    }));
+    isImportingPythonEdges.value = true;
+    try {
+      addEdges(importedEdges);
+      await nextTick();
+    } finally {
+      isImportingPythonEdges.value = false;
+    }
     const retainedEdgeIds = new Set(edges.value.map((edge: any) => edge.id));
-    const missingEdges = (imported.edges as Edge[]).filter((edge: any) => !retainedEdgeIds.has(edge.id));
+    const missingEdges = importedEdges.filter((edge: any) => !retainedEdgeIds.has(edge.id));
     if (missingEdges.length) {
       throw new Error("Vue Flow did not retain imported connections: " + JSON.stringify(missingEdges));
     }

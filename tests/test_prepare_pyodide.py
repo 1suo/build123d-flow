@@ -21,8 +21,8 @@ class DependencyClosureTests(unittest.TestCase):
 
     def test_transitive_pypi_dependency_stages_pyodide_package(self):
         class FixtureResolver(MODULE["Resolver"]):
-            def pypi_requires(self, req):
-                return {
+            def pypi_release(self, req):
+                dependencies = {
                     "build123d": [
                         "svgpathtools>=1.5.1,<2",
                         "cadquery-ocp-novtk>=8,<8.1",
@@ -31,6 +31,8 @@ class DependencyClosureTests(unittest.TestCase):
                     ],
                     "svgpathtools": ["svgwrite>=1.4"],
                 }.get(req.name, [])
+                wheel = {"filename": "fixture.whl", "url": "https://example.invalid/fixture.whl", "digests": {"sha256": "0" * 64}}
+                return ("1.0", dependencies, wheel)
 
         lock = {
             "micropip": {"version": "0.9.0", "depends": []},

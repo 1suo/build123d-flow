@@ -14,6 +14,50 @@ import hashlib
 import operator
 
 import build123d as b3d
+from build123d.topology.one_d import Mixin1D
+from OCP.GCPnts import GCPnts_AbscissaPoint
+
+
+# Preserve build123d's arc-length semantics when OCCT's direct inversion
+# fails on a valid curve. Bisection over partial arc lengths is slower but
+# computes the same normalized-distance position without changing the
+# behavior of successful OCCT calls.
+_original_occt_param_at = Mixin1D._occt_param_at
+
+
+def _stable_occt_param_at(self, position, position_mode=b3d.PositionMode.PARAMETER):
+    try:
+        return _original_occt_param_at(self, position, position_mode)
+    except Exception as error:
+        if type(error).__name__ != "Standard_ConstructionError":
+            raise
+        curve = self.geom_adaptor()
+        first = curve.FirstParameter()
+        last = curve.LastParameter()
+        total_length = GCPnts_AbscissaPoint.Length_s(curve)
+        if position_mode == b3d.PositionMode.PARAMETER:
+            fraction = position
+        else:
+            fraction = position / total_length
+        if not self.is_forward:
+            fraction = 1 - fraction
+        target_length = total_length * fraction
+        if target_length <= 0:
+            return curve, first, self.is_forward
+        if target_length >= total_length:
+            return curve, last, self.is_forward
+        low, high = first, last
+        for _ in range(64):
+            middle = (low + high) / 2
+            partial_length = GCPnts_AbscissaPoint.Length_s(curve, first, middle)
+            if partial_length < target_length:
+                low = middle
+            else:
+                high = middle
+        return curve, (low + high) / 2, self.is_forward
+
+
+Mixin1D._occt_param_at = _stable_occt_param_at
 
 
 _CATALOG = {}
@@ -2202,25 +2246,6 @@ def evaluate_graph_json(payload):
                     return _call_with_coercion(
                         bound_method, arguments,
                         signature=bound_signature,
-                        hint_target=hint_target,
-                    )
-            elif definition.get("name") == "Mixin1D @":
-                def invoke(mapped):
-                    receiver_value = mapped.get("self")
-                    position = mapped.get("position")
-                    # Mixin1D's normalized endpoint operator is exactly
-                    # equivalent to start_point/end_point, but OCCT's
-                    # arc-length inversion can fail at Bezier endpoints.
-                    if callable(getattr(receiver_value, "start_point", None)):
-                        if position == 0:
-                            return receiver_value.start_point()
-                        if position == 1:
-                            return receiver_value.end_point()
-                    return _call_with_coercion(
-                        callable_obj,
-                        {name: value for name, value in mapped.items()
-                         if not name.startswith("__flow_iteration_")},
-                        signature=signature,
                         hint_target=hint_target,
                     )
             else:

@@ -72,6 +72,8 @@ export interface GraphEdge {
   target: string;
   sourceHandle: string | null;
   targetHandle: string | null;
+  /** Python importer edges are validated by the Python runtime's API contract. */
+  pythonImported?: boolean;
 }
 
 export interface PythonExecutionScope {

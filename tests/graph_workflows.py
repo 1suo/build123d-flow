@@ -461,9 +461,22 @@ def run_python_import_tests():
     )
     graph = runtime.import_python_code(source)
     definitions = [node["data"]["definition"]["id"] for node in graph["nodes"]]
-    operator = _shape_operator("__add__")["id"]
-    if len(graph["nodes"]) != 3 or definitions[-1] != operator:
-        raise AssertionError("Python source did not become two constructors and native union: " + repr(definitions))
+    # The native dunder owner is determined by the concrete constructor's
+    # Python MRO. Box currently inherits Compound's implementation, so requiring
+    # Shape.__add__ here would test a guessed owner rather than Python dispatch.
+    import importlib
+    constructor_module, constructor_name = definitions[0].rsplit(".", 1)
+    constructor_class = getattr(importlib.import_module(constructor_module), constructor_name)
+    operator = next(
+        (
+            owner.__module__ + "." + owner.__name__ + ".operator.__add__"
+            for owner in constructor_class.__mro__
+            if owner.__module__ + "." + owner.__name__ + ".operator.__add__" in runtime._CATALOG
+        ),
+        None,
+    )
+    if len(graph["nodes"]) != 3 or not operator or definitions[-1] != operator:
+        raise AssertionError("Python source did not become two constructors and the native MRO union: " + repr(definitions))
     if len(graph["edges"]) != 2:
         raise AssertionError("Python variable/operator dependencies were not wired: " + repr(graph["edges"]))
     evaluated = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))

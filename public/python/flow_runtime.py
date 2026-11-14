@@ -2059,7 +2059,10 @@ def evaluate_graph_json(payload):
         if definition is None:
             errors[node_id] = "Unknown or unavailable API node: " + str(definition_id)
             continue
-        params = dict(node.get("data", {}).get("params", {}))
+        params = {
+            name: restore_scope_value(value)
+            for name, value in node.get("data", {}).get("params", {}).items()
+        }
         upstream_keys = {}
         failed_dependency = False
         upstream_cacheable = True
@@ -3034,6 +3037,12 @@ def import_python_code(source):
                 # list containing the constructor argument.
                 if value["__flow_object__"] == "Matrix" and len(args) == 1:
                     return args[0]
+                # Preserve zero-argument value constructors such as Vector().
+                # An empty kwargs dict is not the same value as the constructed
+                # object; the evaluator restores this tagged form before calling
+                # an Any-typed consumer such as sum(iterable, Vector()).
+                if not args and not kwargs:
+                    return {"__flow_object__": value["__flow_object__"], "args": [], "kwargs": {}}
                 return args if args else kwargs
             return {key: literal_json_value(item) for key, item in value.items()}
         if isinstance(value, (list, tuple)):

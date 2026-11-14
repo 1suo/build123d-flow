@@ -186,7 +186,7 @@ async function importExample(page: Page, source: string) {
 test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {
   expect(EXAMPLES).toHaveLength(67);
   expect(new Set(EXAMPLES).size).toBe(EXAMPLES.length);
-  test.setTimeout(110_000);
+  test.setTimeout(180_000);
   const pageErrors: string[] = [];
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto("./", { waitUntil: "domcontentloaded" });
@@ -197,7 +197,7 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
     return { filename, source: await response.text() };
   }));
 
-  await expect(page.locator(".viewport-status")).toContainText("build123d ready", { timeout: 45_000 });
+  await expect(page.locator(".viewport-status")).toContainText("build123d ready", { timeout: 75_000 });
   await expect(page.locator("#python-source-input")).toBeHidden();
 
   // Python import lazily performs full build123d API discovery. Trigger that

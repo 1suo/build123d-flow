@@ -5,10 +5,12 @@
 import micropip
 import importlib.metadata
 import os
+import json
+from pathlib import Path
 
 restored_environment = os.environ.get('BUILD123D_FLOW_ENV_RESTORED') == '1'
 
-micropip.set_index_urls(["https://pypi.org/simple"])
+micropip.set_index_urls([])
 OCP_VERSION = "8.0.1.0.post202609202030"
 
 print("Preparing browser-compatible dependencies…")
@@ -61,20 +63,16 @@ micropip.add_mock_package("lib3mf", "2.4.1", modules={
 })
 
 if not restored_environment:
-    try:
-        ocp_installed = importlib.metadata.version("cadquery-ocp-novtk-OCP.wasm") == OCP_VERSION
-    except importlib.metadata.PackageNotFoundError:
-        ocp_installed = False
-    if not ocp_installed:
-        print("Downloading OCP.wasm…")
-        await micropip.install([f"cadquery-ocp-novtk-OCP.wasm=={OCP_VERSION}"])
-    
+    manifest_path = Path("/python/wheels/manifest.json")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    wheel_paths = [f"emfs:///python/wheels/{item['filename']}" for item in manifest]
+    print(f"Installing {len(wheel_paths)} pre-staged PyPI wheels…")
+    await micropip.install(wheel_paths, deps=False)
 else:
     print("Restored Python environment; verifying required packages…")
 
-# Let build123d's wheel metadata define the complete dependency graph.
-# Platform-specific packages that cannot run in this browser are registered as
-# mocks above, so micropip can resolve every remaining dependency normally.
+# All PyPI-only dependencies and the OCP wasm wheel are staged locally.
+# Pyodide-native dependencies are loaded from the self-hosted lockfile closure.
 await micropip.install(["build123d==0.13.0"])
 
 # Fail during environment setup, not later when the graph runtime imports build123d.

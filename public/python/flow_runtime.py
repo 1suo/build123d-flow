@@ -3598,7 +3598,7 @@ def import_python_code(source):
                     _INTERNAL_NODE_IDS.add(definition_id)
                     _CATALOG_CALLABLES[definition_id] = tuple
                     _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
-                        inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                        inspect.Parameter("value", inspect.Parameter.POSITIONAL_ONLY),
                     ])
                     _CATALOG_HINT_TARGETS[definition_id] = False
                     created = add_node(

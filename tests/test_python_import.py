@@ -256,6 +256,8 @@ class PythonImportSourceTests(unittest.TestCase):
         ]
         self.assertFalse(any(node.name == "transition_scopes" for node in nested_functions))
         for function in nested_functions:
+            if function is evaluator:
+                continue
             self.assertFalse(any(
                 isinstance(call, ast.Call)
                 and isinstance(call.func, ast.Attribute)

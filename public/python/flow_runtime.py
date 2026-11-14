@@ -3475,6 +3475,69 @@ def import_python_code(source):
                     if isinstance(result, (range, enumerate, zip, reversed)):
                         result = list(result)
                     return ("literal", result)
+            # Reduction builtins consume a complete collection rather than
+            # mapping over it. Lower graph-backed sum/max/min/len explicitly
+            # so they cannot be mistaken for build123d's capitalized Sum node.
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id in {"sum", "max", "min", "len"}
+            ):
+                builtin_name = node.func.id
+                dynamic_args = [expression(argument) for argument in node.args]
+                dynamic_kwargs = {
+                    keyword.arg: expression(keyword.value)
+                    for keyword in node.keywords if keyword.arg is not None
+                }
+                if any(item[0] == "ref" for item in dynamic_args + list(dynamic_kwargs.values())):
+                    if builtin_name == "sum" and 1 <= len(dynamic_args) <= 2 and not dynamic_kwargs:
+                        names = ["iterable", "start"][:len(dynamic_args)]
+                        input_sockets = [
+                            {"name": "iterable", "type": "Any", "required": True, "data_access": "structure"},
+                            {"name": "start", "type": "Any", "required": False, "default": 0, "data_access": "structure"},
+                        ]
+                        output_type = reference_type(dynamic_args[1]) if len(dynamic_args) == 2 else "Number"
+                        callable_obj = sum
+                    elif builtin_name in {"max", "min"} and len(dynamic_args) == 1 and not dynamic_kwargs:
+                        names = ["iterable"]
+                        input_sockets = [
+                            {"name": "iterable", "type": "Any", "required": True, "data_access": "structure"}
+                        ]
+                        output_type = reference_type(dynamic_args[0])
+                        callable_obj = max if builtin_name == "max" else min
+                    elif builtin_name == "len" and len(dynamic_args) == 1 and not dynamic_kwargs:
+                        names = ["obj"]
+                        input_sockets = [
+                            {"name": "obj", "type": "Any", "required": True, "data_access": "structure"}
+                        ]
+                        output_type = "Number"
+                        callable_obj = len
+                    else:
+                        raise ValueError("Unsupported graph-backed {} call at line {}".format(builtin_name, node.lineno))
+                    definition_id = "core.python.builtin." + builtin_name
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "Python " + builtin_name,
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Internal", "palette_section": "Graph lowering",
+                        "inputs": input_sockets,
+                        "outputs": [{"name": "result", "type": output_type}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = callable_obj
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                                          default=0 if builtin_name == "sum" and name == "start" else inspect.Parameter.empty)
+                        for name in names
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    params, links = {}, []
+                    for name, value in zip(names, dynamic_args):
+                        if value[0] == "literal":
+                            params[name] = literal_json_value(value[1])
+                        else:
+                            links.append((name, value[1], value[2]))
+                    created = add_node(definition_id, params, links, node.lineno)
+                    return ("ref", created, "result", output_type)
+
             # tuple(item) is common in build123d list comprehensions: a
             # mapped Vertex/Vector becomes one coordinate tuple per item.
             # Preserve that as a graph operation instead of trying to execute
@@ -3525,7 +3588,13 @@ def import_python_code(source):
             value_constructor = resolve_value_constructor(node.func, expected_type)
             if value_constructor is not None:
                 constructor, constructor_type = value_constructor
-                values = [expression(argument) for argument in node.args]
+                value_arguments = [
+                    (expression(argument.value), True)
+                    if isinstance(argument, ast.Starred)
+                    else (expression(argument), False)
+                    for argument in node.args
+                ]
+                values = [item[0] for item in value_arguments]
                 kwargs = {}
                 for keyword in node.keywords:
                     if keyword.arg is None:
@@ -3537,9 +3606,16 @@ def import_python_code(source):
                 if all(item[0] == "literal" for item in values) and all(
                     item[0] == "literal" for item in kwargs.values()
                 ):
+                    positional_values = []
+                    for (kind, value, *extra), (_, starred) in zip(values, value_arguments):
+                        materialized = materialize_literal(value)
+                        if starred:
+                            positional_values.extend(materialized)
+                        else:
+                            positional_values.append(materialized)
                     return ("literal", {
                         "__flow_object__": constructor.__name__,
-                        "args": [item[1] for item in values],
+                        "args": [literal_json_value(item) for item in positional_values],
                         "kwargs": {name: item[1] for name, item in kwargs.items()},
                     })
 
@@ -3548,6 +3624,7 @@ def import_python_code(source):
                 # Keep one constructor node and let the normal item-mapping runtime
                 # apply it to each item in the incoming stream.
                 positional_names = ["arg_{}".format(index) for index in range(len(values))]
+                starred_flags = [item[1] for item in value_arguments]
                 supplied_names = positional_names + list(kwargs)
                 if len(set(supplied_names)) != len(supplied_names):
                     raise ValueError("Duplicate constructor argument at line {}".format(node.lineno))
@@ -3568,7 +3645,13 @@ def import_python_code(source):
                 _INTERNAL_NODE_IDS.add(definition_id)
 
                 def construct_value(**supplied_values):
-                    positional = [supplied_values.pop(name) for name in positional_names]
+                    positional = []
+                    for name, starred in zip(positional_names, starred_flags):
+                        value = supplied_values.pop(name)
+                        if starred:
+                            positional.extend(value)
+                        else:
+                            positional.append(value)
                     return constructor(*positional, **supplied_values)
 
                 _CATALOG_CALLABLES[definition_id] = construct_value

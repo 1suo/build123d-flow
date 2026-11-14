@@ -234,7 +234,7 @@ async function invoke(method, payload) {
     const response = await fetch(testUrl);
     if (!response.ok) throw new Error("Graph workflow test payload unavailable: " + response.status);
     const source = await response.text();
-    const code = "import json\\nexec(" + JSON.stringify(source) + ")\\njson.dumps(run_graph_workflow_tests())";
+    const code = "import json\nexec(" + JSON.stringify(source) + ")\njson.dumps(run_graph_workflow_tests())";
     const result = await pyodide.runPythonAsync(code);
     return JSON.parse(typeof result === "string" ? result : toJs(result));
   }

@@ -2716,7 +2716,7 @@ def import_python_code(source):
                     socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
                     for socket in definition.get("outputs", [])
                 )}
-        if active_loop_frames:
+        if active_loop_frames and map_over_active_loops:
             data["python_loop_sources"] = [
                 {
                     "node_id": frame["node_id"],
@@ -2725,7 +2725,7 @@ def import_python_code(source):
                 }
                 for frame in active_loop_frames
             ]
-        if mapping_matching != "longest":
+        if map_over_active_loops and mapping_matching != "longest":
             data["data_matching"] = mapping_matching
         graph_nodes.append({
             "id": node_id, "type": "api",
@@ -2976,7 +2976,7 @@ def import_python_code(source):
                 outer_ids = {stream[1] for stream in generator_streams}
                 outer_ids.update(frame["node_id"] for frame in active_loop_frames)
                 if outer_ids:
-                    mapping_matching = "longest" if graph_depends_on(iterable[1], outer_ids) else "cross"
+                    select_loop_mapping(iterable[1], outer_ids, generator.iter.lineno)
                 variables[generator.target.id] = iterable
                 stream_variables.add(generator.target.id)
                 generator_streams.append(iterable)
@@ -3611,6 +3611,19 @@ def import_python_code(source):
                     pending.append(edge.get("source"))
         return False
 
+    def select_loop_mapping(iterable_id, ancestors, line):
+        """Choose a representable mapping mode and reject mixed nested semantics."""
+        nonlocal mapping_matching
+        selected = "longest" if graph_depends_on(iterable_id, ancestors) else "cross"
+        prior_modes = [frame.get("matching", "longest") for frame in active_loop_frames[1:]]
+        if prior_modes and any(mode != selected for mode in prior_modes):
+            raise ValueError(
+                "Mixed independent and dependent nested loops require per-scope mapping, "
+                "which is not yet supported (line {})".format(line)
+            )
+        mapping_matching = selected
+        return selected
+
     def last_sequence_item(value, line, fallback=_MISSING):
         """Lower Python's post-loop binding, including zero-iteration fallback."""
         if value[0] == "literal":
@@ -3665,8 +3678,10 @@ def import_python_code(source):
         def assign_target(target, assigned, line):
             if isinstance(target, ast.Name):
                 variables[target.id] = assigned
-                for frame in active_loop_frames:
+                for frame_index, frame in enumerate(active_loop_frames):
                     frame["written_names"].add(target.id)
+                    if frame_index < len(active_loop_frames) - 1:
+                        frame.setdefault("nested_written_names", set()).add(target.id)
                 return
             if isinstance(target, (ast.Tuple, ast.List)):
                 if assigned[0] == "literal" and isinstance(assigned[1], (list, tuple)):
@@ -3780,10 +3795,11 @@ def import_python_code(source):
                 # matched. The body itself is still compiled exactly once.
                 if active_loop_frames:
                     outer_ids = {frame["node_id"] for frame in active_loop_frames}
-                    mapping_matching = "longest" if graph_depends_on(iterable[1], outer_ids) else "cross"
+                    select_loop_mapping(iterable[1], outer_ids, statement.iter.lineno)
                 for target in target_names:
                     for outer_frame in active_loop_frames:
                         outer_frame["written_names"].add(target.id)
+                        outer_frame.setdefault("nested_written_names", set()).add(target.id)
                 frame = {
                     "node_id": iterable[1], "output_name": iterable[2],
                     "written_names": set(target.id for target in target_names),
@@ -3824,6 +3840,15 @@ def import_python_code(source):
                 variables.clear()
                 variables.update(saved_variables)
                 for name in sorted(frame["written_names"] & future_names):
+                    if name in frame.get("nested_written_names", set()):
+                        nested_value = body_variables.get(name, _MISSING)
+                        if nested_value is _MISSING or nested_value == saved_variables.get(name, _MISSING):
+                            raise ValueError(
+                                "A value assigned in a nested loop and read after its enclosing loop "
+                                "requires nested loop-result grouping (line {}): {}".format(
+                                    statement.lineno, name
+                                )
+                            )
                     if name not in body_variables:
                         continue
                     candidate = body_variables[name]

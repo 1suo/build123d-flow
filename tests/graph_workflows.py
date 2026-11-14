@@ -525,6 +525,42 @@ def run_python_import_tests():
         else:
             runtime._CATALOG_CALLABLES[ambiguous_id] = previous_callable
 
+    # Instance-method receivers must remain connected even when a dotted
+    # expression also resolves through the imported API namespace. This is the
+    # upstream ShapeList.group_by regression (both Edge and Vertex collections).
+    grouped_graph = runtime.import_python_code(
+        "from build123d import *\\n"
+        "with BuildPart() as part:\\n"
+        "    Box(10, 10, 10)\\n"
+        "fender_edges = part.part.edges()\\n"
+        "edge_groups = fender_edges.group_by(Axis.Z)\\n"
+        "vertex_groups = part.part.vertices().group_by(Axis.Z)\\n"
+    )
+    group_nodes = [
+        node for node in grouped_graph["nodes"]
+        if node["data"]["definition"]["id"].rsplit(".", 1)[-1] == "group_by"
+    ]
+    if len(group_nodes) != 2:
+        raise AssertionError("Expected both ShapeList.group_by calls in imported graph")
+    for node in group_nodes:
+        receiver = next(
+            (socket for socket in node["data"]["definition"]["inputs"]
+             if socket["name"] in {"self", "cls"}),
+            None,
+        )
+        if receiver is None:
+            raise AssertionError("Imported group_by method has no receiver socket")
+        if not any(
+            edge["target"] == node["id"] and edge["targetHandle"] == receiver["name"]
+            for edge in grouped_graph["edges"]
+        ):
+            raise AssertionError("Imported group_by method lost its receiver edge")
+    grouped_result = json.loads(runtime.evaluate_graph_json(json.dumps(grouped_graph)))
+    if grouped_result["errors"]:
+        raise AssertionError(
+            "Imported ShapeList.group_by workflows failed: " + json.dumps(grouped_result["errors"])
+        )
+
     try:
         runtime.import_python_code("import arbitrary_package\\n")
     except ValueError as exc:

@@ -3404,6 +3404,11 @@ def import_python_code(source):
                         if output.get("type", "Any") != "Any"
                     }
                     property_type = next(iter(candidate_types)) if len(candidate_types) == 1 else "Any"
+                    if property_type == "Any" and node.attr in {
+                        "X", "Y", "Z", "length", "area", "volume",
+                        "radius", "height", "width", "depth",
+                    }:
+                        property_type = "Number"
                     created = add_node(
                         _PYTHON_ATTRIBUTE_ID, {"name": node.attr},
                         [("value", receiver[1], receiver[2])], node.lineno,

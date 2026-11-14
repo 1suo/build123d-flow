@@ -98,6 +98,14 @@ import build123d.exporters
 # operations remain explicitly unsupported in the browser runtime.
 class _BrowserMesher:
     def __init__(self, unit=build123d.Unit.MM):
+        # Graph enum sockets cross the JS/Python boundary as option strings
+        # (for example 'MM'), while build123d.import_stl expects a Unit member.
+        if isinstance(unit, str):
+            unit_name = unit.rsplit('.', 1)[-1]
+            try:
+                unit = build123d.Unit[unit_name]
+            except KeyError:
+                unit = build123d.Unit(unit)
         self.unit = unit
 
     def read(self, file_name):

@@ -109,8 +109,21 @@ class _BrowserMesher:
         self.unit = unit
 
     def read(self, file_name):
+        import os
+
         if str(file_name).lower().endswith(".stl"):
-            return [build123d.import_stl(file_name, self.unit)]
+            # OCP's STL reader resolves paths through the virtual filesystem.
+            # Resolve against Python's current working directory explicitly so
+            # files staged by the browser worker and paths supplied by upstream
+            # examples address the same Emscripten filesystem location.
+            stl_path = os.path.abspath(os.fspath(file_name))
+            if not os.path.isfile(stl_path):
+                raise FileNotFoundError(
+                    "STL file not found in browser filesystem: {} (cwd: {})".format(
+                        stl_path, os.getcwd()
+                    )
+                )
+            return [build123d.import_stl(stl_path, self.unit)]
         raise NotImplementedError("3MF import is not available in build123d-flow")
 
 # API discovery walks canonical module namespaces, not only the package

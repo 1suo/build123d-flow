@@ -193,7 +193,12 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
   await expect(page.locator("#python-source-input")).toBeHidden();
 
   // Python import lazily performs full build123d API discovery. Trigger that
-  // through the real palette UI before timing the importer itself.
+  // through the real palette UI before timing the importer itself. The activity
+  // log is a conditional panel, so mount it before observing discovery events.
+  const log = page.locator(".viewport-log-panel");
+  if (!(await log.isVisible())) {
+    await page.getByRole("button", { name: "Show activity log" }).click();
+  }
   const activityEntries = page.locator(".viewport-log-entry");
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect.poll(async () =>

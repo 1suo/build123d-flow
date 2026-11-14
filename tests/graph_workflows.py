@@ -550,6 +550,8 @@ def run_python_import_tests():
         )
         if receiver is None:
             raise AssertionError("Imported group_by method has no receiver socket")
+        if receiver.get("data_access") != "structure" or receiver.get("data_structure") != "list":
+            raise AssertionError("ShapeList methods must consume the collection as a whole")
         if not any(
             edge["target"] == node["id"] and edge["targetHandle"] == receiver["name"]
             for edge in grouped_graph["edges"]
@@ -560,6 +562,9 @@ def run_python_import_tests():
         raise AssertionError(
             "Imported ShapeList.group_by workflows failed: " + json.dumps(grouped_result["errors"])
         )
+    public_catalog = json.loads(runtime.catalog_json())
+    if any(item["id"] in runtime._INTERNAL_NODE_IDS for item in public_catalog):
+        raise AssertionError("Python graph-lowering operations leaked into the public catalog")
 
     try:
         runtime.import_python_code("import arbitrary_package\\n")

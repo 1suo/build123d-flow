@@ -2036,7 +2036,7 @@ def evaluate_graph_json(payload):
         )
         definition = (
             node_definition
-            if has_loop_inputs or definition_id == "core.python.loop_value"
+            if has_loop_inputs or str(definition_id).startswith("core.python.")
             else _CATALOG.get(definition_id)
         )
         if definition is None:

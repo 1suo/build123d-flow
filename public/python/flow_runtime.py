@@ -2764,12 +2764,54 @@ def import_python_code(source):
         definition_id = "core.python.collect." + hashlib.sha1(
             (structure + ":" + str(len(items))).encode("utf-8")
         ).hexdigest()[:12]
+        item_types = []
+        tuple_item_types = []
+        for kind, value, *extra in items:
+            if kind == "literal":
+                materialized = materialize_literal(value)
+                item_types.append(_type_name(type(materialized)))
+                if isinstance(materialized, (list, tuple)):
+                    tuple_item_types.append([
+                        _type_name(type(item)) for item in materialized
+                    ])
+                else:
+                    tuple_item_types.append(None)
+            else:
+                item_types.append(
+                    extra[1] if len(extra) > 1 and extra[1]
+                    else "Any"
+                )
+                tuple_item_types.append(None)
+        item_type = (
+            item_types[0]
+            if item_types and item_types[0] != "Any"
+            and all(value_type == item_types[0] for value_type in item_types)
+            else "Any"
+        )
+        output_socket = {
+            "name": "result", "type": "Any",
+            "data_structure": output_structure,
+            "item_type": item_type,
+        }
+        if (
+            structure == "list" and tuple_item_types
+            and all(value is not None for value in tuple_item_types)
+            and len({len(value) for value in tuple_item_types}) == 1
+        ):
+            width = len(tuple_item_types[0])
+            output_socket["item_types"] = [
+                types_found[0]
+                if all(row[index] == types_found[0] for row in tuple_item_types)
+                else "Any"
+                for index in range(width)
+                for types_found in [[row[index] for row in tuple_item_types]]
+            ]
         definition = {
             "id": definition_id, "name": "Python " + ("Tuple" if structure == "tuple" else "List"),
             "source": "python", "kind": "operation", "category": "Internal",
             "palette_category": "Internal", "palette_section": "Graph lowering",
             "inputs": input_sockets,
-            "outputs": [{"name": "result", "type": "Any", "data_structure": output_structure}],
+            "outputs": [output_socket],
         }
         definitions[definition_id] = definition
         _INTERNAL_NODE_IDS.add(definition_id)
@@ -2795,6 +2837,72 @@ def import_python_code(source):
             map_over_active_loops=map_over_active_loops,
         )
         return ("ref", node_id, "result")
+
+    def reference_output(value):
+        if not value or value[0] != "ref":
+            return None
+        source_node = next((item for item in graph_nodes if item["id"] == value[1]), None)
+        outputs = source_node.get("data", {}).get("definition", {}).get("outputs", []) if source_node else []
+        return next((item for item in outputs if item.get("name") == value[2]), None)
+
+    def reference_type(value):
+        if value[0] == "literal":
+            return _type_name(type(materialize_literal(value[1])))
+        if len(value) > 3 and value[3] and value[3] != "Any":
+            return value[3]
+        output = reference_output(value)
+        return output.get("type", "Any") if output else "Any"
+
+    def iterable_item_metadata(value):
+        output = reference_output(value)
+        if output is None:
+            return "Any", None
+        return output.get("item_type", "Any"), output.get("item_types")
+
+    def add_python_binary_node(method, left, right, line):
+        operations = {
+            "__add__": operator.add, "__sub__": operator.sub,
+            "__mul__": operator.mul, "__truediv__": operator.truediv,
+            "__floordiv__": operator.floordiv, "__mod__": operator.mod,
+            "__pow__": operator.pow, "__and__": operator.and_,
+            "__or__": operator.or_, "__xor__": operator.xor,
+            "__lshift__": operator.lshift, "__rshift__": operator.rshift,
+        }
+        operation = operations.get(method)
+        if operation is None:
+            raise ValueError("Unsupported Python scalar operator {} at line {}".format(method, line))
+        left_type, right_type = reference_type(left), reference_type(right)
+        result_type = (
+            "String" if method == "__add__" and left_type == right_type == "String"
+            else "Number"
+        )
+        definition_id = "core.python.binary." + method
+        definition = {
+            "id": definition_id, "name": "Python " + method,
+            "source": "python", "kind": "operation", "category": "Internal",
+            "palette_category": "Internal", "palette_section": "Graph lowering",
+            "inputs": [
+                {"name": "left", "type": "Any", "required": True, "data_access": "item"},
+                {"name": "right", "type": "Any", "required": True, "data_access": "item"},
+            ],
+            "outputs": [{"name": "result", "type": result_type}],
+        }
+        definitions[definition_id] = definition
+        _INTERNAL_NODE_IDS.add(definition_id)
+        _CATALOG_CALLABLES[definition_id] = operation
+        _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+            inspect.Parameter("left", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            inspect.Parameter("right", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+        ])
+        _CATALOG_HINT_TARGETS[definition_id] = False
+        params, links = {}, []
+        for name, operand in (("left", left), ("right", right)):
+            if operand[0] == "literal":
+                params[name] = literal_json_value(operand[1])
+            else:
+                links.append((name, operand[1], operand[2]))
+        created = add_node(definition_id, params, links, line)
+        return ("ref", created, "result", result_type)
 
     def resolve_callable(node):
         if isinstance(node, ast.Name):

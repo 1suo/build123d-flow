@@ -501,10 +501,33 @@ async function importPythonSource(source: string, sourceLabel: string) {
     nodes.value = [];
     await nextTick();
     addNodes(importedNodes as Node[]);
-    // Target/source handles only exist after the custom nodes have mounted.
+    // Vue Flow creates custom socket handles after the node component has
+    // rendered. A single Vue tick can precede the final handle registration,
+    // causing addEdges to silently omit later imported connections.
     await nextTick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    updateNodeInternals(importedNodes.map((node: any) => node.id));
+    await nextTick();
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     addEdges(imported.edges as Edge[]);
     await nextTick();
+
+    // Verify the store retained every imported connection. Retry only missing
+    // edges after another handle refresh; never evaluate a partial graph.
+    const retainedEdgeIds = new Set(edges.value.map((edge: any) => edge.id));
+    const missingEdges = (imported.edges as Edge[]).filter((edge: any) => !retainedEdgeIds.has(edge.id));
+    if (missingEdges.length) {
+      updateNodeInternals(importedNodes.map((node: any) => node.id));
+      await nextTick();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      addEdges(missingEdges);
+      await nextTick();
+    }
+    const finalEdgeIds = new Set(edges.value.map((edge: any) => edge.id));
+    const stillMissing = (imported.edges as Edge[]).filter((edge: any) => !finalEdgeIds.has(edge.id));
+    if (stillMissing.length) {
+      throw new Error("Vue Flow did not retain imported connections: " + stillMissing.map((edge: any) => edge.id).join(", "));
+    }
     executionScopes.value = imported.execution_scopes ?? [];
     nextId = importedNodes.length + 1;
     previews.value = {};

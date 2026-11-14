@@ -597,7 +597,7 @@ def run_python_import_tests():
         raise AssertionError("Importer unexpectedly allowed an unrelated third-party import")
 
     try:
-        runtime.import_python_code("from build123d import Box\nfor item in []:\n    Box(1, 1, 1)\n")
+        runtime.import_python_code("from build123d import Box\nwhile False:\n    Box(1, 1, 1)\n")
     except ValueError as exc:
         if "Unsupported statement" not in str(exc):
             raise

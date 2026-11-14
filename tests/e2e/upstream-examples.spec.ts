@@ -124,13 +124,16 @@ async function importExample(page: Page, source: string) {
   if (!(await log.isVisible())) {
     await page.getByRole("button", { name: "Show activity log" }).click();
   }
-  if (!(await page.locator("#python-source-input").isVisible())) {
+  const sourceInput = page.locator("#python-source-input");
+  if (!(await sourceInput.isVisible())) {
     await page.getByRole("button", { name: "Settings" }).click();
   }
+  await expect(sourceInput).toBeVisible({ timeout: 1_000 });
 
   const entries = page.locator(".viewport-log-entry");
   const previousLatest = (await entries.first().textContent()) ?? "";
-  await page.locator("#python-source-input").fill(source);
+  await sourceInput.fill(source);
+  await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
   await page.getByRole("button", { name: "Import pasted code" }).click();
 
   // The activity log is newest-first. Wait for this click's start marker,
@@ -180,9 +183,8 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
     return { filename, source: await response.text() };
   }));
 
-  await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 45_000 });
-  await expect(page.locator(".viewport-status")).toContainText("Ready", { timeout: 1_000 });
+  await expect(page.locator(".viewport-status")).toContainText("Ready", { timeout: 45_000 });
+  await expect(page.locator("#python-source-input")).toBeHidden();
   const upstreamSources = await sourcesPromise;
 
   const failures: string[] = [];

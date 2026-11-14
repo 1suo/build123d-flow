@@ -2781,6 +2781,7 @@ def import_python_code(source):
         return constructor, constructor_type
 
     def expression(node, expected_type=None):
+        nonlocal mapping_matching
         if isinstance(node, ast.Constant):
             return ("literal", node.value)
         if isinstance(node, ast.Set):

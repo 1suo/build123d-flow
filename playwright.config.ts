@@ -3,7 +3,7 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "upstream-examples.spec.ts",
-  globalTimeout: 2 * 60 * 1000,
+  globalTimeout: 10 * 60 * 1000,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,

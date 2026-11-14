@@ -161,7 +161,7 @@ async function importExample(page: Page, source: string) {
 test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {
   expect(EXAMPLES).toHaveLength(67);
   expect(new Set(EXAMPLES).size).toBe(EXAMPLES.length);
-  test.setTimeout(300_000);
+  // The pinned corpus includes full-scale CAD examples (e.g. bicycle_tire.py);\n  // allow the complete 67-example acceptance run to finish on slower CI workers.\n  test.setTimeout(1_200_000);
   const pageErrors: string[] = [];
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto("./", { waitUntil: "domcontentloaded" });

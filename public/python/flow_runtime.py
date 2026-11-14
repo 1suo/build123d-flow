@@ -1798,6 +1798,11 @@ def _graph_plan(nodes, edges):
         for node_id, node in nodes.items()
         if node.get("data", {}).get("scope_binding")
     }
+    scope_results = {
+        node.get("data", {}).get("scope_result"): node_id
+        for node_id, node in nodes.items()
+        if node.get("data", {}).get("scope_result")
+    }
     for node_id, node in nodes.items():
         data = node.get("data", {})
         if data.get("scope_binding"):
@@ -1807,6 +1812,13 @@ def _graph_plan(nodes, edges):
             binding_node = scope_bindings.get(scope_id)
             if binding_node:
                 add_ordering_dependency(binding_node, node_id)
+            # A context manager's result is only available after every node in
+            # its body (including nested scope results) has executed. Without
+            # this edge, stable topological order can close the builder before
+            # its final operations run, silently losing pending geometry.
+            result_node = scope_results.get(scope_id)
+            if result_node:
+                add_ordering_dependency(node_id, result_node)
 
     # Stable topological ordering preserves source order while respecting both
     # explicit data edges and the implicit dependencies of Python execution scopes.

@@ -1,6 +1,7 @@
 """Introspection and graph execution inside the browser's Pyodide runtime."""
 from __future__ import annotations
 
+import copy
 import enum
 import importlib
 import inspect

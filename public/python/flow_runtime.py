@@ -3323,11 +3323,15 @@ def import_python_code(source):
                     receiver_definition_id = (
                         receiver_node.get("data", {}).get("definition", {}).get("id")
                     )
-                    # Resolve the constructor from its canonical API id.
-                    # The callable registry may contain a wrapper for a discovered
-                    # factory; the canonical module path preserves the native class.
+                    # Resolve the native constructor class directly. The general
+                    # callable resolver prefers catalog wrappers, which can hide
+                    # the Python class needed for native operator MRO dispatch.
                     try:
-                        receiver_callable = _resolve_callable(receiver_definition_id)
+                        if not isinstance(receiver_definition_id, str) or "." not in receiver_definition_id:
+                            raise ValueError("Invalid receiver definition id")
+                        module_name, attr_name = receiver_definition_id.rsplit(".", 1)
+                        receiver_module = importlib.import_module(module_name)
+                        receiver_callable = getattr(receiver_module, attr_name)
                     except (ImportError, AttributeError, ValueError):
                         receiver_callable = None
                     if inspect.isclass(receiver_callable):

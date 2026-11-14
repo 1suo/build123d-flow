@@ -53,6 +53,12 @@ async function stagePyPIWheels(baseUrl, FS) {
   const response = await fetch(manifestUrl, { cache: "no-store" });
   if (!response.ok) throw new Error("Could not load staged Python wheel manifest (" + response.status + ")");
   const manifest = await response.json();
+  const packageManifestUrl = new URL("python/wheels/pyodide-packages.json", new URL(baseUrl, self.location.href));
+  const packageResponse = await fetch(packageManifestUrl, { cache: "no-store" });
+  if (!packageResponse.ok) throw new Error("Could not load Pyodide package manifest (" + packageResponse.status + ")");
+  const packageNames = await packageResponse.json();
+  status("Loading " + packageNames.length + " Pyodide-native dependencies…");
+  await pyodide.loadPackage(packageNames);
   FS.mkdirTree("/python/wheels");
   for (const item of manifest) {
     const url = new URL("python/wheels/" + encodeURIComponent(item.filename), new URL(baseUrl, self.location.href));

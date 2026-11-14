@@ -48,6 +48,22 @@ async function fetchText(url, label) {
   return response.text();
 }
 
+async function stagePyPIWheels(baseUrl, FS) {
+  const manifestUrl = new URL("python/wheels/manifest.json", new URL(baseUrl, self.location.href));
+  const response = await fetch(manifestUrl, { cache: "no-store" });
+  if (!response.ok) throw new Error("Could not load staged Python wheel manifest (" + response.status + ")");
+  const manifest = await response.json();
+  FS.mkdirTree("/python/wheels");
+  for (const item of manifest) {
+    const url = new URL("python/wheels/" + encodeURIComponent(item.filename), new URL(baseUrl, self.location.href));
+    const wheel = await fetch(url);
+    if (!wheel.ok) throw new Error("Could not load staged wheel " + item.filename + " (" + wheel.status + ")");
+    FS.writeFile("/python/wheels/" + item.filename, new Uint8Array(await wheel.arrayBuffer()));
+  }
+  FS.writeFile("/python/wheels/manifest.json", new TextEncoder().encode(JSON.stringify(manifest)));
+  status("Staged " + manifest.length + " local Python wheels");
+}
+
 async function fingerprint(value) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -127,11 +143,12 @@ async function initializePython(baseUrl) {
 
   status("Loading micropip…");
   await pyodide.loadPackage(["micropip"]);
+  if (!restored) await stagePyPIWheels(baseUrl, pyodide.FS);
   pyodide.runPython(
     "import os; os.environ['BUILD123D_FLOW_ENV_RESTORED'] = '" + (restored ? "1" : "0") + "'"
   );
 
-  status(restored ? "Restoring Python dependencies…" : "Installing Python dependencies…");
+  status(restored ? "Restoring Python dependencies…" : "Installing local Python dependencies…");
   await pyodide.runPythonAsync(setup);
 
   status("Importing graph runtime…");

@@ -479,12 +479,52 @@ def run_python_loop_lowering_tests():
     if repeated_value.get("length") != 4:
         raise AssertionError("A body independent of loop variables must still execute for all four pairs: " + repr(repeated_value))
 
+    numeric_loop = runtime.import_python_code(
+        "from build123d import Box\n"
+        "for width in [3, 4]:\n"
+        "    box = Box(width + 1, 2, 3)\n"
+    )
+    numeric_boxes = [
+        node for node in numeric_loop["nodes"]
+        if node["data"]["definition"]["id"].endswith(".Box")
+    ]
+    numeric_result = json.loads(runtime.evaluate_graph_json(json.dumps(numeric_loop)))
+    if numeric_result["errors"]:
+        raise AssertionError("Numeric operations on typed loop items failed: " + json.dumps(numeric_result["errors"]))
+    numeric_value = numeric_result["socket_values"][numeric_boxes[0]["id"]]["result"]
+    if numeric_value.get("length") != 2:
+        raise AssertionError("Scalar loop arithmetic must map over each item: " + repr(numeric_value))
+
+    dependent_loops = runtime.import_python_code(
+        "from build123d import Box\n"
+        "shape = Box(2, 2, 2)\n"
+        "for face in shape.faces():\n"
+        "    for edge in face.edges():\n"
+        "        box = Box(1, 1, 1)\n"
+    )
+    dependent_boxes = [
+        node for node in dependent_loops["nodes"]
+        if node["data"]["definition"]["id"].endswith(".Box")
+    ]
+    if len(dependent_boxes) != 1 or len(dependent_boxes[0]["data"].get("python_loop_sources", [])) != 2:
+        raise AssertionError("Dependent nested loops must retain both scopes on one body node")
+    dependent_result = json.loads(runtime.evaluate_graph_json(json.dumps(dependent_loops)))
+    if dependent_result["errors"]:
+        raise AssertionError("Dependent nested loops failed: " + json.dumps(dependent_result["errors"]))
+    dependent_value = dependent_result["socket_values"][dependent_boxes[0]["id"]]["result"]
+    if dependent_value.get("length") != 6 or any(
+        item.get("type") != "list" or item.get("length") != 4
+        for item in dependent_value.get("items", [])
+    ):
+        raise AssertionError("Dependent nested loops must preserve the face/edge tree: " + repr(dependent_value))
+
     mixed_loops = (
         "from build123d import Box\n"
-        "for length in [1, 2]:\n"
+        "shape = Box(2, 2, 2)\n"
+        "for face in shape.faces():\n"
         "    for width in [3, 4]:\n"
-        "        for depth in [width, width + 1]:\n"
-        "            box = Box(length, width, depth)\n"
+        "        for edge in face.edges():\n"
+        "            box = Box(1, 1, 1)\n"
     )
     try:
         runtime.import_python_code(mixed_loops)

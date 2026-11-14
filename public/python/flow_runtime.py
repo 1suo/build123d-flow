@@ -2663,8 +2663,21 @@ def import_python_code(source):
         "outputs": [{"name": "result", "type": "Any"}],
     }
     _CATALOG_CALLABLES[_PYTHON_SUBSCRIPT_ID] = _python_getitem
+    _CATALOG_SIGNATURES[_PYTHON_SUBSCRIPT_ID] = inspect.Signature([
+        inspect.Parameter("value", inspect.Parameter.POSITIONAL_ONLY),
+        inspect.Parameter("index", inspect.Parameter.POSITIONAL_ONLY),
+    ])
+    _CATALOG_HINT_TARGETS[_PYTHON_SUBSCRIPT_ID] = False
     _CATALOG_CALLABLES[_PYTHON_SLICE_ID] = slice
+    _CATALOG_SIGNATURES[_PYTHON_SLICE_ID] = inspect.Signature([
+        inspect.Parameter("start", inspect.Parameter.POSITIONAL_ONLY, default=None),
+        inspect.Parameter("stop", inspect.Parameter.POSITIONAL_ONLY, default=None),
+        inspect.Parameter("step", inspect.Parameter.POSITIONAL_ONLY, default=None),
+    ])
+    _CATALOG_HINT_TARGETS[_PYTHON_SLICE_ID] = False
     _CATALOG_CALLABLES[_PYTHON_ATTRIBUTE_ID] = _python_getattr
+    _CATALOG_SIGNATURES[_PYTHON_ATTRIBUTE_ID] = inspect.signature(_python_getattr)
+    _CATALOG_HINT_TARGETS[_PYTHON_ATTRIBUTE_ID] = False
     by_name = {}
     for definition_id, definition in definitions.items():
         by_name.setdefault(definition.get("name"), definition_id)

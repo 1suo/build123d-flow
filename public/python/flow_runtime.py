@@ -2142,7 +2142,9 @@ def evaluate_graph_json(payload):
                     stream_shapes[input_name] = "list" if source_shape == "tuple" else source_shape
             result = _map_item_inputs(
                 params, stream_shapes, invoke,
-                matching=definition.get("data_matching", "longest"),
+                matching=node.get("data", {}).get(
+                    "data_matching", definition.get("data_matching", "longest")
+                ),
                 _validate=lambda: _validate_stream_items(definition, params, stream_shapes),
             )
             values[node_id] = {"result": result}

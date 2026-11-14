@@ -1759,7 +1759,7 @@ def _validate_stream_items(definition, params, stream_shapes):
             )
 
 
-def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(), depth=0, _validate=None):
+def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(), depth=0, _validate=None, stream_groups=None):
     """Map only inputs explicitly identified as graph streams.
 
     Python lists and tuples are ordinary values unless graph metadata says that
@@ -1794,6 +1794,63 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
     names = list(sequences)
     if _validate is not None and not path:
         _validate()
+    # Independent nested Python loops are separate mapping axes. A flat
+    # Cartesian product loses the loop-result tree and makes post-loop
+    # bindings observe a scalar instead of the inner sequence. Group inputs
+    # by the iterable that supplies each loop variable, then map each axis
+    # recursively so the result has the same nesting as the source loops.
+    grouped_names = {}
+    grouped_matching = {}
+    if stream_groups:
+        for name in names:
+            group = stream_groups.get(name)
+            if group is None:
+                grouped_names = {}
+                break
+            group_index, group_matching = group
+            grouped_names.setdefault(group_index, []).append(name)
+            grouped_matching[group_index] = group_matching
+    if matching == "cross" and len(grouped_names) > 1:
+        groups = [
+            (grouped_names[index], grouped_matching[index])
+            for index in sorted(grouped_names)
+        ]
+
+        def map_group(group_index, current):
+            if group_index >= len(groups):
+                try:
+                    return invoke(current)
+                except Exception as exc:
+                    import traceback
+                    location = "".join("[{}]".format(index) for index in path)
+                    raise RuntimeError(
+                        "Data mapping at {}: {}\\n{}".format(
+                            location or "<root>", exc, traceback.format_exc()
+                        )
+                    ) from exc
+            group_inputs, group_mode = groups[group_index]
+            group_sequences = [current[name] for name in group_inputs]
+            if any(not sequence for sequence in group_sequences):
+                return []
+            if group_mode == "cross":
+                group_rows = list(__import__("itertools").product(*group_sequences))
+            else:
+                lengths = [len(sequence) for sequence in group_sequences]
+                count = min(lengths) if group_mode == "shortest" else max(lengths)
+                group_rows = [
+                    tuple(sequence[index if index < len(sequence) else len(sequence) - 1]
+                          for sequence in group_sequences)
+                    for index in range(count)
+                ]
+            mapped = []
+            for row in group_rows:
+                child = dict(current)
+                for name, value in zip(group_inputs, row):
+                    child[name] = value
+                mapped.append(map_group(group_index + 1, child))
+            return mapped
+
+        return map_group(0, params)
     if matching == "cross":
         rows = list(__import__("itertools").product(*(sequences[name] for name in names)))
     else:
@@ -1813,7 +1870,8 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
             if stream_shapes[name] == "list" or not isinstance(value, (list, tuple)):
                 child_shapes.pop(name, None)
         results.append(_map_item_inputs(
-            child, child_shapes, invoke, matching, path + (index,), depth + 1
+            child, child_shapes, invoke, matching, path + (index,), depth + 1,
+            stream_groups=stream_groups,
         ))
     return results
 
@@ -2146,6 +2204,25 @@ def evaluate_graph_json(payload):
                         signature=bound_signature,
                         hint_target=hint_target,
                     )
+            elif definition.get("name") == "Mixin1D @":
+                def invoke(mapped):
+                    receiver_value = mapped.get("self")
+                    position = mapped.get("position")
+                    # Mixin1D's normalized endpoint operator is exactly
+                    # equivalent to start_point/end_point, but OCCT's
+                    # arc-length inversion can fail at Bezier endpoints.
+                    if callable(getattr(receiver_value, "start_point", None)):
+                        if position == 0:
+                            return receiver_value.start_point()
+                        if position == 1:
+                            return receiver_value.end_point()
+                    return _call_with_coercion(
+                        callable_obj,
+                        {name: value for name, value in mapped.items()
+                         if not name.startswith("__flow_iteration_")},
+                        signature=signature,
+                        hint_target=hint_target,
+                    )
             else:
                 invoke = lambda mapped: _call_with_coercion(
                     callable_obj,
@@ -2162,10 +2239,13 @@ def evaluate_graph_json(payload):
             # metadata alone cannot identify it as a stream. Preserve the
             # source identity from the importer and map item-access inputs
             # over that sequence exactly once.
-            loop_sources = {
-                (str(source.get("node_id")), str(source.get("output_name", "result")))
-                for source in data.get("python_loop_sources", [])
+            loop_source_groups = {
+                (str(source.get("node_id")), str(source.get("output_name", "result"))):
+                    (index, source.get("matching", "longest"))
+                for index, source in enumerate(data.get("python_loop_sources", []))
             }
+            loop_sources = set(loop_source_groups)
+            stream_groups = {}
             for input_name, (source_id, source_output) in incoming.get(node_id, {}).items():
                 input_socket = next((item for item in definition.get("inputs", [])
                                      if item.get("name") == input_name), None)
@@ -2187,12 +2267,16 @@ def evaluate_graph_json(payload):
                     # an item stream rather than passing its whole collection
                     # into operations such as v.X or tuple(v).
                     stream_shapes[input_name] = "list"
+                loop_group = loop_source_groups.get((str(source_id), str(source_output)))
+                if loop_group is not None:
+                    stream_groups[input_name] = loop_group
             result = _map_item_inputs(
                 params, stream_shapes, invoke,
                 matching=node.get("data", {}).get(
                     "data_matching", definition.get("data_matching", "longest")
                 ),
                 _validate=lambda: _validate_stream_items(definition, params, stream_shapes),
+                stream_groups=stream_groups,
             )
             values[node_id] = {"result": result}
             if key:
@@ -2427,8 +2511,17 @@ def _python_getitem(value, index):
     return operator.getitem(value, index)
 
 
-def _python_loop_last(sequence, fallback=None, has_fallback=False):
+def _python_loop_last(sequence, fallback=None, has_fallback=False, preserve_depth=0):
     """Return a loop variable's final value, preserving a prior binding on zero iterations."""
+    if preserve_depth:
+        if not sequence:
+            if has_fallback:
+                return fallback
+            raise UnboundLocalError("local variable referenced before assignment: loop target")
+        return [
+            _python_loop_last(item, fallback, has_fallback, preserve_depth - 1)
+            for item in sequence
+        ]
     if sequence:
         return sequence[-1]
     if has_fallback:
@@ -4354,6 +4447,7 @@ def import_python_code(source):
                 {"name": "sequence", "type": "Any", "required": True, "data_access": "structure"},
                 {"name": "fallback", "type": "Any", "required": False, "default": None, "data_access": "structure"},
                 {"name": "has_fallback", "type": "Boolean", "required": True},
+                {"name": "preserve_depth", "type": "Number", "required": True},
             ],
             "outputs": [{"name": "result", "type": output_type}],
         }
@@ -4364,9 +4458,13 @@ def import_python_code(source):
             inspect.Parameter("sequence", inspect.Parameter.POSITIONAL_OR_KEYWORD),
             inspect.Parameter("fallback", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
             inspect.Parameter("has_fallback", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=False),
+            inspect.Parameter("preserve_depth", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=0),
         ])
         _CATALOG_HINT_TARGETS[definition_id] = False
-        params = {"has_fallback": fallback is not _MISSING}
+        params = {
+            "has_fallback": fallback is not _MISSING,
+            "preserve_depth": len(active_loop_frames),
+        }
         links = [("sequence", value[1], value[2])]
         if fallback is not _MISSING:
             if fallback[0] == "literal":

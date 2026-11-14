@@ -103,27 +103,43 @@ test("browser imports and evaluates build123d Python", async ({ page }) => {
   await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 5 * 60 * 1000 });
   await expect(page.locator(".viewport-status")).toContainText("Ready");
 
+  const log = page.locator(".viewport-log-panel");
+  const toggleLog = async () => {
+    if (!(await log.isVisible())) {
+      await page.getByRole("button", { name: "Show activity log" }).click();
+    }
+  };
+
   for (const [index, scenario] of cases.entries()) {
     await test.step(scenario.name, async () => {
       if (index > 0) await page.getByRole("button", { name: "Settings" }).click();
       await page.locator("#python-source-input").fill(scenario.source);
       await page.getByRole("button", { name: "Import pasted code" }).click();
+      await toggleLog();
 
-      await expect(page.locator(".viewport-status")).toContainText("Python imported", {
-        timeout: 120_000
-      });
-      await expect(page.locator(".viewport-status-count")).not.toHaveText("0 visible", {
-        timeout: 120_000
-      });
-      await expect(page.locator(".viewport-status-dot")).not.toHaveClass(/is-error/);
+      const entries = page.locator(".viewport-log-entry");
+      // Activity log entries are durable; the status headline is transient and
+      // can be replaced by evaluation state before an assertion observes it.
+      // Associate the result with this import, not an earlier scenario.
+      await expect.poll(async () => {
+        const messages = await entries.allTextContents();
+        const start = messages.findIndex(message => message.includes("Importing Python source"));
+        const result = messages.findIndex(message => /Python imported|Python import failed/.test(message));
+        return start >= 0 && result >= 0 && result < start;
+      }, { timeout: 120_000 }).toBeTruthy();
 
-      const log = page.locator(".viewport-log-panel");
-      if (!(await log.isVisible())) {
-        await page.getByRole("button", { name: "Show activity log" }).click();
-      }
-      await expect(log).toContainText("Python imported", { timeout: 30_000 });
+      const messages = await entries.allTextContents();
+      const start = messages.findIndex(message => message.includes("Importing Python source"));
+      const result = messages.slice(0, start).find(message =>
+        /Python imported|Python import failed/.test(message)
+      ) ?? "No import result recorded";
+      await test.info().attach(`import-log-${index + 1}.txt`, {
+        body: messages.join("\n")
+      });
+      expect(result, `Importer rejected scenario: ${scenario.name}`).toContain("Python imported");
+
       await expect(log).toContainText("Evaluation complete", { timeout: 120_000 });
-      await expect(log).not.toContainText("Python import failed");
+      await expect(page.locator(".viewport-status-dot")).not.toHaveClass(/is-error/);
     });
   }
 

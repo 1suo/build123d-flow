@@ -1642,6 +1642,10 @@ def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None
         return "item"
 
     declared = _socket_data_structure(output)
+    loop_sources = {
+        (str(source.get("node_id")), str(source.get("output_name", "result")))
+        for source in node.get("data", {}).get("python_loop_sources", [])
+    }
     visiting.add(key)
     inferred = "item"
     for input_name, (source_id, source_output) in incoming.get(node_id, {}).items():
@@ -1661,6 +1665,11 @@ def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None
             inferred = "tree"
             break
         if upstream in ("list", "tuple"):
+            inferred = "list"
+        elif (source_id, source_output) in loop_sources:
+            # Loop metadata is also required for output-shape propagation:
+            # Any-typed iterables (such as ShapeList returned by GroupBy[-1])
+            # do not advertise a static collection shape on their socket.
             inferred = "list"
 
     visiting.remove(key)

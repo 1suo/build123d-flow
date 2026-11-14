@@ -221,6 +221,20 @@ def _annotation_metadata(annotation):
     if origin is None and annotation in collection_origins:
         origin = annotation
         args = args or (typing.Any,)
+    # Concrete collection classes (notably build123d.ShapeList) are often
+    # annotated without a generic parameter. Preserve their collection
+    # semantics so imported Python loops map over their elements rather than
+    # passing the whole collection to each downstream operation.
+    if origin is None and inspect.isclass(annotation):
+        try:
+            if issubclass(annotation, (list, set, frozenset,
+                                       collections.abc.Sequence,
+                                       collections.abc.Set)):
+                origin = set if issubclass(annotation, (set, frozenset,
+                                                          collections.abc.Set)) else list
+                args = args or (typing.Any,)
+        except TypeError:
+            pass
     if origin in collection_origins:
         item_annotation = args[0] if args else typing.Any
         item_metadata = _annotation_metadata(item_annotation) if item_annotation is not typing.Any else {}

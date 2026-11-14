@@ -2905,11 +2905,14 @@ def import_python_code(source):
             saved_stream_variables = set(stream_variables)
             saved_matching = mapping_matching
             generator_streams = []
+            saved_loop_depth = len(active_loop_frames)
             def graph_depends_on(node_id, ancestors):
                 pending = [node_id]
                 visited = set()
                 while pending:
                     current_id = pending.pop()
+                    if current_id in ancestors:
+                        return True
                     if current_id in visited:
                         continue
                     visited.add(current_id)
@@ -2933,12 +2936,18 @@ def import_python_code(source):
                     )
                 if iterable[0] != "ref":
                     raise ValueError("A comprehension iterable must be a sequence or graph output (line {})".format(generator.iter.lineno))
-                if generator_streams:
-                    outer_ids = {stream[1] for stream in generator_streams}
+                outer_ids = {stream[1] for stream in generator_streams}
+                outer_ids.update(frame["node_id"] for frame in active_loop_frames)
+                if outer_ids:
                     mapping_matching = "longest" if graph_depends_on(iterable[1], outer_ids) else "cross"
                 variables[generator.target.id] = iterable
                 stream_variables.add(generator.target.id)
                 generator_streams.append(iterable)
+                active_loop_frames.append({
+                    "node_id": iterable[1], "output_name": iterable[2],
+                    "written_names": {generator.target.id},
+                    "matching": mapping_matching,
+                })
                 for condition in generator.ifs:
                     resolved = expression(condition)
                     if resolved[0] != "literal" or not isinstance(resolved[1], bool):
@@ -2951,9 +2960,34 @@ def import_python_code(source):
             try:
                 result = compile_generator(0)
                 if result[0] == "literal":
-                    raise ValueError("A comprehension must produce a graph-backed operation (line {})".format(node.lineno))
+                    # A literal element still repeats once per generator item.
+                    # The iteration sockets injected by add_node turn this into
+                    # a mapped constant without expanding the comprehension.
+                    loop_value_id = "core.python.loop_value"
+                    value_type = _type_name(type(materialize_literal(result[1])))
+                    loop_value_definition = {
+                        "id": loop_value_id, "name": "Python Loop Value",
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Internal", "palette_section": "Graph lowering",
+                        "inputs": [{"name": "value", "type": value_type,
+                                    "required": True, "data_access": "structure"}],
+                        "outputs": [{"name": "result", "type": value_type}],
+                    }
+                    definitions[loop_value_id] = loop_value_definition
+                    _INTERNAL_NODE_IDS.add(loop_value_id)
+                    _CATALOG_CALLABLES[loop_value_id] = lambda value: value
+                    _CATALOG_SIGNATURES[loop_value_id] = inspect.Signature([
+                        inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    ])
+                    _CATALOG_HINT_TARGETS[loop_value_id] = False
+                    created = add_node(
+                        loop_value_id, {"value": literal_json_value(result[1])},
+                        [], node.lineno,
+                    )
+                    result = ("ref", created, "result")
                 return result
             finally:
+                del active_loop_frames[saved_loop_depth:]
                 variables.clear()
                 variables.update(saved_variables)
                 stream_variables.clear()
@@ -3694,6 +3728,7 @@ def import_python_code(source):
                 frame = {
                     "node_id": iterable[1], "output_name": iterable[2],
                     "written_names": set(target.id for target in target_names),
+                    "matching": mapping_matching,
                 }
                 active_loop_frames.append(frame)
                 stream_variables.update(target.id for target in target_names)
@@ -3743,6 +3778,8 @@ def import_python_code(source):
                             loop_value_id, {"value": literal_json_value(candidate[1])},
                             [("iteration", iterable[1], iterable[2])], statement.lineno,
                         )
+                        if frame["matching"] != "longest":
+                            next(item for item in graph_nodes if item["id"] == carried_id)["data"]["data_matching"] = frame["matching"]
                         candidate = ("ref", carried_id, "result")
                     elif not graph_depends_on(candidate[1], {iterable[1]}):
                         source_node = next((item for item in graph_nodes if item["id"] == candidate[1]), None)
@@ -3772,6 +3809,8 @@ def import_python_code(source):
                             [("value", candidate[1], candidate[2]),
                              ("iteration", iterable[1], iterable[2])], statement.lineno,
                         )
+                        if frame["matching"] != "longest":
+                            next(item for item in graph_nodes if item["id"] == carried_id)["data"]["data_matching"] = frame["matching"]
                         candidate = ("ref", carried_id, "result")
                     variables[name] = last_sequence_item(candidate, statement.lineno)
 
@@ -3846,6 +3885,15 @@ def export_python_code(payload):
     edges = graph.get("edges", [])
     if not nodes:
         raise ValueError("The canvas is empty")
+    if any(
+        any(str(socket.get("name", "")).startswith("__flow_iteration_")
+            for socket in node.get("data", {}).get("definition", {}).get("inputs", []))
+        for node in nodes.values()
+    ):
+        raise ValueError(
+            "Python export cannot yet reconstruct imported mapped loop scopes. "
+            "The graph remains executable; refusing to emit code with different loop semantics."
+        )
 
     # _graph_plan raises ValueError for duplicate inputs and cycles.
     incoming, outgoing, order = _graph_plan(nodes, edges)

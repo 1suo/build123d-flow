@@ -11,7 +11,7 @@ from pathlib import Path
 restored_environment = os.environ.get('BUILD123D_FLOW_ENV_RESTORED') == '1'
 
 micropip.set_index_urls([])
-OCP_VERSION = "8.0.1.0.post202609202030"
+OCP_VERSION = "8.0.1.1.post202609241841"
 
 print("Preparing browser-compatible dependencies…")
 

@@ -132,7 +132,7 @@ async function importExample(page: Page, source: string) {
   await expect(sourceInput).toHaveValue("");
 
   const entries = page.locator(".viewport-log-entry");
-  const previousLatest = (await entries.first().textContent()) ?? "";
+  const previousImportStarts = (await entries.allTextContents()).filter(message => message.includes("Importing Python source")).length;
   await sourceInput.fill(source);
   await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
   await page.getByRole("button", { name: "Import pasted code" }).click();
@@ -141,8 +141,8 @@ async function importExample(page: Page, source: string) {
   // then accept only import/evaluation events newer than that marker. This
   // prevents a late result from the previous example satisfying this one.
   await expect.poll(async () => {
-    const latest = (await entries.first().textContent()) ?? "";
-    return latest !== previousLatest && latest.includes("Importing Python source");
+    const messages = await entries.allTextContents();
+    return messages.filter(message => message.includes("Importing Python source")).length > previousImportStarts;
   }, { timeout: 2_000, intervals: [25, 50, 100] }).toBe(true);
 
   await expect.poll(async () => {

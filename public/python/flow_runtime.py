@@ -3296,17 +3296,60 @@ def import_python_code(source):
                     if keyword.arg is None:
                         raise ValueError("Expanded constructor arguments are unsupported at line {}".format(node.lineno))
                     kwargs[keyword.arg] = expression(keyword.value)
-                if any(item[0] != "literal" for item in values) or any(item[0] != "literal" for item in kwargs.values()):
-                    raise ValueError("{} requires literal constructor arguments (line {})".format(
-                        constructor_type, node.lineno))
                 if node.args and node.keywords and constructor_type in {"Plane", "Location"}:
                     raise ValueError("{} cannot mix positional and keyword arguments at line {}".format(
                         constructor_type, node.lineno))
-                return ("literal", {
-                    "__flow_object__": constructor.__name__,
-                    "args": [item[1] for item in values],
-                    "kwargs": {name: item[1] for name, item in kwargs.items()},
-                })
+                if all(item[0] == "literal" for item in values) and all(
+                    item[0] == "literal" for item in kwargs.values()
+                ):
+                    return ("literal", {
+                        "__flow_object__": constructor.__name__,
+                        "args": [item[1] for item in values],
+                        "kwargs": {name: item[1] for name, item in kwargs.items()},
+                    })
+
+                # Value constructors such as Plane(face) and Location(vertex)
+                # are real graph operations when their inputs depend on geometry.
+                # Keep one constructor node and let the normal item-mapping runtime
+                # apply it to each item in the incoming stream.
+                positional_names = ["arg_{}".format(index) for index in range(len(values))]
+                supplied_names = positional_names + list(kwargs)
+                if len(set(supplied_names)) != len(supplied_names):
+                    raise ValueError("Duplicate constructor argument at line {}".format(node.lineno))
+                definition_id = "core.python.construct." + constructor.__name__ + "." + hashlib.sha1(
+                    ",".join(supplied_names).encode("utf-8")
+                ).hexdigest()[:10]
+                input_sockets = [
+                    {"name": name, "type": "Any", "required": True}
+                    for name in supplied_names
+                ]
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "Python " + constructor.__name__,
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Internal", "palette_section": "Graph lowering",
+                    "inputs": input_sockets,
+                    "outputs": [{"name": "result", "type": constructor_type}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+
+                def construct_value(**supplied_values):
+                    positional = [supplied_values.pop(name) for name in positional_names]
+                    return constructor(*positional, **supplied_values)
+
+                _CATALOG_CALLABLES[definition_id] = construct_value
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY)
+                    for name in supplied_names
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {}, []
+                for name, item in zip(supplied_names, values + list(kwargs.values())):
+                    if item[0] == "literal":
+                        params[name] = literal_json_value(item[1])
+                    else:
+                        links.append((name, item[1], item[2]))
+                created = add_node(definition_id, params, links, node.lineno)
+                return ("ref", created, "result")
 
             definition_id = resolve_callable(node.func)
             receiver = None

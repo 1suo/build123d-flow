@@ -15,20 +15,24 @@ import operator
 
 import build123d as b3d
 
-# OCCT's arc-length solver can raise Standard_ConstructionError when asked
-# for the exact end of a Bezier edge (for example, edge @ 1). The endpoint
-# is already available directly from the curve adaptor, so bypass the solver
-# only for exact normalized endpoints and preserve normal behavior elsewhere.
-_original_edge_position_at = b3d.Edge.position_at
-def _stable_edge_position_at(self, position, position_mode=b3d.PositionMode.PARAMETER):
-    if position_mode == b3d.PositionMode.PARAMETER:
-        if position == 0:
-            return self.start_point()
-        if position == 1:
-            return self.end_point()
-    return _original_edge_position_at(self, position, position_mode)
+from build123d.topology.one_d import Mixin1D
 
-b3d.Edge.position_at = _stable_edge_position_at
+# PositionMode.PARAMETER is a normalized curve parameter, not an arc-length
+# distance. build123d currently routes it through OCCT's arc-length solver,
+# which can raise Standard_ConstructionError even at ordinary positions on
+# Bezier edges. Interpolate the adaptor's native parameter directly instead.
+_original_mixin1d_position_at = Mixin1D.position_at
+def _stable_mixin1d_position_at(self, position, position_mode=b3d.PositionMode.PARAMETER):
+    if position_mode == b3d.PositionMode.PARAMETER:
+        curve = self.geom_adaptor()
+        value = position if self.is_forward else 1 - position
+        parameter = curve.FirstParameter() + value * (
+            curve.LastParameter() - curve.FirstParameter()
+        )
+        return b3d.Vector(curve.Value(parameter))
+    return _original_mixin1d_position_at(self, position, position_mode)
+
+Mixin1D.position_at = _stable_mixin1d_position_at
 
 _CATALOG = {}
 _CATALOG_CALLABLES = {}

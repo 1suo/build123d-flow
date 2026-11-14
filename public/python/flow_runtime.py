@@ -3401,6 +3401,7 @@ def import_python_code(source):
                         output.get("type", "Any")
                         for candidate_id in candidates
                         for output in definitions.get(candidate_id, {}).get("outputs", [])
+                        if output.get("type", "Any") != "Any"
                     }
                     property_type = next(iter(candidate_types)) if len(candidate_types) == 1 else "Any"
                     created = add_node(

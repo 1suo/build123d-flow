@@ -1803,6 +1803,7 @@ def _graph_plan(nodes, edges):
         for node_id, node in nodes.items()
         if node.get("data", {}).get("scope_result")
     }
+    insertion_order = {node_id: index for index, node_id in enumerate(nodes)}
     for node_id, node in nodes.items():
         data = node.get("data", {})
         if data.get("scope_binding"):
@@ -1813,12 +1814,24 @@ def _graph_plan(nodes, edges):
             if binding_node:
                 add_ordering_dependency(binding_node, node_id)
             # A context manager's result is only available after every node in
-            # its body (including nested scope results) has executed. Without
-            # this edge, stable topological order can close the builder before
-            # its final operations run, silently losing pending geometry.
+            # its body (including nested scope results) has executed.
             result_node = scope_results.get(scope_id)
             if result_node:
                 add_ordering_dependency(node_id, result_node)
+
+    # Closing a nested scope is itself a statement in its parent scope. It must
+    # complete before later statements in that parent (or its descendants),
+    # even when those later nodes have fewer data dependencies and become
+    # ready earlier in the topological sort.
+    for scope_id, result_node in scope_results.items():
+        parent_path = nodes[result_node].get("data", {}).get("execution_scope_path", [])
+        result_index = insertion_order[result_node]
+        for node_id, node in nodes.items():
+            if insertion_order[node_id] <= result_index:
+                continue
+            candidate_path = node.get("data", {}).get("execution_scope_path", [])
+            if candidate_path[:len(parent_path)] == parent_path:
+                add_ordering_dependency(result_node, node_id)
 
     # Stable topological ordering preserves source order while respecting both
     # explicit data edges and the implicit dependencies of Python execution scopes.

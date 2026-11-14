@@ -105,5 +105,12 @@ class _BrowserMesher:
             return [build123d.import_stl(file_name, self.unit)]
         raise NotImplementedError("3MF import is not available in build123d-flow")
 
+# API discovery walks canonical module namespaces, not only the package
+# re-exports. Replace the class in both locations so discovered Mesher nodes
+# invoke the browser implementation instead of the Lib3MF-backed native class.
+import build123d.mesher as build123d_mesher
+_BrowserMesher.__module__ = build123d_mesher.__name__
+_BrowserMesher.__name__ = "Mesher"
+build123d_mesher.Mesher = _BrowserMesher
 build123d.Mesher = _BrowserMesher
 print("Imported build123d and exporters")

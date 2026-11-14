@@ -420,8 +420,8 @@ def run_python_value_constructor_tests():
         runtime._CATALOG[definition_id] = definition
         try:
             source = (
-                "from build123d import " + class_name + " as ValueCtor\\n"
-                + "ValueSink" + str(index) + "(value=" + constructor + ")\\n"
+                "from build123d import " + class_name + " as ValueCtor\n"
+                + "ValueSink" + str(index) + "(value=" + constructor + ")\n"
             )
             graph = runtime.import_python_code(source)
             params = graph["nodes"][0]["data"]["params"]
@@ -443,9 +443,9 @@ def run_python_value_constructor_tests():
 def run_python_import_tests():
     """Exercise source parsing, graph construction, and actual graph execution."""
     viewer_examples = [
-        "from build123d import Box\\nfrom ocp_vscode import show\\nbox = Box(10, 10, 10)\\nshow(box)\\n",
-        "import build123d as b3d\\nimport ocp_vscode as viewer\\nbox = b3d.Box(10, 10, 10)\\nviewer.show(box)\\n",
-        "from build123d import Box\\nfrom ocp_vscode import *\\nbox = Box(10, 10, 10)\\nshow(box)\\n",
+        "from build123d import Box\nfrom ocp_vscode import show\nbox = Box(10, 10, 10)\nshow(box)\n",
+        "import build123d as b3d\nimport ocp_vscode as viewer\nbox = b3d.Box(10, 10, 10)\nviewer.show(box)\n",
+        "from build123d import Box\nfrom ocp_vscode import *\nbox = Box(10, 10, 10)\nshow(box)\n",
     ]
     for source in viewer_examples:
         graph = runtime.import_python_code(source)
@@ -454,10 +454,10 @@ def run_python_import_tests():
 
     # This is the important round-trip boundary: source -> native graph -> evaluator.
     source = (
-        "from build123d import Box, Cylinder\\n"
-        "box = Box(10, 10, 10)\\n"
-        "cylinder = Cylinder(3, 12)\\n"
-        "result = box + cylinder\\n"
+        "from build123d import Box, Cylinder\n"
+        "box = Box(10, 10, 10)\n"
+        "cylinder = Cylinder(3, 12)\n"
+        "result = box + cylinder\n"
     )
     graph = runtime.import_python_code(source)
     definitions = [node["data"]["definition"]["id"] for node in graph["nodes"]]
@@ -474,10 +474,10 @@ def run_python_import_tests():
 
     # Inherited Shape members must resolve for concrete Solid outputs.
     member_graph = runtime.import_python_code(
-        "from build123d import Box\\n"
-        "box = Box(10, 10, 10)\\n"
-        "faces = box.faces()\\n"
-        "volume = box.volume\\n"
+        "from build123d import Box\n"
+        "box = Box(10, 10, 10)\n"
+        "faces = box.faces()\n"
+        "volume = box.volume\n"
     )
     member_ids = [node["data"]["definition"]["id"] for node in member_graph["nodes"]]
     if len(member_ids) != 3 or not any(".faces" in item for item in member_ids) or not any(".volume" in item for item in member_ids):
@@ -502,7 +502,7 @@ def run_python_import_tests():
     runtime._CATALOG_CALLABLES[ambiguous_id] = lambda: types.SimpleNamespace(Y=42)
     try:
         ambiguous_graph = runtime.import_python_code(
-            "value = AmbiguousPropertyReceiver().Y\\n"
+            "value = AmbiguousPropertyReceiver().Y\n"
         )
         attribute_nodes = [
             node for node in ambiguous_graph["nodes"]
@@ -534,12 +534,12 @@ def run_python_import_tests():
     # expression also resolves through the imported API namespace. This is the
     # upstream ShapeList.group_by regression (both Edge and Vertex collections).
     grouped_graph = runtime.import_python_code(
-        "from build123d import *\\n"
-        "with BuildPart() as part:\\n"
-        "    Box(10, 10, 10)\\n"
-        "fender_edges = part.part.edges()\\n"
-        "edge_groups = fender_edges.group_by(Axis.Z)\\n"
-        "vertex_groups = part.part.vertices().group_by(Axis.Z)\\n"
+        "from build123d import *\n"
+        "with BuildPart() as part:\n"
+        "    Box(10, 10, 10)\n"
+        "fender_edges = part.part.edges()\n"
+        "edge_groups = fender_edges.group_by(Axis.Z)\n"
+        "vertex_groups = part.part.vertices().group_by(Axis.Z)\n"
     )
     group_nodes = [
         node for node in grouped_graph["nodes"]
@@ -572,7 +572,7 @@ def run_python_import_tests():
         raise AssertionError("Python graph-lowering operations leaked into the public catalog")
 
     try:
-        runtime.import_python_code("import arbitrary_package\\n")
+        runtime.import_python_code("import arbitrary_package\n")
     except ValueError as exc:
         if "arbitrary_package" not in str(exc):
             raise
@@ -580,7 +580,7 @@ def run_python_import_tests():
         raise AssertionError("Importer unexpectedly allowed an unrelated third-party import")
 
     try:
-        runtime.import_python_code("from build123d import Box\\nfor item in []:\\n    Box(1, 1, 1)\\n")
+        runtime.import_python_code("from build123d import Box\nfor item in []:\n    Box(1, 1, 1)\n")
     except ValueError as exc:
         if "Unsupported statement" not in str(exc):
             raise
@@ -601,12 +601,12 @@ def run_python_import_tests():
 def run_python_scope_tests():
     """BuildPart and nested Locations retain real context-manager lifecycles."""
     source = (
-        "from build123d import BuildPart, Locations, Box, Cylinder, Mode\\n"
-        "with BuildPart(mode=Mode.ADD) as part:\\n"
-        "    with Locations((0, 0, 0), (12, 0, 0)):\\n"
-        "        Box(4, 4, 4)\\n"
-        "        Cylinder(2, 6)\\n"
-        "result = part.part\\n"
+        "from build123d import BuildPart, Locations, Box, Cylinder, Mode\n"
+        "with BuildPart(mode=Mode.ADD) as part:\n"
+        "    with Locations((0, 0, 0), (12, 0, 0)):\n"
+        "        Box(4, 4, 4)\n"
+        "        Cylinder(2, 6)\n"
+        "result = part.part\n"
     )
     graph = runtime.import_python_code(source)
     scopes = graph.get("execution_scopes", [])
@@ -638,9 +638,9 @@ def run_python_scope_tests():
         raise AssertionError("Python export did not preserve builder result/configuration")
 
     sketch_source = (
-        "from build123d import BuildSketch, Plane, Rectangle\\n"
-        "with BuildSketch(Plane.XY):\\n"
-        "    Rectangle(6, 8)\\n"
+        "from build123d import BuildSketch, Plane, Rectangle\n"
+        "with BuildSketch(Plane.XY):\n"
+        "    Rectangle(6, 8)\n"
     )
     sketch_graph = runtime.import_python_code(sketch_source)
     encoded_plane = sketch_graph["execution_scopes"][0]["args"][0]
@@ -655,9 +655,9 @@ def run_python_scope_tests():
         raise AssertionError("BuildSketch plane constant was not restored by export")
 
     constructed_plane = runtime.import_python_code(
-        "from build123d import BuildSketch, Plane, Rectangle\\n"
-        "with BuildSketch(Plane(origin=(0, 0, 0), x_dir=(1, 0, 0), z_dir=(0, 0, 1))):\\n"
-        "    Rectangle(3, 5)\\n"
+        "from build123d import BuildSketch, Plane, Rectangle\n"
+        "with BuildSketch(Plane(origin=(0, 0, 0), x_dir=(1, 0, 0), z_dir=(0, 0, 1))):\n"
+        "    Rectangle(3, 5)\n"
     )
     plane_argument = constructed_plane["execution_scopes"][0]["args"][0]
     if plane_argument.get("__flow_object__") != "Plane" or "kwargs" not in plane_argument:
@@ -666,9 +666,9 @@ def run_python_scope_tests():
         raise AssertionError("BuildSketch(Plane(...)) failed")
 
     multi = runtime.import_python_code(
-        "from build123d import BuildPart, Locations, Box\\n"
-        "with BuildPart() as part, Locations((0, 0, 0), (8, 0, 0)):\\n"
-        "    Box(2, 2, 2)\\n"
+        "from build123d import BuildPart, Locations, Box\n"
+        "with BuildPart() as part, Locations((0, 0, 0), (8, 0, 0)):\n"
+        "    Box(2, 2, 2)\n"
     )
     if [item["name"] for item in multi["execution_scopes"]] != ["BuildPart", "Locations"]:
         raise AssertionError("Multiple managers in one with-statement were not nested")

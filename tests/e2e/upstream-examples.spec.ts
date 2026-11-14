@@ -191,6 +191,16 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
 
   await expect(page.locator(".viewport-status")).toContainText("build123d ready", { timeout: 45_000 });
   await expect(page.locator("#python-source-input")).toBeHidden();
+
+  // Python import lazily performs full build123d API discovery. Trigger that
+  // through the real palette UI before timing the importer itself.
+  const activityEntries = page.locator(".viewport-log-entry");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect.poll(async () =>
+    (await activityEntries.allTextContents()).some(message => message.includes("API discovery complete")),
+  { timeout: 15_000, intervals: [100, 200, 500] }).toBe(true);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+
   const upstreamSources = await sourcesPromise;
 
   const failures: string[] = [];

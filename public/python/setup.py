@@ -92,4 +92,18 @@ print("Importing build123d…")
 # Fail during environment setup, not later when the graph runtime imports build123d.
 import build123d
 import build123d.exporters
+
+# Lib3MF is a native dependency that is not available in Pyodide. Preserve the
+# useful STL-reading subset of Mesher through OCP's native STL reader; 3MF
+# operations remain explicitly unsupported in the browser runtime.
+class _BrowserMesher:
+    def __init__(self, unit=build123d.Unit.MM):
+        self.unit = unit
+
+    def read(self, file_name):
+        if str(file_name).lower().endswith(".stl"):
+            return [build123d.import_stl(file_name, self.unit)]
+        raise NotImplementedError("3MF import is not available in build123d-flow")
+
+build123d.Mesher = _BrowserMesher
 print("Imported build123d and exporters")

@@ -3566,8 +3566,13 @@ def import_python_code(source):
                     _INTERNAL_NODE_IDS.add(definition_id)
                     _CATALOG_CALLABLES[definition_id] = callable_obj
                     _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
-                        inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                                          default=0 if builtin_name == "sum" and name == "start" else inspect.Parameter.empty)
+                        inspect.Parameter(
+                            name,
+                            inspect.Parameter.POSITIONAL_ONLY
+                            if name in {"iterable", "obj"}
+                            else inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                            default=0 if builtin_name == "sum" and name == "start" else inspect.Parameter.empty,
+                        )
                         for name in names
                     ])
                     _CATALOG_HINT_TARGETS[definition_id] = False

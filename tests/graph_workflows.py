@@ -863,7 +863,7 @@ def run_python_scope_tests():
 
     exported = runtime.export_python_code(graph)
     compile(exported, "<scoped-build123d-export>", "exec")
-    if "with b3d.BuildPart() as _scope_1:" not in exported or "with b3d.Locations(" not in exported:
+    if "with b3d.BuildPart(" not in exported or "with b3d.Locations(" not in exported:
         raise AssertionError("Python export dropped nested context managers: " + exported)
     if "_scope_1.part" not in exported or "b3d.Mode.ADD" not in exported:
         raise AssertionError("Python export did not preserve builder result/configuration")

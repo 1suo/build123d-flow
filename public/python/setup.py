@@ -109,22 +109,73 @@ class _BrowserMesher:
         self.unit = unit
 
     def read(self, file_name):
+        import math
         import os
+        from OCP.BRepBuilderAPI import (
+            BRepBuilderAPI_MakeFace,
+            BRepBuilderAPI_MakePolygon,
+            BRepBuilderAPI_MakeSolid,
+            BRepBuilderAPI_Sewing,
+        )
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+        from OCP.RWStl import RWStl
+        from OCP.TopAbs import TopAbs_ShapeEnum
+        from OCP.TopExp import TopExp_Explorer
+        from OCP.TopoDS import TopoDS, TopoDS_Compound
+        from build123d.topology.shape_core import downcast
+        from build123d.topology.three_d import Solid
+        from build123d.topology.two_d import Shell
 
-        if str(file_name).lower().endswith(".stl"):
-            # OCP's STL reader resolves paths through the virtual filesystem.
-            # Resolve against Python's current working directory explicitly so
-            # files staged by the browser worker and paths supplied by upstream
-            # examples address the same Emscripten filesystem location.
-            stl_path = os.path.abspath(os.fspath(file_name))
-            if not os.path.isfile(stl_path):
-                raise FileNotFoundError(
-                    "STL file not found in browser filesystem: {} (cwd: {})".format(
-                        stl_path, os.getcwd()
-                    )
+        if not str(file_name).lower().endswith(".stl"):
+            raise NotImplementedError("3MF import is not available in build123d-flow")
+        stl_path = os.path.abspath(os.fspath(file_name))
+        if not os.path.isfile(stl_path):
+            raise FileNotFoundError(
+                "STL file not found in browser filesystem: {} (cwd: {})".format(
+                    stl_path, os.getcwd()
                 )
-            return [build123d.import_stl(stl_path, self.unit)]
-        raise NotImplementedError("3MF import is not available in build123d-flow")
+            )
+
+        # Match build123d.Mesher.read: return one editable Shape per mesh.
+        # import_stl() only creates a triangulated reference Face, which has no
+        # topological vertices/edges and cannot support the example's editing ops.
+        triangulation = RWStl.ReadFile_s(stl_path)
+        points = [triangulation.Node(i) for i in range(1, triangulation.NbNodes() + 1)]
+        sewing = BRepBuilderAPI_Sewing()
+        for index in range(1, triangulation.NbTriangles() + 1):
+            triangle = triangulation.Triangle(index)
+            vertices = [points[triangle.Value(i) - 1] for i in (1, 2, 3)]
+            polygon = BRepBuilderAPI_MakePolygon(
+                vertices[0], vertices[1], vertices[2], Close=True
+            )
+            face = BRepBuilderAPI_MakeFace(polygon.Wire()).Face()
+            properties = GProp_GProps()
+            BRepGProp.SurfaceProperties_s(face, properties)
+            if properties.Mass() != 0:
+                sewing.Add(face)
+        sewing.Perform()
+        sewed = downcast(sewing.SewedShape())
+        if isinstance(sewed, TopoDS_Compound):
+            shells = []
+            explorer = TopExp_Explorer(sewed, TopAbs_ShapeEnum.TopAbs_SHELL)
+            while explorer.More():
+                shells.append(Shell(TopoDS.Shell(explorer.Current())))
+                explorer.Next()
+        else:
+            shells = [Shell(sewed)]
+        if not shells:
+            raise ValueError("STL file contains no usable triangular faces: {}".format(stl_path))
+        outer_shell = max(shells, key=lambda shell: math.prod(shell.bounding_box().size))
+        inner_shells = [shell for shell in shells if shell is not outer_shell]
+        if not outer_shell.is_manifold:
+            shape = outer_shell
+        else:
+            solid_builder = BRepBuilderAPI_MakeSolid(outer_shell.wrapped)
+            for inner_shell in inner_shells:
+                solid_builder.Add(inner_shell.wrapped)
+            shape = Solid(solid_builder.Solid())
+        return [shape]
 
 # API discovery walks canonical module namespaces, not only the package
 # re-exports. Replace the class in both locations so discovered Mesher nodes

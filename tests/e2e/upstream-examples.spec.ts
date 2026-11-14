@@ -189,7 +189,7 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
     return { filename, source: await response.text() };
   }));
 
-  await expect(page.locator(".viewport-status")).toContainText("Ready", { timeout: 45_000 });
+  await expect(page.locator(".viewport-status")).toContainText("build123d ready", { timeout: 45_000 });
   await expect(page.locator("#python-source-input")).toBeHidden();
   const upstreamSources = await sourcesPromise;
 

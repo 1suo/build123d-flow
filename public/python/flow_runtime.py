@@ -3314,7 +3314,23 @@ def import_python_code(source):
                     receiver_type = _type_name(type(materialize_literal(left[1])))
                 except Exception:
                     receiver_type = None
-            receiver_class = getattr(b3d, receiver_type, None) if receiver_type else None
+            receiver_class = None
+            if left[0] == "ref":
+                receiver_node = next(
+                    (item for item in graph_nodes if item["id"] == left[1]), None
+                )
+                if receiver_node:
+                    receiver_definition_id = (
+                        receiver_node.get("data", {}).get("definition", {}).get("id")
+                    )
+                    receiver_callable = _CATALOG_CALLABLES.get(receiver_definition_id)
+                    # Constructors retain their concrete Python class even when
+                    # the catalog output socket intentionally exposes a base type
+                    # such as Compound. Use that class for native operator dispatch.
+                    if inspect.isclass(receiver_callable):
+                        receiver_class = receiver_callable
+            if receiver_class is None and receiver_type:
+                receiver_class = getattr(b3d, receiver_type, None)
             definition_id = None
             if inspect.isclass(receiver_class):
                 for owner in receiver_class.__mro__:

@@ -74,6 +74,51 @@ const EXAMPLES = [
   "vase_algebra.py"
 ];
 
+
+const SMOKE_CASES = [
+  `from build123d import *
+
+with BuildPart() as part:
+    Box(10, 10, 10)
+
+fender_edges = part.part.edges()
+edge_groups = fender_edges.group_by(Axis.Z)
+vertex_groups = part.part.vertices().group_by(Axis.Z)
+`,
+  `from build123d import *
+
+offset = Vector(10, 0, 0)
+with Locations(offset.normalized()):
+    Box(2, 2, 2)
+`,
+  `from build123d import *
+
+with BuildPart():
+    with BuildSketch(Plane.XY):
+        Circle(5)
+    extrude(amount=10)
+`,
+  `from build123d import *
+
+box = Box(10, 10, 10)
+for face in box.faces():
+    face.area
+`,
+  `from build123d import *
+
+box = Box(10, 10, 10)
+for face in box.faces():
+    for edge in face.edges():
+        edge.length
+`,
+  `from build123d import *
+
+offset = Vector(10, 20, 30)
+with Locations((0, -offset.Y, 0)):
+    Box(2, 2, 2)
+`
+];
+
 async function importExample(page: Page, source: string) {
   if (!(await page.locator("#python-source-input").isVisible())) {
     await page.getByRole("button", { name: "Settings" }).click();
@@ -89,60 +134,54 @@ async function importExample(page: Page, source: string) {
   }
   const entries = page.locator(".viewport-log-entry");
 
-  // The status headline is deliberately transient (5s), so polling it can
-  // miss a valid import result and burn the full 120s timeout. The activity
-  // log is the durable result channel and keeps the exact importer exception.
-  const isNewImportResult = (messages: string[]) => {
-    const importStart = messages.findIndex(message => message.includes("Importing Python source"));
-    const importResult = messages.findIndex(message => /Python imported|Python import failed/.test(message));
-    return importStart >= 0 && importResult >= 0 && importResult < importStart;
-  };
-  await expect.poll(async () => isNewImportResult(await entries.allTextContents()), {
-    timeout: 180_000
-  }).toBeTruthy();
-
-  const messages = await entries.allTextContents();
-  const importStart = messages.findIndex(message => message.includes("Importing Python source"));
-  const importResult = messages.slice(0, importStart).find(message => /Python imported|Python import failed/.test(message)) ?? "";
-  if (importResult.includes("Python import failed")) {
-    throw new Error(importResult);
-  }
-  expect(importResult).toContain("Python imported");
-
-  // "Python imported" can be immediately followed by "Evaluating graph".
-  // Search the bounded log for the import result, then wait for the evaluation
-  // to settle via its newest durable log entry or the viewport error state.
+  // Import and evaluation share one short deadline. A broken example must
+  // fail quickly instead of consuming minutes in independent polling loops.
   await expect.poll(async () => {
-    const latest = (await entries.first().textContent()) ?? "";
+    const messages = await entries.allTextContents();
+    const importStart = messages.findIndex(message => message.includes("Importing Python source"));
+    const importResult = messages.slice(0, importStart).find(message =>
+      /Python imported|Python import failed/.test(message)
+    ) ?? "";
+    if (importResult.includes("Python import failed")) return "import-failed";
+    if (!importResult.includes("Python imported")) return "pending";
+    const latest = messages[0] ?? "";
     const state = await page.locator(".viewport-status-dot").getAttribute("class") ?? "";
-    return latest.includes("Evaluation complete") || /is-error/.test(state);
-  }, { timeout: 180_000 }).toBeTruthy();
-  await expect(page.locator(".viewport-status-dot")).not.toHaveClass(/is-error/);
-  await expect(entries.first()).toContainText("Evaluation complete");
-  await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9][0-9]* visible/);
-  await expect(page.locator(".geometry-viewport canvas")).toBeVisible();
+    if (/is-error/.test(state)) return "evaluation-failed";
+    if (latest.includes("Evaluation complete")) return "passed";
+    return "pending";
+  }, { timeout: 1_000, intervals: [100, 200, 300] }).toBe("passed");
+
+  await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9][0-9]* visible/, { timeout: 500 });
+  await expect(page.locator(".geometry-viewport canvas")).toBeVisible({ timeout: 500 });
 }
 
 test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {
   expect(EXAMPLES).toHaveLength(67);
   expect(new Set(EXAMPLES).size).toBe(EXAMPLES.length);
-  test.setTimeout(45 * 60 * 1000);
+  test.setTimeout(110_000);
   const pageErrors: string[] = [];
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto("./", { waitUntil: "domcontentloaded" });
+  const sourcesPromise = Promise.all(EXAMPLES.map(async filename => {
+    const url = `https://raw.githubusercontent.com/gumyr/build123d/${UPSTREAM_COMMIT}/examples/${filename}`;
+    const response = await request.get(url, { timeout: 10_000 });
+    expect(response.ok(), `upstream fixture fetch failed: ${url}`).toBeTruthy();
+    return { filename, source: await response.text() };
+  }));
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 5 * 60 * 1000 });
-  await expect(page.locator(".viewport-status")).toContainText("Ready");
+  await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 20_000 });
+  await expect(page.locator(".viewport-status")).toContainText("Ready", { timeout: 1_000 });
+  const upstreamSources = await sourcesPromise;
 
   const failures: string[] = [];
   const results: string[] = [];
-  for (const filename of EXAMPLES) {
+  const allSources = [
+    ...SMOKE_CASES.map((source, index) => ({ filename: `smoke-${index + 1}.py`, source })),
+    ...upstreamSources
+  ];
+  for (const { filename, source } of allSources) {
     await test.step(filename, async () => {
-      const url = `https://raw.githubusercontent.com/gumyr/build123d/${UPSTREAM_COMMIT}/examples/${filename}`;
-      const response = await request.get(url);
-      expect(response.ok(), `upstream fixture fetch failed: ${url}`).toBeTruthy();
-      const source = await response.text();
       try {
         await importExample(page, source);
         results.push(filename + ": passed");

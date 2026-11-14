@@ -2373,6 +2373,15 @@ def _python_getattr(value, name):
     return getattr(value, name)
 
 
+def _python_loop_last(sequence, fallback=None, has_fallback=False):
+    """Return a loop variable's final value, preserving a prior binding on zero iterations."""
+    if sequence:
+        return sequence[-1]
+    if has_fallback:
+        return fallback
+    raise UnboundLocalError("local variable referenced before assignment: loop target")
+
+
 def _resolve_callable(path):
     if path in _CATALOG_CALLABLES:
         return _CATALOG_CALLABLES[path]
@@ -3587,29 +3596,52 @@ def import_python_code(source):
                     pending.append(edge.get("source"))
         return False
 
-    def last_sequence_item(value, line):
-        """Lower Python's post-loop target value to the final mapped item."""
+    def last_sequence_item(value, line, fallback=_MISSING):
+        """Lower Python's post-loop binding, including zero-iteration fallback."""
         if value[0] == "literal":
             sequence = materialize_literal(value[1])
             if not isinstance(sequence, (list, tuple)):
                 raise ValueError("Loop iterable is not a sequence at line {}".format(line))
-            if not sequence:
-                raise ValueError("Loop target is unbound because the iterable is empty (line {})".format(line))
-            return ("literal", sequence[-1])
-        node_id = add_node(
-            _PYTHON_SUBSCRIPT_ID, {"index": -1},
-            [("value", value[1], value[2])], line,
-        )
-        node = next(item for item in graph_nodes if item["id"] == node_id)
+            if sequence:
+                return ("literal", sequence[-1])
+            if fallback is not _MISSING:
+                return fallback
+            raise ValueError("Loop target is unbound because the iterable is empty (line {})".format(line))
         source_node = next((item for item in graph_nodes if item["id"] == value[1]), None)
         source_outputs = source_node.get("data", {}).get("definition", {}).get("outputs", []) if source_node else []
         source_output = next((item for item in source_outputs if item.get("name") == value[2]), None)
         output_type = source_output.get("type", "Any") if source_output else "Any"
-        node["data"]["definition"]["outputs"][0]["type"] = output_type
+        definition_id = "core.python.loop_last"
+        definition = {
+            "id": definition_id, "name": "Python Loop Last",
+            "source": "python", "kind": "operation", "category": "Internal",
+            "palette_category": "Internal", "palette_section": "Graph lowering",
+            "inputs": [
+                {"name": "sequence", "type": "Any", "required": True, "data_access": "structure"},
+                {"name": "fallback", "type": "Any", "required": False, "default": None, "data_access": "structure"},
+                {"name": "has_fallback", "type": "Boolean", "required": True},
+            ],
+            "outputs": [{"name": "result", "type": output_type}],
+        }
+        definitions[definition_id] = definition
+        _INTERNAL_NODE_IDS.add(definition_id)
+        _CATALOG_CALLABLES[definition_id] = _python_loop_last
+        _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+            inspect.Parameter("sequence", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            inspect.Parameter("fallback", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
+            inspect.Parameter("has_fallback", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=False),
+        ])
+        _CATALOG_HINT_TARGETS[definition_id] = False
+        params = {"has_fallback": fallback is not _MISSING}
+        links = [("sequence", value[1], value[2])]
+        if fallback is not _MISSING:
+            if fallback[0] == "literal":
+                params["fallback"] = literal_json_value(fallback[1])
+            else:
+                links.append(("fallback", fallback[1], fallback[2]))
+        node_id = add_node(definition_id, params, links, line)
+        node = next(item for item in graph_nodes if item["id"] == node_id)
         node["data"]["visible"] = output_type in {"Shape", "Solid", "Compound", "Part", "Sketch"}
-        for socket in node["data"]["definition"]["inputs"]:
-            if socket.get("name") == "value":
-                socket["data_access"] = "structure"
         return ("ref", node_id, "result")
 
     def process_statements(statements):
@@ -3843,7 +3875,9 @@ def import_python_code(source):
                         if frame["matching"] != "longest":
                             next(item for item in graph_nodes if item["id"] == carried_id)["data"]["data_matching"] = frame["matching"]
                         candidate = ("ref", carried_id, "result")
-                    variables[name] = last_sequence_item(candidate, statement.lineno)
+                    variables[name] = last_sequence_item(
+                        candidate, statement.lineno, saved_variables.get(name, _MISSING)
+                    )
 
                 if statement.orelse:
                     # With break rejected below, a for-else suite always runs.

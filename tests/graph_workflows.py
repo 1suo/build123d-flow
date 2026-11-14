@@ -457,8 +457,15 @@ def run_python_loop_lowering_tests():
     if nested_result["errors"]:
         raise AssertionError("Independent nested loop mapping failed: " + json.dumps(nested_result["errors"]))
     nested_boxes_value = nested_result["socket_values"][nested_boxes[0]["id"]]["result"]
-    if nested_boxes_value.get("length") != 4:
-        raise AssertionError("Independent nested loops must map to the four Cartesian pairs: " + repr(nested_boxes_value))
+    nested_rows = nested_boxes_value.get("items", [])
+    if (
+        nested_boxes_value.get("length") != 2
+        or any(row.get("type") != "list" or row.get("length") != 2 for row in nested_rows)
+    ):
+        raise AssertionError(
+            "Independent nested loops must preserve a 2-by-2 Cartesian result tree: "
+            + repr(nested_boxes_value)
+        )
 
     repeated = runtime.import_python_code(
         "from build123d import Box\n"
@@ -476,8 +483,15 @@ def run_python_loop_lowering_tests():
     if repeated_result["errors"]:
         raise AssertionError("Synthetic loop dependencies failed: " + json.dumps(repeated_result["errors"]))
     repeated_value = repeated_result["socket_values"][repeated_boxes[0]["id"]]["result"]
-    if repeated_value.get("length") != 4:
-        raise AssertionError("A body independent of loop variables must still execute for all four pairs: " + repr(repeated_value))
+    repeated_rows = repeated_value.get("items", [])
+    if (
+        repeated_value.get("length") != 2
+        or any(row.get("type") != "list" or row.get("length") != 2 for row in repeated_rows)
+    ):
+        raise AssertionError(
+            "A body independent of loop variables must retain the 2-by-2 nested result tree: "
+            + repr(repeated_value)
+        )
 
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"
@@ -561,6 +575,9 @@ def run_python_loop_lowering_tests():
     nested_post_result = json.loads(runtime.evaluate_graph_json(json.dumps(nested_post_graph)))
     if nested_post_result["errors"]:
         raise AssertionError("Nested post-loop grouping failed: " + json.dumps(nested_post_result["errors"]))
+    inner_group = nested_post_result["socket_values"][nested_post_last[0]["id"]]["result"]
+    if inner_group.get("type") != "list" or inner_group.get("length") != 2:
+        raise AssertionError("The inner loop's last binding must retain one result per outer iteration: " + repr(inner_group))
     final_nested_box = nested_post_result["socket_values"][nested_post_last[-1]["id"]]["result"]
     if final_nested_box.get("type") not in {"Box", "Solid", "Compound"}:
         raise AssertionError("The outer loop must retain the last inner-loop result: " + repr(final_nested_box))

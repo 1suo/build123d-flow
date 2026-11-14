@@ -514,6 +514,7 @@ def _add_node(found, callables, node_id, name, category, function, inputs, outpu
         "palette_category": palette_category,
         "palette_section": palette_section,
         "description": description,
+        "execution": {"purity": "pure", "cacheable": True},
         "inputs": [
             {
                 "name": key, "type": "Any" if socket_type in {"List", "Tuple", "Set", "Dict"} else socket_type, "annotation": socket_type,
@@ -687,6 +688,7 @@ def _register_flow_nodes(found, callables):
             "id": node_id, "source": "flow", "kind": "value", "name": name, "category": "Values",
             "palette_category": "Data", "palette_section": "Literal values",
             "description": "Literal " + socket_type.lower() + " value",
+            "execution": {"purity": "pure", "cacheable": True},
             "inputs": [{"name": "value", "type": socket_type, "annotation": socket_type,
                         "required": False, "default": default}],
             "outputs": [{"name": "result", "type": socket_type, "annotation": socket_type}],
@@ -1222,6 +1224,10 @@ def discover(include_full=True):
                     "palette_category": palette_category,
                     "palette_section": palette_section,
                     "description": doc.split("\n")[0][:180],
+                    "execution": {
+                        "purity": "pure" if node_kind in {"geometry", "value", "enum"} else "unknown",
+                        "cacheable": node_kind in {"geometry", "value", "enum"},
+                    },
                     "inputs": inputs,
                     "outputs": [{
                         "name": "result", "type": output_type, "annotation": "",
@@ -1422,6 +1428,7 @@ def discover(include_full=True):
     _register_python_nodes(found, callables)
     for definition in found.values():
         definition.setdefault("data_matching", "longest")
+        definition.setdefault("execution", {"purity": "unknown", "cacheable": False})
 
     # Keep curated presentation/eligibility policy separate from introspection.
     for node_id, override in _NODE_METADATA_OVERRIDES.items():
@@ -1789,14 +1796,9 @@ def _cache_key(definition_id, params, upstream_keys):
 
 
 def _cacheable(definition):
-    node_id = definition.get("id", "")
-    name = definition.get("name", "")
-    category = definition.get("category", "")
-    if node_id.startswith("core.python.") or category.endswith((" Methods", " Properties")):
-        return False
-    if name in {"BuildPart", "BuildSketch", "BuildLine", "Build123d", "BuildSheet"}:
-        return False
-    return True
+    """Cache only operations whose provider explicitly declares pure semantics."""
+    execution = definition.get("execution", {})
+    return execution.get("purity") == "pure" and execution.get("cacheable") is True
 
 
 def _trim_cache(cache):

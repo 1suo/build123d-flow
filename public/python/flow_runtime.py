@@ -3323,10 +3323,13 @@ def import_python_code(source):
                     receiver_definition_id = (
                         receiver_node.get("data", {}).get("definition", {}).get("id")
                     )
-                    receiver_callable = _CATALOG_CALLABLES.get(receiver_definition_id)
-                    # Constructors retain their concrete Python class even when
-                    # the catalog output socket intentionally exposes a base type
-                    # such as Compound. Use that class for native operator dispatch.
+                    # Resolve the constructor from its canonical API id.
+                    # The callable registry may contain a wrapper for a discovered
+                    # factory; the canonical module path preserves the native class.
+                    try:
+                        receiver_callable = _resolve_callable(receiver_definition_id)
+                    except (ImportError, AttributeError, ValueError):
+                        receiver_callable = None
                     if inspect.isclass(receiver_callable):
                         receiver_class = receiver_callable
             if receiver_class is None and receiver_type:

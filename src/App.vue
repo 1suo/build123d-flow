@@ -430,6 +430,9 @@ async function evaluate() {
     previews.value = {};
     socketValues.value = {};
     errors.value = validation;
+    // This revision supersedes any in-flight evaluation. Do not leave the
+    // viewport spinner stuck when the graph is rejected before runtime work.
+    running.value = false;
     return;
   }
   running.value = true;

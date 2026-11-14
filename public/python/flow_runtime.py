@@ -2375,6 +2375,11 @@ def _python_getattr(value, name):
     return getattr(value, name)
 
 
+def _python_getitem(value, index):
+    """Apply Python's subscription protocol through keyword-callable parameters."""
+    return operator.getitem(value, index)
+
+
 def _python_loop_last(sequence, fallback=None, has_fallback=False):
     """Return a loop variable's final value, preserving a prior binding on zero iterations."""
     if sequence:
@@ -2657,7 +2662,7 @@ def import_python_code(source):
         ],
         "outputs": [{"name": "result", "type": "Any"}],
     }
-    _CATALOG_CALLABLES[_PYTHON_SUBSCRIPT_ID] = operator.getitem
+    _CATALOG_CALLABLES[_PYTHON_SUBSCRIPT_ID] = _python_getitem
     _CATALOG_CALLABLES[_PYTHON_SLICE_ID] = slice
     _CATALOG_CALLABLES[_PYTHON_ATTRIBUTE_ID] = _python_getattr
     by_name = {}

@@ -155,40 +155,23 @@ async function importExample(page: Page, source: string) {
 
   await expect.poll(async () => {
     const messages = await entries.allTextContents();
-    const importStart = messages.findIndex(message => message.includes("Importing Python source"));
+    // The DOM is chronological; CSS column-reverse only changes visual order.
+    // Use the newest import marker and inspect the DOM entries after it.
+    const importStart = messages.findLastIndex(message => message.includes("Importing Python source"));
     if (importStart < 0) return "pending";
-    const current = messages.slice(0, importStart);
+    const current = messages.slice(importStart + 1);
     if (current.some(message => message.includes("Python import failed"))) return "import-failed";
     if (current.some(message => message.includes("Python imported"))) return "imported";
     return "pending";
   }, { timeout: 5_000, intervals: [50, 100, 150] }).toBe("imported");
 
-  if (source.includes("Mesher()")) {
-    const summary = await page.evaluate(() => {
-      const graph = (window as any).__build123dFlowTest.getCurrentGraph();
-      const nodes = graph.nodes ?? [];
-      const edges = graph.edges ?? [];
-      return nodes.map((node: any) => ({
-        id: node.id,
-        name: node.data?.definition?.name,
-        params: node.data?.params,
-        python_loop_sources: node.data?.python_loop_sources,
-        inputs: edges.filter((edge: any) => edge.target === node.id).map((edge: any) => ({
-          input: edge.targetHandle, source: edge.source, output: edge.sourceHandle,
-        })),
-      }));
-    });
-    console.log("BENCHY_GRAPH_DIAGNOSTIC " + JSON.stringify(summary));
-    await test.info().attach("benchy-imported-graph.json", {
-      body: JSON.stringify(summary, null, 2), contentType: "application/json"
-    });
-  }
-
   await expect.poll(async () => {
     const messages = await entries.allTextContents();
-    const importStart = messages.findIndex(message => message.includes("Importing Python source"));
+    // The DOM is chronological; CSS column-reverse only changes visual order.
+    // Use the newest import marker and inspect the DOM entries after it.
+    const importStart = messages.findLastIndex(message => message.includes("Importing Python source"));
     if (importStart < 0) return "pending";
-    const current = messages.slice(0, importStart);
+    const current = messages.slice(importStart + 1);
     if (current.some(message => message.includes("Evaluation complete"))) return "passed";
     const state = await page.locator(".viewport-status-dot").getAttribute("class") ?? "";
     if (/is-error/.test(state)) return "evaluation-failed";

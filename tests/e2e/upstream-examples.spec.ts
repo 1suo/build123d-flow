@@ -140,14 +140,17 @@ async function importExample(page: Page, source: string) {
   await expect(sourceInput).toHaveValue("");
 
   const entries = page.locator(".viewport-log-entry");
-  const previousImportStarts = (await entries.allTextContents()).filter(message => message.includes("Importing Python source")).length;
+  const previousMessages = await entries.allTextContents();
+  const previousImportStarts = previousMessages.filter(message => message.includes("Importing Python source")).length;
+  const previousImported = previousMessages.filter(message => message.includes("Python imported")).length;
+  const previousImportFailures = previousMessages.filter(message => message.includes("Python import failed")).length;
+  const previousEvaluations = previousMessages.filter(message => message.includes("Evaluation complete")).length;
   await sourceInput.fill(source);
   await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
   await page.getByRole("button", { name: "Import pasted code" }).click();
 
-  // The activity log is newest-first. Wait for this click's start marker,
-  // then accept only import/evaluation events newer than that marker. This
-  // prevents a late result from the previous example satisfying this one.
+  // Count deltas instead of relying on DOM or visual ordering: the log uses
+  // reversed presentation and its rendered order differs across layouts.
   await expect.poll(async () => {
     const messages = await entries.allTextContents();
     return messages.filter(message => message.includes("Importing Python source")).length > previousImportStarts;
@@ -155,24 +158,14 @@ async function importExample(page: Page, source: string) {
 
   await expect.poll(async () => {
     const messages = await entries.allTextContents();
-    // The DOM is chronological; CSS column-reverse only changes visual order.
-    // Use the newest import marker and inspect the DOM entries after it.
-    const importStart = messages.findLastIndex(message => message.includes("Importing Python source"));
-    if (importStart < 0) return "pending";
-    const current = messages.slice(importStart + 1);
-    if (current.some(message => message.includes("Python import failed"))) return "import-failed";
-    if (current.some(message => message.includes("Python imported"))) return "imported";
+    if (messages.filter(message => message.includes("Python import failed")).length > previousImportFailures) return "import-failed";
+    if (messages.filter(message => message.includes("Python imported")).length > previousImported) return "imported";
     return "pending";
   }, { timeout: 5_000, intervals: [50, 100, 150] }).toBe("imported");
 
   await expect.poll(async () => {
     const messages = await entries.allTextContents();
-    // The DOM is chronological; CSS column-reverse only changes visual order.
-    // Use the newest import marker and inspect the DOM entries after it.
-    const importStart = messages.findLastIndex(message => message.includes("Importing Python source"));
-    if (importStart < 0) return "pending";
-    const current = messages.slice(importStart + 1);
-    if (current.some(message => message.includes("Evaluation complete"))) return "passed";
+    if (messages.filter(message => message.includes("Evaluation complete")).length > previousEvaluations) return "passed";
     const state = await page.locator(".viewport-status-dot").getAttribute("class") ?? "";
     if (/is-error/.test(state)) return "evaluation-failed";
     return "pending";

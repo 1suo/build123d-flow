@@ -829,6 +829,44 @@ def run_python_import_tests():
     }
 
 
+def run_instance_method_receiver_tests():
+    """Calls on geometry collections must retain their instance receiver edge."""
+    graph = runtime.import_python_code(
+        "from build123d import *\n"
+        "with BuildPart() as part:\n"
+        "    Box(10, 10, 10)\n"
+        "edge_groups = part.part.edges().group_by(Axis.Z)\n"
+        "vertex_groups = part.part.vertices().group_by(Axis.Z)\n"
+    )
+    method_nodes = [
+        node for node in graph["nodes"]
+        if node["data"]["definition"]["id"].endswith(".group_by")
+    ]
+    if len(method_nodes) != 2:
+        raise AssertionError("Expected two collection group_by nodes: " + repr(method_nodes))
+    for node in method_nodes:
+        definition = node["data"]["definition"]
+        receiver = next(
+            (socket for socket in definition.get("inputs", [])
+             if socket.get("name") in {"self", "cls"}), None
+        )
+        incoming = [
+            edge for edge in graph["edges"]
+            if edge.get("target") == node["id"]
+        ]
+        if receiver is None or not any(
+            edge.get("targetHandle") == receiver["name"] for edge in incoming
+        ):
+            raise AssertionError(
+                "Collection method lost its receiver edge: "
+                + repr({"node": node, "incoming": incoming})
+            )
+    result = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
+    if result["errors"]:
+        raise AssertionError("Collection instance methods failed: " + json.dumps(result["errors"]))
+    return {"name": "instance method receivers", "methods": len(method_nodes)}
+
+
 def run_python_scope_tests():
     """BuildPart and nested Locations retain real context-manager lifecycles."""
     source = (
@@ -996,7 +1034,7 @@ def run_graph_plan_validation_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_python_scope_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

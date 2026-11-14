@@ -2928,16 +2928,17 @@ def import_python_code(source):
                     node.attr, receiver_type, property_only=True
                 )
                 if definition_id:
-                    receiver_socket = next(
-                        item for item in definitions[definition_id].get("inputs", [])
-                        if item.get("name") in {"self", "cls"}
-                    )
+                    # Attribute reads must use Python's native descriptor lookup.
+                    # Discovered property getters are catalog metadata, but invoking
+                    # their synthetic lambdas through graph data-mapping loses the
+                    # receiver for streamed values (for example, face.area in a loop).
+                    # The generic attribute node preserves descriptor and instance
+                    # semantics while still mapping each receiver item independently.
                     created = add_node(
-                        definition_id, {},
-                        [(receiver_socket["name"], receiver[1], receiver[2])],
-                        node.lineno,
+                        _PYTHON_ATTRIBUTE_ID, {"name": node.attr},
+                        [("value", receiver[1], receiver[2])], node.lineno,
                     )
-                    return ("ref", created, definitions[definition_id].get("outputs", [{}])[0].get("name", "result"))
+                    return ("ref", created, "result")
                 if candidates:
                     # When static receiver typing cannot distinguish same-named
                     # properties (for example Axis.Y, Vector.Y and Vertex.Y),

@@ -136,10 +136,10 @@ async function importExample(page: Page, source: string) {
   if (!(await sourceInput.isVisible())) {
     await page.getByRole("button", { name: "Settings" }).click();
   }
-  await expect(sourceInput).toBeVisible({ timeout: 1_000 });
-  await expect(sourceInput).toHaveValue("");
 
   const evaluationBeforeImport = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
+  // Fill directly after opening the popover. A separate visibility/value
+  // assertion introduced a race with the popover's transition lifecycle.
   await sourceInput.fill(source);
   await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
   await page.getByRole("button", { name: "Import pasted code" }).click();

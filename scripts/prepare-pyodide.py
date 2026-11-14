@@ -17,6 +17,9 @@ def setup_roots(path):
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     roots, mocks = [Requirement("micropip")], set()
     for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "OCP_VERSION" for target in node.targets):
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                roots.append(Requirement(f"cadquery-ocp-novtk-OCP.wasm=={node.value.value}"))
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute): continue
         owner = node.func.value
         if not isinstance(owner, ast.Name) or owner.id != "micropip": continue

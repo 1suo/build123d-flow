@@ -3407,6 +3407,15 @@ def import_python_code(source):
             sockets = definition.get("inputs", [])
             params, links = {}, []
             receiver_socket = next((item for item in sockets if item.get("name") in {"self", "cls"}), None)
+            # A discovered instance-method definition is authoritative about
+            # its receiver contract. If namespace resolution selected that
+            # definition before the expression resolver identified the bound
+            # object, recover the receiver from the attribute expression here.
+            if (
+                receiver is None and receiver_socket is not None
+                and isinstance(node.func, ast.Attribute)
+            ):
+                receiver = expression(node.func.value)
             if receiver is not None and receiver_socket is not None:
                 if receiver[0] == "ref":
                     links.append((receiver_socket["name"], receiver[1], receiver[2]))

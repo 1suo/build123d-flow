@@ -3759,4 +3759,5 @@ def export_step_bytes():
     return stream.getvalue()
 
 
-discover(include_full=False)
+# Catalog discovery is lazy: importing the execution runtime must not scan the
+# entire build123d API. catalog_json() performs the lightweight scan on demand.

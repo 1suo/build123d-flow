@@ -143,6 +143,9 @@ def stage(archive, destination, setup, wheelhouse):
         total += target.stat().st_size
         manifest.append({k: item[k] for k in ("name", "version", "filename", "sha256")})
     (wheelhouse / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (wheelhouse / "pyodide-packages.json").write_text(
+        json.dumps(sorted(resolver.required), indent=2) + "\n", encoding="utf-8"
+    )
     print("Runtime roots:", ", ".join(sorted({r.name for r in roots})))
     print("Mocked distributions:", ", ".join(sorted(mocks)))
     print("Staged Pyodide closure:", ", ".join(sorted(resolver.required)))

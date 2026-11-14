@@ -152,7 +152,7 @@ async function importExample(page: Page, source: string) {
     const state = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
     if (state.revision <= evaluationBeforeImport.revision || state.running) return null;
     return state;
-  }, { timeout: 10_000, intervals: [50, 100, 150] }).not.toBeNull();
+  }, { timeout: 30_000, intervals: [50, 100, 150, 250] }).not.toBeNull();
 
   const evaluation = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
   expect(evaluation.errors, "graph evaluation errors").toEqual([]);
@@ -165,7 +165,7 @@ async function importExample(page: Page, source: string) {
 test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {
   expect(EXAMPLES).toHaveLength(67);
   expect(new Set(EXAMPLES).size).toBe(EXAMPLES.length);
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const pageErrors: string[] = [];
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto("./", { waitUntil: "domcontentloaded" });

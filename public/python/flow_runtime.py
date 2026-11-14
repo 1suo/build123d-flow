@@ -2034,7 +2034,11 @@ def evaluate_graph_json(payload):
             str(socket.get("name", "")).startswith("__flow_iteration_")
             for socket in node_definition.get("inputs", [])
         )
-        definition = node_definition if has_loop_inputs else _CATALOG.get(definition_id)
+        definition = (
+            node_definition
+            if has_loop_inputs or definition_id == "core.python.loop_value"
+            else _CATALOG.get(definition_id)
+        )
         if definition is None:
             errors[node_id] = "Unknown or unavailable API node: " + str(definition_id)
             continue
@@ -2963,7 +2967,7 @@ def import_python_code(source):
                     # A literal element still repeats once per generator item.
                     # The iteration sockets injected by add_node turn this into
                     # a mapped constant without expanding the comprehension.
-                    loop_value_id = "core.python.loop_value"
+                    loop_value_id = "core.python.comprehension_constant"
                     value_type = _type_name(type(materialize_literal(result[1])))
                     loop_value_definition = {
                         "id": loop_value_id, "name": "Python Loop Value",

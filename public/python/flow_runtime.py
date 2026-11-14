@@ -2644,7 +2644,7 @@ def import_python_code(source):
         "source": "python", "kind": "operation", "category": "Internal",
         "palette_category": "Internal", "palette_section": "Graph lowering",
         "inputs": [
-            {"name": "value", "type": "Any", "required": True},
+            {"name": "value", "type": "Any", "required": True, "data_access": "structure"},
             {"name": "index", "type": "Any", "required": True},
         ],
         "outputs": [{"name": "result", "type": "Any"}],

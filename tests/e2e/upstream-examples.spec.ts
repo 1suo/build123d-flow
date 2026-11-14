@@ -167,6 +167,12 @@ async function importExample(page: Page, source: string) {
 
   await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9][0-9]* visible/, { timeout: 500 });
   await expect(page.locator(".geometry-viewport canvas")).toBeVisible({ timeout: 500 });
+
+  // A successful import closes the Settings popover and clears the v-model.
+  // Wait for both effects to finish before the next iteration; visibility
+  // during PrimeVue's closing transition is not a stable open/closed signal.
+  await expect(sourceInput).toBeHidden({ timeout: 2_000 });
+  await expect(sourceInput).toHaveValue("");
 }
 
 test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {
@@ -210,6 +216,7 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
         } catch {
           // Preserve the original importer failure if the browser has closed.
         }
+        throw error;
       }
     });
   }

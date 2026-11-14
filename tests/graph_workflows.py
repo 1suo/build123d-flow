@@ -398,6 +398,7 @@ def run_python_loop_lowering_tests():
         "from build123d import Box\\n"
         "for length in [1, 2, 3]:\\n"
         "    box = Box(length, 2, 3)\\n"
+        "result = box\\n"
     )
     graph = runtime.import_python_code(source)
     box_nodes = [
@@ -427,13 +428,24 @@ def run_python_loop_lowering_tests():
         raise AssertionError("Loop body operation did not execute once per sequence item: " + repr(mapped_boxes))
     terminal_shapes = [
         node for node in graph["nodes"]
-        if node["data"]["definition"]["id"] == "core.python.subscript"
+        if node["data"]["definition"]["id"] == "core.python.loop_last"
         and node["data"]["definition"]["outputs"][0]["type"] in {"Shape", "Solid", "Compound"}
     ]
     if not terminal_shapes:
         raise AssertionError("Post-loop assignment did not preserve the final geometry type")
     if not any(node["id"] in result["previews"] for node in terminal_shapes):
         raise AssertionError("Post-loop variable did not resolve to the final mapped geometry")
+
+    empty_loop = runtime.import_python_code(
+        "from build123d import Box\\n"
+        "box = Box(2, 2, 2)\\n"
+        "for length in []:\\n"
+        "    box = Box(length, 2, 3)\\n"
+        "result = box\\n"
+    )
+    empty_result = json.loads(runtime.evaluate_graph_json(json.dumps(empty_loop)))
+    if empty_result["errors"]:
+        raise AssertionError("A zero-iteration loop must preserve the previous binding: " + json.dumps(empty_result["errors"]))
 
     nested = runtime.import_python_code(
         "from build123d import Box\\n"

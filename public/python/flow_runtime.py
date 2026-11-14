@@ -3744,8 +3744,6 @@ def import_python_code(source):
                     assign_target(target, result, statement.lineno)
                 continue
             if isinstance(statement, ast.For):
-                if statement.is_async:
-                    raise ValueError("async for-loops cannot be represented by the synchronous graph evaluator (line {})".format(statement.lineno))
                 iterable = expression(statement.iter)
                 if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple, range)):
                     iterable = add_collection_node(

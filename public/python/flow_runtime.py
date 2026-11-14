@@ -1763,8 +1763,12 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
         try:
             return invoke(params)
         except Exception as exc:
+            import traceback
             location = "".join("[{}]".format(index) for index in path)
-            raise RuntimeError("Data mapping at {}: {}".format(location or "<root>", exc)) from exc
+            detail = traceback.format_exc()
+            raise RuntimeError(
+                "Data mapping at {}: {}\\n{}".format(location or "<root>", exc, detail)
+            ) from exc
     if any(not value for value in sequences.values()):
         return []
     names = list(sequences)

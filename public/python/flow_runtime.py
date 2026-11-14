@@ -3837,7 +3837,7 @@ def import_python_code(source):
             argument_sockets = [
                 socket for socket in sockets
                 if socket is not receiver_socket
-                and socket.get("kind") not in {"var_keyword", "var_positional"}
+                and socket.get("kind") not in {"keyword_only", "var_keyword", "var_positional"}
             ]
             if len(node.args) > len(argument_sockets) and var_positional_socket is None:
                 raise ValueError("Too many positional arguments for {} at line {}".format(

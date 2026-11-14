@@ -3483,11 +3483,11 @@ def import_python_code(source):
                 and node.func.id in {"sum", "max", "min", "len"}
             ):
                 builtin_name = node.func.id
-                dynamic_args = [expression(argument) for argument in node.args]
-                dynamic_kwargs = {
-                    keyword.arg: expression(keyword.value)
-                    for keyword in node.keywords if keyword.arg is not None
-                }
+                # The ordinary builtin path above has already lowered these
+                # expressions. Reuse its refs; evaluating a comprehension twice
+                # would leave duplicate, orphaned graph operations behind.
+                dynamic_args = builtin_args
+                dynamic_kwargs = builtin_kwargs
                 if any(item[0] == "ref" for item in dynamic_args + list(dynamic_kwargs.values())):
                     if builtin_name == "sum" and 1 <= len(dynamic_args) <= 2 and not dynamic_kwargs:
                         names = ["iterable", "start"][:len(dynamic_args)]
@@ -3956,7 +3956,8 @@ def import_python_code(source):
                     if inspect.isclass(receiver_callable):
                         receiver_class = receiver_callable
             if receiver_class is None and receiver_type:
-                receiver_class = getattr(b3d, receiver_type, None)
+                receiver_class_name = {"Vector3": "Vector"}.get(receiver_type, receiver_type)
+                receiver_class = getattr(b3d, receiver_class_name, None)
             definition_id = None
             if inspect.isclass(receiver_class):
                 for owner in receiver_class.__mro__:

@@ -124,7 +124,9 @@ export function validateGraph(graph: GraphDocument): string[] {
     const output = source?.data.definition.outputs.find((socket) => socket.name === edge.sourceHandle);
     const input = target?.data.definition.inputs.find((socket) => socket.name === edge.targetHandle);
     if (!output || !input) errors.push(`Edge ${edge.id}: unknown socket`);
-    else if (!compatible(effectiveOutput(graph, source!, output), input)) errors.push(`Edge ${edge.id}: incompatible ${output.type} → ${input.type}`);
+    else if (!edge.pythonImported && !compatible(effectiveOutput(graph, source!, output), input)) {
+      errors.push(`Edge ${edge.id}: incompatible ${output.type} → ${input.type}`);
+    }
   }
 
   const occupiedInputs = new Set<string>();

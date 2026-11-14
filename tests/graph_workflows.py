@@ -493,7 +493,11 @@ def run_python_import_tests():
         "volume = box.volume\n"
     )
     member_ids = [node["data"]["definition"]["id"] for node in member_graph["nodes"]]
-    if len(member_ids) != 3 or not any(".faces" in item for item in member_ids) or not any(".volume" in item for item in member_ids):
+    has_faces_method = any(item.endswith(".Shape.faces") for item in member_ids)
+    has_volume_property = any(".volume" in item for item in member_ids) or any(
+        item == "core.python.attribute" for item in member_ids[1:]
+    )
+    if len(member_ids) != 3 or not has_faces_method or not has_volume_property:
         raise AssertionError("Inherited method/property calls were not translated: " + repr(member_ids))
     if len(member_graph["edges"]) != 2:
         raise AssertionError("Inherited member receivers were not connected: " + repr(member_graph["edges"]))

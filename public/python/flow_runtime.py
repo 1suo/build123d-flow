@@ -1690,6 +1690,10 @@ _GEOMETRY_INPUT_TYPES = {"Shape", "Solid", "Compound", "Face", "Edge", "Vertex",
 _SCALAR_INPUT_TYPES = {"Number", "Boolean", "String", "Code"}
 _OBJECT_INPUT_TYPES = {
     "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis", "Color", "Matrix", "Enum",
+    # Build123d geometry wrappers can also be constructed from connected
+    # geometry values (for example Face(Wire.make_polygon(...))). These are
+    # lowered to ordinary mapped constructor nodes when any argument is a ref.
+    "Face", "Edge", "Vertex", "Wire", "Shell", "Solid", "Compound",
 }
 
 

@@ -3047,7 +3047,14 @@ def import_python_code(source):
             return None
         if getattr(constructor, "__module__", "").split(".")[0] != "build123d":
             return None
-        constructor_type = _type_name(constructor)
+        # These are concrete wrapper/value classes named by their public
+        # build123d API contracts. Prefer the registered socket name over
+        # subclass-based shape inference (which can collapse wrappers to Shape).
+        constructor_type = (
+            constructor.__name__
+            if constructor.__name__ in _OBJECT_INPUT_TYPES
+            else _type_name(constructor)
+        )
         if constructor_type not in _OBJECT_INPUT_TYPES:
             return None
         geometry_types = {"Face", "Edge", "Vertex", "Wire", "Shell", "Solid", "Compound"}

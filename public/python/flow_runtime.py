@@ -3073,6 +3073,151 @@ def import_python_code(source):
             return None
         return constructor, constructor_type
 
+    def resolve_build123d_class_callable(function_node):
+        """Resolve a public class-level build123d callable without treating its class as a graph value."""
+        if not isinstance(function_node, ast.Attribute):
+            return None
+        parts = []
+        current = function_node
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if not isinstance(current, ast.Name):
+            return None
+        root = current.id
+        if root in variables:
+            return None
+        if root in aliases and aliases[root] == "b3d":
+            path = list(reversed(parts))
+            if len(path) != 2:
+                return None
+            owner = getattr(b3d, path[0], None)
+            member_name = path[1]
+        elif root in imported:
+            owner = getattr(b3d, imported[root], None)
+            path = list(reversed(parts))
+            if len(path) != 1:
+                return None
+            member_name = path[0]
+        elif hasattr(b3d, root):
+            owner = getattr(b3d, root, None)
+            path = list(reversed(parts))
+            if len(path) != 1:
+                return None
+            member_name = path[0]
+        else:
+            return None
+        if not inspect.isclass(owner):
+            return None
+        callable_obj = getattr(owner, member_name, None)
+        if not callable(callable_obj):
+            return None
+        if getattr(callable_obj, "__module__", "").split(".")[0] != "build123d":
+            return None
+        return owner, member_name, callable_obj
+
+    def add_build123d_class_call(owner, member_name, callable_obj, call_node):
+        """Lower a bound static/class method into one typed graph operation."""
+        signature = inspect.signature(callable_obj)
+        hints = _resolve_hints(callable_obj)
+        parameters = list(signature.parameters.values())
+        inputs = []
+        for parameter in parameters:
+            annotation = hints.get(parameter.name, parameter.annotation)
+            socket = {
+                "name": parameter.name,
+                "type": _type_name(annotation),
+                "required": parameter.default is inspect.Signature.empty
+                and parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD),
+            }
+            socket.update(_annotation_metadata(annotation))
+            if socket.get("data_structure") in {"list", "tree", "tuple", "set", "dict"}:
+                socket["data_access"] = "structure"
+            if parameter.kind == parameter.VAR_POSITIONAL:
+                socket["kind"] = "var_positional"
+                socket["data_access"] = "structure"
+            elif parameter.kind == parameter.VAR_KEYWORD:
+                socket["kind"] = "var_keyword"
+                socket["data_access"] = "structure"
+            if parameter.default is not inspect.Signature.empty:
+                default, default_repr, _, serializable = _safe_default(parameter.default)
+                if serializable:
+                    socket["default"] = default
+                socket["default_repr"] = default_repr
+            inputs.append(socket)
+
+        definition_id = "core.python.classcall." + owner.__name__ + "." + member_name + "." + hashlib.sha1(
+            (str(signature) + ":" + str(call_node.lineno)).encode("utf-8")
+        ).hexdigest()[:10]
+        return_annotation = hints.get("return", signature.return_annotation)
+        output_socket = {"name": "result", "type": _type_name(return_annotation)}
+        output_socket.update(_annotation_metadata(return_annotation))
+        definitions[definition_id] = {
+            "id": definition_id, "name": "Python " + owner.__name__ + "." + member_name,
+            "source": "python", "kind": "operation", "category": "Internal",
+            "palette_category": "Internal", "palette_section": "Graph lowering",
+            "inputs": inputs, "outputs": [output_socket],
+        }
+        _INTERNAL_NODE_IDS.add(definition_id)
+        _CATALOG_CALLABLES[definition_id] = callable_obj
+        _CATALOG_SIGNATURES[definition_id] = signature
+        _CATALOG_HINT_TARGETS[definition_id] = False
+
+        params, links = {}, []
+        positional_parameters = [
+            parameter for parameter in parameters
+            if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+        ]
+        var_positional = next(
+            (parameter for parameter in parameters if parameter.kind == parameter.VAR_POSITIONAL), None
+        )
+        positional_index = 0
+        supplied = set()
+        for argument in call_node.args:
+            if isinstance(argument, ast.Starred):
+                if var_positional is None:
+                    raise ValueError("Expanded positional arguments require a variadic parameter at line {}".format(call_node.lineno))
+                name = var_positional.name
+                value_node = argument.value
+            else:
+                if positional_index < len(positional_parameters):
+                    name = positional_parameters[positional_index].name
+                    positional_index += 1
+                elif var_positional is not None:
+                    name = var_positional.name
+                else:
+                    raise ValueError("Too many positional arguments at line {}".format(call_node.lineno))
+                value_node = argument
+            if name in supplied:
+                raise ValueError("Multiple values for argument '{}' at line {}".format(name, call_node.lineno))
+            supplied.add(name)
+            value = expression(value_node)
+            if value[0] == "literal":
+                params[name] = literal_json_value(value[1])
+            else:
+                links.append((name, value[1], value[2]))
+
+        var_keyword = next(
+            (parameter for parameter in parameters if parameter.kind == parameter.VAR_KEYWORD), None
+        )
+        for keyword in call_node.keywords:
+            if keyword.arg is None:
+                if var_keyword is None:
+                    raise ValueError("Expanded keyword arguments require **kwargs at line {}".format(call_node.lineno))
+                name = var_keyword.name
+            else:
+                name = keyword.arg
+            if name in supplied:
+                raise ValueError("Multiple values for argument '{}' at line {}".format(name, call_node.lineno))
+            supplied.add(name)
+            value = expression(keyword.value)
+            if value[0] == "literal":
+                params[name] = literal_json_value(value[1])
+            else:
+                links.append((name, value[1], value[2]))
+        created = add_node(definition_id, params, links, call_node.lineno)
+        return ("ref", created, "result", output_socket["type"])
+
     def expression(node, expected_type=None):
         nonlocal mapping_matching
         if isinstance(node, ast.Constant):
@@ -3396,6 +3541,10 @@ def import_python_code(source):
                         links.append((name, item[1], item[2]))
                 created = add_node(definition_id, params, links, node.lineno)
                 return ("ref", created, "result")
+
+            class_callable = resolve_build123d_class_callable(node.func)
+            if class_callable is not None:
+                return add_build123d_class_call(*class_callable, node)
 
             definition_id = resolve_callable(node.func)
             receiver = None

@@ -3056,7 +3056,11 @@ def import_python_code(source):
         # value constructors only when a typed destination socket explicitly
         # requests that geometry type; otherwise normal API-node resolution
         # must retain the constructor and its graph dependencies.
-        if constructor_type in geometry_types and expected_type in (None, "Any"):
+        if (
+            constructor_type in geometry_types
+            and constructor_type != "Face"
+            and expected_type in (None, "Any")
+        ):
             return None
         if expected_type not in (None, "Any", constructor_type):
             return None

@@ -2133,6 +2133,16 @@ def evaluate_graph_json(payload):
                 )
             stream_shapes = {}
             shape_memo = {}
+            # Python for-loops and comprehensions explicitly declare their
+            # iterable sources. An iterable may be returned through an Any
+            # socket (notably ShapeList.group_by(...)[-1]), so static socket
+            # metadata alone cannot identify it as a stream. Preserve the
+            # source identity from the importer and map item-access inputs
+            # over that sequence exactly once.
+            loop_sources = {
+                (str(source.get("node_id")), str(source.get("output_name", "result")))
+                for source in data.get("python_loop_sources", [])
+            }
             for input_name, (source_id, source_output) in incoming.get(node_id, {}).items():
                 input_socket = next((item for item in definition.get("inputs", [])
                                      if item.get("name") == input_name), None)
@@ -2148,6 +2158,12 @@ def evaluate_graph_json(payload):
                 )
                 if source_shape in ("list", "tuple", "tree"):
                     stream_shapes[input_name] = "list" if source_shape == "tuple" else source_shape
+                elif (source_id, source_output) in loop_sources:
+                    # The Python AST explicitly says this edge supplies the
+                    # current loop variable. Treat an Any-typed iterable as
+                    # an item stream rather than passing its whole collection
+                    # into operations such as v.X or tuple(v).
+                    stream_shapes[input_name] = "list"
             result = _map_item_inputs(
                 params, stream_shapes, invoke,
                 matching=node.get("data", {}).get(

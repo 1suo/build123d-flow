@@ -3072,21 +3072,26 @@ def import_python_code(source):
             if isinstance(node.func, ast.Attribute):
                 # A dotted name can resolve through the imported API namespace even
                 # when its left-hand side is an instance expression. Resolve the
-                # receiver independently, then bind it whenever the selected
-                # definition is an instance method. Otherwise imported methods
-                # silently become receiver-less graph nodes.
-                receiver = expression(node.func.value)
-                if receiver[0] == "ref":
-                    upstream = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
-                    if upstream:
-                        receiver_type = upstream["data"]["definition"].get("outputs", [{}])[0].get("type")
-                elif receiver[0] == "literal":
-                    receiver_type = _type_name(type(materialize_literal(receiver[1])))
-                if not definition_id:
-                    definition_id, candidates = resolve_member(node.func.attr, receiver_type)
-                    if candidates and definition_id is None:
-                        raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
-                            node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
+                # receiver whenever the selected definition is an instance method;
+                # otherwise imported methods silently become receiver-less nodes.
+                selected = definitions.get(definition_id) if definition_id else None
+                expects_receiver = selected is None or any(
+                    item.get("name") in {"self", "cls"}
+                    for item in selected.get("inputs", [])
+                )
+                if expects_receiver:
+                    receiver = expression(node.func.value)
+                    if receiver[0] == "ref":
+                        upstream = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
+                        if upstream:
+                            receiver_type = upstream["data"]["definition"].get("outputs", [{}])[0].get("type")
+                    elif receiver[0] == "literal":
+                        receiver_type = _type_name(type(materialize_literal(receiver[1])))
+                    if not definition_id:
+                        definition_id, candidates = resolve_member(node.func.attr, receiver_type)
+                        if candidates and definition_id is None:
+                            raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
+                                node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
             if not definition_id:
                 raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
                     node.lineno, ast.unparse(node.func)))

@@ -65,7 +65,7 @@ micropip.add_mock_package("lib3mf", "2.4.1", modules={
 if not restored_environment:
     manifest_path = Path("/python/wheels/manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    wheel_paths = [f"emfs:///python/wheels/{item['filename']}" for item in manifest]
+    wheel_paths = [f"emfs:/python/wheels/{item['filename']}" for item in manifest]
     print(f"Installing {len(wheel_paths)} pre-staged PyPI wheels…")
     await micropip.install(wheel_paths, deps=False)
 else:
@@ -73,7 +73,6 @@ else:
 
 # All PyPI-only dependencies and the OCP wasm wheel are staged locally.
 # Pyodide-native dependencies are loaded from the self-hosted lockfile closure.
-await micropip.install(["build123d==0.13.0"])
 
 # Fail during environment setup, not later when the graph runtime imports build123d.
 import build123d

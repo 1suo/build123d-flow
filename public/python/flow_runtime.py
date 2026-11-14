@@ -15,20 +15,6 @@ import operator
 
 import build123d as b3d
 
-from build123d.topology.one_d import Mixin1D
-
-# OCCT's arc-length inversion can fail at exact endpoints on Bezier edges.
-# Preserve build123d's normal arc-length mapping everywhere else.
-_original_mixin1d_position_at = Mixin1D.position_at
-def _stable_mixin1d_position_at(self, position, position_mode=b3d.PositionMode.PARAMETER):
-    if position_mode == b3d.PositionMode.PARAMETER:
-        if position == 0:
-            return self.start_point()
-        if position == 1:
-            return self.end_point()
-    return _original_mixin1d_position_at(self, position, position_mode)
-
-Mixin1D.position_at = _stable_mixin1d_position_at
 
 _CATALOG = {}
 _CATALOG_CALLABLES = {}

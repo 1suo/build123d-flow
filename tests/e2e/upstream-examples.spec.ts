@@ -129,6 +129,7 @@ async function importExample(page: Page, source: string) {
     await page.getByRole("button", { name: "Settings" }).click();
   }
   await expect(sourceInput).toBeVisible({ timeout: 1_000 });
+  await expect(sourceInput).toHaveValue("");
 
   const entries = page.locator(".viewport-log-entry");
   const previousLatest = (await entries.first().textContent()) ?? "";
@@ -172,7 +173,6 @@ async function importExample(page: Page, source: string) {
   // Wait for both effects to finish before the next iteration; visibility
   // during PrimeVue's closing transition is not a stable open/closed signal.
   await expect(sourceInput).toBeHidden({ timeout: 2_000 });
-  await expect(sourceInput).toHaveValue("");
 }
 
 test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {

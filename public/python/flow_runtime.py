@@ -4583,16 +4583,10 @@ def import_python_code(source):
                         item.id for item in ast.walk(future_statement)
                         if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Load)
                     )
-                nested_uses = (
-                    frame["written_names"] & future_names
-                    if active_loop_frames else set()
-                )
-                if nested_uses:
-                    raise ValueError(
-                        "A value assigned in a nested loop and read after its inner loop "
-                        "requires nested loop-result grouping, which is not yet supported "
-                        "(line {}): {}".format(statement.lineno, ", ".join(sorted(nested_uses)))
-                    )
+                # A nested loop's post-loop binding is itself a mapped value:
+                # its loop_last node executes for each enclosing-loop item.
+                # The enclosing loop can then map its own loop_last over that
+                # sequence, preserving Python's last-value binding at each scope.
 
                 # Python leaves a used loop target bound to its last value.
                 # Lower only the bindings whose values are observed afterward.

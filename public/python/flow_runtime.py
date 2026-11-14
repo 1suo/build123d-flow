@@ -795,6 +795,9 @@ def _register_flow_nodes(found, callables):
               [("items", "List"), ("index", "Number"), ("value", "Any")], "List")
     _add_node(found, callables, "core.list.append", "Append", "Collections",
               lambda items, value: list(items) + [value], [("items", "List"), ("value", "Any")], "List")
+    _add_node(found, callables, "core.list.extend", "Extend", "Collections",
+              lambda items, values: list(items) + list(values),
+              [("items", "List"), ("values", "List")], "List")
     _add_node(found, callables, "core.list.insert", "Insert", "Collections",
               lambda items, index, value: (lambda result: (result.insert(index, value), result)[1])(list(items)),
               [("items", "List"), ("index", "Number"), ("value", "Any")], "List")
@@ -4459,6 +4462,40 @@ def import_python_code(source):
                 continue
             if isinstance(statement, ast.Expr):
                 if is_viewer_call(statement.value):
+                    continue
+                # Python list.extend mutates its receiver and returns None.
+                # Represent that mutation as a new list node and rebind the
+                # variable so later reads observe the extended collection.
+                call = statement.value
+                if (
+                    isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Attribute)
+                    and call.func.attr in {"append", "extend"}
+                    and isinstance(call.func.value, ast.Name)
+                    and len(call.args) == 1
+                    and not call.keywords
+                ):
+                    target_name = call.func.value.id
+                    receiver = expression(call.func.value)
+                    value = expression(call.args[0])
+                    if receiver[0] != "ref" or value[0] != "ref":
+                        raise ValueError(
+                            "List.{} requires graph-backed list inputs at line {}".format(
+                                call.func.attr, statement.lineno
+                            )
+                        )
+                    definition_id = (
+                        "core.list.append" if call.func.attr == "append"
+                        else "core.list.extend"
+                    )
+                    value_socket = "value" if call.func.attr == "append" else "values"
+                    updated_list = add_node(
+                        definition_id, {},
+                        [("items", receiver[1], receiver[2]),
+                         (value_socket, value[1], value[2])],
+                        statement.lineno,
+                    )
+                    variables[target_name] = ("ref", updated_list, "result", "List")
                     continue
                 expression(statement.value)
                 continue

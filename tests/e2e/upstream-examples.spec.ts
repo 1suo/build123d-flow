@@ -120,36 +120,47 @@ with Locations((0, -offset.Y, 0)):
 ];
 
 async function importExample(page: Page, source: string) {
-  if (!(await page.locator("#python-source-input").isVisible())) {
-    await page.getByRole("button", { name: "Settings" }).click();
-  }
-  // Import while the Settings popover is open. Opening the activity log
-  // first would click outside that popover and dismiss the Python editor.
-  await page.locator("#python-source-input").fill(source);
-  await page.getByRole("button", { name: "Import pasted code" }).click();
-
   const log = page.locator(".viewport-log-panel");
   if (!(await log.isVisible())) {
     await page.getByRole("button", { name: "Show activity log" }).click();
   }
-  const entries = page.locator(".viewport-log-entry");
+  if (!(await page.locator("#python-source-input").isVisible())) {
+    await page.getByRole("button", { name: "Settings" }).click();
+  }
 
-  // Import and evaluation share one short deadline. A broken example must
-  // fail quickly instead of consuming minutes in independent polling loops.
+  const entries = page.locator(".viewport-log-entry");
+  const previousLatest = (await entries.first().textContent()) ?? "";
+  await page.locator("#python-source-input").fill(source);
+  await page.getByRole("button", { name: "Import pasted code" }).click();
+
+  // The activity log is newest-first. Wait for this click's start marker,
+  // then accept only import/evaluation events newer than that marker. This
+  // prevents a late result from the previous example satisfying this one.
+  await expect.poll(async () => {
+    const latest = (await entries.first().textContent()) ?? "";
+    return latest !== previousLatest && latest.includes("Importing Python source");
+  }, { timeout: 2_000, intervals: [25, 50, 100] }).toBe(true);
+
   await expect.poll(async () => {
     const messages = await entries.allTextContents();
     const importStart = messages.findIndex(message => message.includes("Importing Python source"));
-    const importResult = messages.slice(0, importStart).find(message =>
-      /Python imported|Python import failed/.test(message)
-    ) ?? "";
-    if (importResult.includes("Python import failed")) return "import-failed";
-    if (!importResult.includes("Python imported")) return "pending";
-    const latest = messages[0] ?? "";
+    if (importStart < 0) return "pending";
+    const current = messages.slice(0, importStart);
+    if (current.some(message => message.includes("Python import failed"))) return "import-failed";
+    if (current.some(message => message.includes("Python imported"))) return "imported";
+    return "pending";
+  }, { timeout: 5_000, intervals: [50, 100, 150] }).toBe("imported");
+
+  await expect.poll(async () => {
+    const messages = await entries.allTextContents();
+    const importStart = messages.findIndex(message => message.includes("Importing Python source"));
+    if (importStart < 0) return "pending";
+    const current = messages.slice(0, importStart);
+    if (current.some(message => message.includes("Evaluation complete"))) return "passed";
     const state = await page.locator(".viewport-status-dot").getAttribute("class") ?? "";
     if (/is-error/.test(state)) return "evaluation-failed";
-    if (latest.includes("Evaluation complete")) return "passed";
     return "pending";
-  }, { timeout: 700, intervals: [50, 100, 150] }).toBe("passed");
+  }, { timeout: 5_000, intervals: [50, 100, 150] }).toBe("passed");
 
   await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9][0-9]* visible/, { timeout: 500 });
   await expect(page.locator(".geometry-viewport canvas")).toBeVisible({ timeout: 500 });
@@ -191,8 +202,12 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
         const safeName = filename.replace(/\W+/g, "-");
         await test.info().attach(safeName + ".py", { body: source });
         await test.info().attach(safeName + "-failure.txt", { body: message });
-        const log = await page.locator(".viewport-log-entry").allTextContents();
-        await test.info().attach(safeName + "-activity-log.txt", { body: log.join("\n") });
+        try {
+          const log = await page.locator(".viewport-log-entry").allTextContents();
+          await test.info().attach(safeName + "-activity-log.txt", { body: log.join("\n") });
+        } catch {
+          // Preserve the original importer failure if the browser has closed.
+        }
       }
     });
   }

@@ -41,6 +41,9 @@ export class PythonRuntime {
     return new Promise<T>((resolve, reject) => { this.pending.set(id, { resolve, reject }); this.worker!.postMessage({ type: "call", id, method, payload }); });
   }
   get isReady(): boolean { return this.ready; }
+  downloadFile(path: string, url: string): Promise<number> {
+    return this.request<number>("downloadFile", { path, url });
+  }
   getCatalog(): Promise<NodeDefinition[]> { return this.request<NodeDefinition[]>("getCatalog"); }
   discoverCatalog(): Promise<NodeDefinition[]> { return this.request<NodeDefinition[]>("discoverCatalog"); }
   getDiscoveryReport(): Promise<Record<string, unknown>> { return this.request<Record<string, unknown>>("getDiscoveryReport"); }

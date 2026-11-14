@@ -831,6 +831,12 @@ def run_python_import_tests():
 
 def run_instance_method_receiver_tests():
     """Calls on geometry collections must retain their instance receiver edge."""
+    subscript = runtime._CATALOG["core.python.subscript"]
+    value_socket = next(
+        socket for socket in subscript["inputs"] if socket["name"] == "value"
+    )
+    if value_socket.get("data_access") != "structure":
+        raise AssertionError("Python subscript must consume collections as structures")
     graph = runtime.import_python_code(
         "from build123d import *\n"
         "with BuildPart() as part:\n"

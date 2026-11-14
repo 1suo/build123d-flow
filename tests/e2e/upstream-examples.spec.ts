@@ -124,6 +124,8 @@ async function importExample(page: Page, source: string) {
 }
 
 test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {
+  expect(EXAMPLES).toHaveLength(67);
+  expect(new Set(EXAMPLES).size).toBe(EXAMPLES.length);
   test.setTimeout(45 * 60 * 1000);
   const pageErrors: string[] = [];
   page.on("pageerror", error => pageErrors.push(error.message));

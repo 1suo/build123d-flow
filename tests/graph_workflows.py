@@ -572,6 +572,22 @@ def run_python_loop_lowering_tests():
     if unpacked_result["errors"]:
         raise AssertionError("Tuple-unpacking loop target failed: " + json.dumps(unpacked_result["errors"]))
 
+    tuple_comprehension = runtime.import_python_code(
+        "values = [tuple(value) for value in [[1, 2], [3, 4]]]\n"
+    )
+    tuple_nodes = [
+        node for node in tuple_comprehension["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.builtin.tuple"
+    ]
+    if len(tuple_nodes) != 1:
+        raise AssertionError("tuple() in a comprehension must compile to one mapped node")
+    tuple_result = json.loads(runtime.evaluate_graph_json(json.dumps(tuple_comprehension)))
+    if tuple_result["errors"]:
+        raise AssertionError("Mapped tuple() conversion failed: " + json.dumps(tuple_result["errors"]))
+    tuple_value = tuple_result["socket_values"][tuple_nodes[0]["id"]]["result"]
+    if tuple_value.get("length") != 2:
+        raise AssertionError("tuple() must execute once for each comprehension item")
+
     comprehension = runtime.import_python_code(
         "from build123d import Box\n"
         "boxes = [Box(1, 2, 3) for length in [1, 2, 3]]\n"

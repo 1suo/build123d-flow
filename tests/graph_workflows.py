@@ -559,6 +559,15 @@ def run_python_loop_lowering_tests():
         "for length, width in [(1, 2), (3, 4)]:\n"
         "    box = Box(length, width, 1)\n"
     )
+    unpack_subscripts = [
+        node for node in unpacked["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.subscript"
+    ]
+    if len(unpack_subscripts) != 2 or any(
+        next(socket for socket in node["data"]["definition"]["inputs"] if socket["name"] == "value").get("data_access") != "item"
+        for node in unpack_subscripts
+    ):
+        raise AssertionError("Tuple-unpack subscripts must map over loop tuple items")
     unpacked_result = json.loads(runtime.evaluate_graph_json(json.dumps(unpacked)))
     if unpacked_result["errors"]:
         raise AssertionError("Tuple-unpacking loop target failed: " + json.dumps(unpacked_result["errors"]))

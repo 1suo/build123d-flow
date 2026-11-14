@@ -163,6 +163,13 @@ async function importExample(page: Page, source: string) {
     return "pending";
   }, { timeout: 5_000, intervals: [50, 100, 150] }).toBe("imported");
 
+  if (source.includes("smoke_stack_center")) {
+    const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
+    await test.info().attach("benchy-imported-graph.json", {
+      body: JSON.stringify(graph, null, 2), contentType: "application/json"
+    });
+  }
+
   await expect.poll(async () => {
     const messages = await entries.allTextContents();
     const importStart = messages.findIndex(message => message.includes("Importing Python source"));

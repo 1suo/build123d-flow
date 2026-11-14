@@ -2673,7 +2673,7 @@ def import_python_code(source):
     scope_counter = 0
     counter = 0
 
-    def add_node(definition_id, params, links, line):
+    def add_node(definition_id, params, links, line, map_over_active_loops=True):
         nonlocal counter
         definition = definitions.get(definition_id)
         if definition is None:
@@ -2692,7 +2692,7 @@ def import_python_code(source):
         node_definition = dict(definition)
         node_definition["inputs"] = list(definition.get("inputs", []))
         iteration_links = []
-        for index, frame in enumerate(active_loop_frames):
+        for index, frame in enumerate(active_loop_frames if map_over_active_loops else []):
             # An explicit input already derived from this loop's iterable is
             # sufficient to trigger item mapping. Add a control token only when
             # the body operation otherwise has no dependency on this loop.
@@ -2738,7 +2738,7 @@ def import_python_code(source):
             })
         return node_id
 
-    def add_collection_node(items, structure, line):
+    def add_collection_node(items, structure, line, map_over_active_loops=True):
         """Build a structural list/tuple value from literal and graph-backed items."""
         input_sockets = [
             {"name": "item_{}".format(index), "type": "Any", "required": True,
@@ -2788,7 +2788,10 @@ def import_python_code(source):
                 params[name] = literal_json_value(value)
             else:
                 links.append((name, value, extra[0]))
-        node_id = add_node(definition_id, params, links, line)
+        node_id = add_node(
+            definition_id, params, links, line,
+            map_over_active_loops=map_over_active_loops,
+        )
         return ("ref", node_id, "result")
 
     def resolve_callable(node):
@@ -3747,7 +3750,8 @@ def import_python_code(source):
                 iterable = expression(statement.iter)
                 if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple, range)):
                     iterable = add_collection_node(
-                        [("literal", item) for item in iterable[1]], "list", statement.iter.lineno
+                        [("literal", item) for item in iterable[1]], "list",
+                        statement.iter.lineno, map_over_active_loops=False,
                     )
                 if iterable[0] != "ref":
                     raise ValueError(

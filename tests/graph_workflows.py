@@ -422,6 +422,9 @@ def run_python_loop_lowering_tests():
     result = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
     if result["errors"]:
         raise AssertionError("Mapped loop did not evaluate: " + json.dumps(result["errors"]))
+    mapped_boxes = result["socket_values"][box_node["id"]]["result"]
+    if mapped_boxes.get("length") != 3:
+        raise AssertionError("Loop body operation did not execute once per sequence item: " + repr(mapped_boxes))
     terminal_shapes = [
         node for node in graph["nodes"]
         if node["data"]["definition"]["id"] == "core.python.subscript"
@@ -453,6 +456,9 @@ def run_python_loop_lowering_tests():
     nested_result = json.loads(runtime.evaluate_graph_json(json.dumps(nested)))
     if nested_result["errors"]:
         raise AssertionError("Independent nested loop mapping failed: " + json.dumps(nested_result["errors"]))
+    nested_boxes_value = nested_result["socket_values"][nested_boxes[0]["id"]]["result"]
+    if nested_boxes_value.get("length") != 4:
+        raise AssertionError("Independent nested loops must map to the four Cartesian pairs: " + repr(nested_boxes_value))
 
     unpacked = runtime.import_python_code(
         "from build123d import Box\\n"

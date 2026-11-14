@@ -163,7 +163,7 @@ async function importExample(page: Page, source: string) {
     return "pending";
   }, { timeout: 5_000, intervals: [50, 100, 150] }).toBe("imported");
 
-  if (source.includes("smoke_stack_center")) {
+  if (source.includes("Mesher()")) {
     const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
     await test.info().attach("benchy-imported-graph.json", {
       body: JSON.stringify(graph, null, 2), contentType: "application/json"
@@ -252,16 +252,19 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         try {
-          const hookData = await page.evaluate(async () => {
-            const hook = (window as any).__build123dFlowTest;
-            return {
-              graph: await hook.getCurrentGraph(),
-              evaluation: await hook.evaluateCurrentGraph(),
-            };
+          const hook = await page.evaluate(() => (window as any).__build123dFlowTest);
+          const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
+          await test.info().attach(filename.replace(/\W+/g, "-") + "-graph.json", {
+            body: JSON.stringify(graph, null, 2), contentType: "application/json"
           });
-          await test.info().attach(filename.replace(/\\W+/g, "-") + "-evaluation-diagnostics.json", {
-            body: JSON.stringify(hookData, null, 2), contentType: "application/json"
-          });
+          try {
+            const evaluation = await page.evaluate(() => (window as any).__build123dFlowTest.evaluateCurrentGraph());
+            await test.info().attach(filename.replace(/\W+/g, "-") + "-evaluation.json", {
+              body: JSON.stringify(evaluation, null, 2), contentType: "application/json"
+            });
+          } catch (evaluationError) {
+            await test.info().attach("evaluation-diagnostics-error.txt", { body: String(evaluationError) });
+          }
         } catch (diagnosticError) {
           await test.info().attach("evaluation-diagnostics-error.txt", {
             body: String(diagnosticError)

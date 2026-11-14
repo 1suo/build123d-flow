@@ -245,6 +245,30 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("scope_reference_ids([args, kwargs])", process)
         self.assertIn("binding_node = add_scope_node", process)
 
+    def test_builder_scopes_enter_from_the_stable_evaluator_frame(self):
+        evaluator = next(
+            node for node in self.module.body
+            if isinstance(node, ast.FunctionDef) and node.name == "evaluate_graph_json"
+        )
+        nested_functions = [
+            node for node in ast.walk(evaluator)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        self.assertFalse(any(node.name == "transition_scopes" for node in nested_functions))
+        for function in nested_functions:
+            self.assertFalse(any(
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "__enter__"
+                for call in ast.walk(function)
+            ))
+        self.assertTrue(any(
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "__enter__"
+            for call in ast.walk(evaluator)
+        ))
+
     def test_graph_plan_orders_scope_arguments_and_scope_bodies(self):
         graph_plan = next(
             node for node in self.module.body

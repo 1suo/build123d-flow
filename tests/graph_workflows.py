@@ -307,6 +307,11 @@ def run_catalog_metadata_tests():
             raise AssertionError("Missing/invalid provenance: " + node.get("id", "<unknown>"))
         if not node.get("palette_category") or not node.get("palette_section"):
             raise AssertionError("Missing palette metadata: " + node.get("id", "<unknown>"))
+        execution = node.get("execution")
+        if not isinstance(execution, dict) or not isinstance(execution.get("cacheable"), bool):
+            raise AssertionError("Missing explicit execution/cache metadata: " + node.get("id", "<unknown>"))
+        if execution["cacheable"] and execution.get("purity") != "pure":
+            raise AssertionError("A cacheable node must explicitly declare purity: " + node.get("id", "<unknown>"))
 
     expected_sources = {
         "core.value.number": "flow",

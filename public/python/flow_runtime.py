@@ -3085,7 +3085,10 @@ def import_python_code(source):
                 outer_ids.update(frame["node_id"] for frame in active_loop_frames)
                 if outer_ids:
                     select_loop_mapping(iterable[1], outer_ids, generator.iter.lineno)
-                variables[generator.target.id] = iterable
+                item_type, item_types = iterable_item_metadata(iterable)
+                variables[generator.target.id] = (
+                    "ref", iterable[1], iterable[2], item_type, item_types
+                )
                 stream_variables.add(generator.target.id)
                 generator_streams.append(iterable)
                 active_loop_frames.append({
@@ -3175,7 +3178,7 @@ def import_python_code(source):
                     pass
             if receiver and receiver[0] == "ref":
                 receiver_node = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
-                receiver_type = receiver_node["data"]["definition"].get("outputs", [{}])[0].get("type") if receiver_node else None
+                receiver_type = reference_type(receiver)
                 if receiver_node and receiver_node.get("data", {}).get("scope_result"):
                     scope_id = receiver_node["data"]["scope_result"]
                     descriptor = next((item for item in execution_scopes if item.get("id") == scope_id), {})
@@ -3369,7 +3372,7 @@ def import_python_code(source):
                     if receiver[0] == "ref":
                         upstream = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
                         if upstream:
-                            receiver_type = upstream["data"]["definition"].get("outputs", [{}])[0].get("type")
+                            receiver_type = reference_type(receiver)
                     elif receiver[0] == "literal":
                         receiver_type = _type_name(type(materialize_literal(receiver[1])))
                     if not definition_id:
@@ -3553,20 +3556,14 @@ def import_python_code(source):
             # Catalog insertion order is unrelated to Python dispatch: selecting
             # the first matching dunder can bind (for example) Mixin1D.__add__
             # to a Solid even though that class does not inherit from Mixin1D.
-            receiver_type = None
-            if left[0] == "ref":
-                receiver_node = next(
-                    (item for item in graph_nodes if item["id"] == left[1]), None
-                )
-                if receiver_node:
-                    outputs = receiver_node.get("data", {}).get("definition", {}).get("outputs", [])
-                    if outputs:
-                        receiver_type = outputs[0].get("type")
+            receiver_type = reference_type(left)
             else:
                 try:
                     receiver_type = _type_name(type(materialize_literal(left[1])))
                 except Exception:
                     receiver_type = None
+            if receiver_type in {"Number", "String", "Boolean"}:
+                return add_python_binary_node(method, left, right, node.lineno)
             receiver_class = None
             if left[0] == "ref":
                 receiver_node = next(
@@ -3789,7 +3786,10 @@ def import_python_code(source):
         source_node = next((item for item in graph_nodes if item["id"] == value[1]), None)
         source_outputs = source_node.get("data", {}).get("definition", {}).get("outputs", []) if source_node else []
         source_output = next((item for item in source_outputs if item.get("name") == value[2]), None)
-        output_type = source_output.get("type", "Any") if source_output else "Any"
+        output_type = (
+            value[3] if len(value) > 3 and value[3]
+            else source_output.get("type", "Any") if source_output else "Any"
+        )
         definition_id = "core.python.loop_last"
         definition = {
             "id": definition_id, "name": "Python Loop Last",
@@ -3839,12 +3839,17 @@ def import_python_code(source):
                     values = [("literal", item) for item in assigned[1]]
                 elif assigned[0] == "ref":
                     values = []
+                    element_types = assigned[4] if len(assigned) > 4 else None
                     for index in range(len(target.elts)):
                         index_node = add_node(
                             _PYTHON_SUBSCRIPT_ID, {"index": index},
                             [("value", assigned[1], assigned[2])], line
                         )
-                        values.append(("ref", index_node, "result"))
+                        element_type = (
+                            element_types[index]
+                            if element_types and index < len(element_types) else "Any"
+                        )
+                        values.append(("ref", index_node, "result", element_type))
                 else:
                     raise ValueError("Cannot unpack this assignment at line {}".format(line))
                 if len(values) != len(target.elts):
@@ -3930,14 +3935,18 @@ def import_python_code(source):
                 saved_variables = dict(variables)
                 saved_stream_variables = set(stream_variables)
                 saved_matching = mapping_matching
+                item_type, item_types = iterable_item_metadata(iterable)
+                typed_iterable = (
+                    "ref", iterable[1], iterable[2], item_type, item_types
+                )
                 if isinstance(statement.target, ast.Name):
                     target_names = [statement.target]
-                    variables[statement.target.id] = iterable
+                    variables[statement.target.id] = typed_iterable
                 elif isinstance(statement.target, (ast.Tuple, ast.List)):
                     target_names = [item for item in statement.target.elts if isinstance(item, ast.Name)]
                     if len(target_names) != len(statement.target.elts):
                         raise ValueError("Only simple names are supported in a for-loop unpack target (line {})".format(statement.lineno))
-                    assign_target(statement.target, iterable, statement.lineno)
+                    assign_target(statement.target, typed_iterable, statement.lineno)
                 else:
                     raise ValueError("Unsupported for-loop target (line {})".format(statement.lineno))
 

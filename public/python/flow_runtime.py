@@ -1754,26 +1754,6 @@ def _validate_stream_items(definition, params, stream_shapes):
             )
 
 
-def _flow_sum(iterable, start=0):
-    """Run Python sum while preserving useful graph-input diagnostics."""
-    try:
-        return sum(iterable, start)
-    except Exception as exc:
-        first = None
-        try:
-            first = next(iter(iterable))
-        except (TypeError, StopIteration):
-            pass
-        raise RuntimeError(
-            "sum input types: iterable={}, first_item={}, start={}; {}".format(
-                type(iterable).__name__,
-                type(first).__name__ if first is not None else "empty",
-                type(start).__name__,
-                exc,
-            )
-        ) from exc
-
-
 def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(), depth=0, _validate=None):
     """Map only inputs explicitly identified as graph streams.
 
@@ -3582,7 +3562,7 @@ def import_python_code(source):
                             {"name": "start", "type": "Any", "required": False, "default": 0, "data_access": "structure"},
                         ]
                         output_type = reference_type(dynamic_args[1]) if len(dynamic_args) == 2 else "Number"
-                        callable_obj = _flow_sum
+                        callable_obj = sum
                     elif builtin_name in {"max", "min"} and len(dynamic_args) == 1 and not dynamic_kwargs:
                         names = ["iterable"]
                         input_sockets = [

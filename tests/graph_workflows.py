@@ -422,10 +422,14 @@ def run_python_loop_lowering_tests():
     result = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
     if result["errors"]:
         raise AssertionError("Mapped loop did not evaluate: " + json.dumps(result["errors"]))
-    terminal = graph["nodes"][-1]
-    if terminal["data"]["definition"]["outputs"][0]["type"] not in {"Shape", "Solid", "Compound"}:
+    terminal_shapes = [
+        node for node in graph["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.subscript"
+        and node["data"]["definition"]["outputs"][0]["type"] in {"Shape", "Solid", "Compound"}
+    ]
+    if not terminal_shapes:
         raise AssertionError("Post-loop assignment did not preserve the final geometry type")
-    if terminal["id"] not in result["previews"]:
+    if not any(node["id"] in result["previews"] for node in terminal_shapes):
         raise AssertionError("Post-loop variable did not resolve to the final mapped geometry")
 
     nested = runtime.import_python_code(
@@ -458,12 +462,42 @@ def run_python_loop_lowering_tests():
     unpacked_result = json.loads(runtime.evaluate_graph_json(json.dumps(unpacked)))
     if unpacked_result["errors"]:
         raise AssertionError("Tuple-unpacking loop target failed: " + json.dumps(unpacked_result["errors"]))
+
+    comprehension = runtime.import_python_code(
+        "from build123d import Box\\n"
+        "boxes = [Box(1, 2, 3) for length in [1, 2, 3]]\\n"
+    )
+    comprehension_boxes = [
+        node for node in comprehension["nodes"]
+        if node["data"]["definition"]["id"].endswith(".Box")
+    ]
+    if len(comprehension_boxes) != 1:
+        raise AssertionError("A list comprehension must compile its operation once")
+    comprehension_result = json.loads(runtime.evaluate_graph_json(json.dumps(comprehension)))
+    if comprehension_result["errors"]:
+        raise AssertionError("List-comprehension mapping failed: " + json.dumps(comprehension_result["errors"]))
+
+    constants = runtime.import_python_code("values = [7 for item in [1, 2, 3]]\\n")
+    constant_result = json.loads(runtime.evaluate_graph_json(json.dumps(constants)))
+    if constant_result["errors"]:
+        raise AssertionError("Literal list-comprehension mapping failed: " + json.dumps(constant_result["errors"]))
+
+    try:
+        runtime.export_python_code(graph)
+    except ValueError as exc:
+        if "mapped loop scopes" not in str(exc):
+            raise
+    else:
+        raise AssertionError("Python export silently discarded mapped loop semantics")
     return {
         "name": "Python loop lowering",
         "single_body_node": True,
         "nested_cross_product": True,
         "tuple_unpacking": True,
+        "list_comprehension": True,
+        "literal_comprehension": True,
         "post_loop_binding": True,
+        "lossy_export_rejected": True,
     }
 
 

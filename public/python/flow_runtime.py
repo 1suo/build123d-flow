@@ -3421,6 +3421,30 @@ def import_python_code(source):
                     links.append((receiver_socket["name"], receiver[1], receiver[2]))
                 else:
                     params[receiver_socket["name"]] = literal_json_value(receiver[1])
+            # The full runtime catalog is authoritative for bound receiver
+            # sockets. Reconcile it here before lowering arguments so an
+            # incomplete/stale local definition cannot turn a method call into
+            # a receiver-less node.
+            if receiver_socket is None and isinstance(node.func, ast.Attribute):
+                catalog_definition = _CATALOG.get(definition_id)
+                catalog_receiver = next((
+                    item for item in catalog_definition.get("inputs", [])
+                    if item.get("name") in {"self", "cls"}
+                ), None) if catalog_definition else None
+                if catalog_receiver is not None:
+                    definition = catalog_definition
+                    definitions[definition_id] = definition
+                    sockets = definition.get("inputs", [])
+                    receiver_socket = catalog_receiver
+            if receiver_socket is not None and isinstance(node.func, ast.Attribute):
+                if receiver is None:
+                    receiver = expression(node.func.value)
+                if receiver[0] == "ref":
+                    receiver_name = receiver_socket["name"]
+                    links = [link for link in links if link[0] != receiver_name]
+                    links.append((receiver_name, receiver[1], receiver[2]))
+                elif receiver[0] == "literal":
+                    params[receiver_socket["name"]] = literal_json_value(receiver[1])
             argument_sockets = [socket for socket in sockets if socket is not receiver_socket and socket.get("kind") != "var_keyword"]
             if len(node.args) > len(argument_sockets):
                 raise ValueError("Too many positional arguments for {} at line {}".format(

@@ -2801,7 +2801,7 @@ def import_python_code(source):
             else:
                 item_types.append(
                     extra[1] if len(extra) > 1 and extra[1]
-                    else "Any"
+                    else reference_type((kind, value, extra[0] if extra else "result"))
                 )
                 tuple_item_types.append(None)
         item_type = (
@@ -3843,8 +3843,9 @@ def import_python_code(source):
                     params[socket_name] = operand[1]
                 else:
                     links.append((socket_name, operand[1], operand[2]))
+            item_type, item_types = iterable_item_metadata(receiver)
             created = add_node(_PYTHON_SUBSCRIPT_ID, params, links, node.lineno)
-            return ("ref", created, "result")
+            return ("ref", created, "result", item_type, item_types)
         if isinstance(node, ast.Compare):
             operators = {
                 ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt,

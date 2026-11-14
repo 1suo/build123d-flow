@@ -3641,7 +3641,7 @@ def import_python_code(source):
                 return
             raise ValueError("Unsupported assignment target at line {}".format(line))
 
-        for statement in statements:
+        for statement_index, statement in enumerate(statements):
             if isinstance(statement, (ast.Import, ast.ImportFrom)):
                 continue
             if isinstance(statement, ast.With):
@@ -3752,14 +3752,32 @@ def import_python_code(source):
                 stream_variables.update(saved_stream_variables)
                 mapping_matching = saved_matching
 
-                # Python leaves the loop target bound to its last value. Other
-                # names assigned by the body likewise retain the final
-                # iteration's value. Materialize that final value by indexing
-                # the mapped sequence, rather than leaking a stream outside
-                # the loop or deleting a previously-bound name.
+                # Only materialize post-loop bindings that are actually read
+                # later. An unused loop target must not introduce an artificial
+                # failure for an empty iterable.
+                future_names = set()
+                future_statements = list(statements[statement_index + 1:]) + list(statement.orelse)
+                for future_statement in future_statements:
+                    future_names.update(
+                        item.id for item in ast.walk(future_statement)
+                        if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Load)
+                    )
+                nested_uses = (
+                    frame["written_names"] & future_names
+                    if active_loop_frames else set()
+                )
+                if nested_uses:
+                    raise ValueError(
+                        "A value assigned in a nested loop and read after its inner loop "
+                        "requires nested loop-result grouping, which is not yet supported "
+                        "(line {}): {}".format(statement.lineno, ", ".join(sorted(nested_uses)))
+                    )
+
+                # Python leaves a used loop target bound to its last value.
+                # Lower only the bindings whose values are observed afterward.
                 variables.clear()
                 variables.update(saved_variables)
-                for name in sorted(frame["written_names"]):
+                for name in sorted(frame["written_names"] & future_names):
                     if name not in body_variables:
                         continue
                     candidate = body_variables[name]

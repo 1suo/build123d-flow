@@ -70,6 +70,11 @@ jobs:
       - name: Remove browser-only test payload
         if: always()
         run: rm -f dist/python/graph_workflows.py
+      - name: Rebuild deployment bundle without test hooks
+        if: success()
+        run: npm run build
+        env:
+          GITHUB_PAGES: "true"
       - name: Upload Playwright diagnostics
         if: always()
         uses: actions/upload-artifact@v4

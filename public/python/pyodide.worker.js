@@ -229,6 +229,15 @@ async function invoke(method, payload) {
   if (method === "getDiscoveryReport") {
     return JSON.parse(pyodide.runPython("flow_runtime.discovery_report_json()"));
   }
+  if (method === "runGraphWorkflowTests") {
+    const testUrl = new URL(payload + "python/graph_workflows.py", self.location.href);
+    const response = await fetch(testUrl);
+    if (!response.ok) throw new Error("Graph workflow test payload unavailable: " + response.status);
+    const source = await response.text();
+    const code = "import json\\nexec(" + JSON.stringify(source) + ")\\njson.dumps(run_graph_workflow_tests())";
+    const result = await pyodide.runPythonAsync(code);
+    return JSON.parse(typeof result === "string" ? result : toJs(result));
+  }
   if (method === "evaluate") {
     const fn = pyodide.runPython("flow_runtime.evaluate_graph_json");
     try {

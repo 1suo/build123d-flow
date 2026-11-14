@@ -204,6 +204,21 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
   await expect.poll(async () =>
     (await activityEntries.allTextContents()).some(message => message.includes("API discovery complete")),
   { timeout: 15_000, intervals: [100, 200, 500] }).toBe(true);
+
+  // Run the focused graph/runtime behavioral suite in the already initialized
+  // Pyodide worker. This avoids a second browser/runtime boot and keeps the
+  // full acceptance job inside its two-minute budget.
+  const graphWorkflowResults = await page.evaluate(async () => {
+    const hook = (window as any).__build123dFlowTest;
+    if (!hook) throw new Error("Graph workflow test hook was not installed in CI build");
+    return await hook.runGraphWorkflowTests();
+  });
+  expect(graphWorkflowResults.length).toBeGreaterThan(10);
+  await test.info().attach("graph-workflow-results.json", {
+    body: JSON.stringify(graphWorkflowResults, null, 2),
+    contentType: "application/json",
+  });
+
   await page.getByRole("button", { name: "Settings", exact: true }).click();
 
   const upstreamSources = await sourcesPromise;

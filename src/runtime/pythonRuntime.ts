@@ -44,6 +44,9 @@ export class PythonRuntime {
   getCatalog(): Promise<NodeDefinition[]> { return this.request<NodeDefinition[]>("getCatalog"); }
   discoverCatalog(): Promise<NodeDefinition[]> { return this.request<NodeDefinition[]>("discoverCatalog"); }
   getDiscoveryReport(): Promise<Record<string, unknown>> { return this.request<Record<string, unknown>>("getDiscoveryReport"); }
+  runGraphWorkflowTests(): Promise<Array<Record<string, unknown>>> {
+    return this.request<Array<Record<string, unknown>>>("runGraphWorkflowTests", import.meta.env.BASE_URL);
+  }
   evaluate(graph: GraphDocument): Promise<EvaluationResult> { return this.request<EvaluationResult>("evaluate", graph); }
   exportStep(): Promise<Uint8Array | null> { return this.request<Uint8Array | null>("exportStep"); }
   exportPython(graph: GraphDocument): Promise<string> { return this.request<string>("exportPython", graph); }

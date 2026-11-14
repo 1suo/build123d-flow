@@ -217,6 +217,11 @@ onMounted(() => {
     }
     status.value = "Ready";
     logActivity("Python runtime ready", "success");
+    if (import.meta.env.VITE_E2E_TEST_HOOKS === "true") {
+      (window as any).__build123dFlowTest = {
+        runGraphWorkflowTests: () => runtime.runGraphWorkflowTests(),
+      };
+    }
     if (nodes.value.length) scheduleEvaluation();
   }).catch((error) => {
     status.value = "Initialization failed";

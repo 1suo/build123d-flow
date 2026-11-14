@@ -392,6 +392,81 @@ def run_preview_style_test():
     return {"name": "preview style and topology", "faces": True, "edges": True, "vertices": True}
 
 
+def run_python_loop_lowering_tests():
+    """Python loops compile once and map their body over iteration sequences."""
+    source = (
+        "from build123d import Box\\n"
+        "for length in [1, 2, 3]:\\n"
+        "    box = Box(length, 2, 3)\\n"
+    )
+    graph = runtime.import_python_code(source)
+    box_nodes = [
+        node for node in graph["nodes"]
+        if node["data"]["definition"]["id"].endswith(".Box")
+    ]
+    if len(box_nodes) != 1:
+        raise AssertionError("A loop body must compile to one Box node, not an unrolled copy per item")
+    box_node = box_nodes[0]
+    iteration_inputs = [
+        socket for socket in box_node["data"]["definition"]["inputs"]
+        if socket["name"].startswith("__flow_iteration_")
+    ]
+    if len(iteration_inputs) != 1:
+        raise AssertionError("Loop body node is missing its iteration-sequence dependency")
+    iteration_name = iteration_inputs[0]["name"]
+    if not any(
+        edge["target"] == box_node["id"] and edge["targetHandle"] == iteration_name
+        for edge in graph["edges"]
+    ):
+        raise AssertionError("Loop iteration sequence is not connected to the single body node")
+    result = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
+    if result["errors"]:
+        raise AssertionError("Mapped loop did not evaluate: " + json.dumps(result["errors"]))
+    terminal = graph["nodes"][-1]
+    if terminal["data"]["definition"]["outputs"][0]["type"] not in {"Shape", "Solid", "Compound"}:
+        raise AssertionError("Post-loop assignment did not preserve the final geometry type")
+    if terminal["id"] not in result["previews"]:
+        raise AssertionError("Post-loop variable did not resolve to the final mapped geometry")
+
+    nested = runtime.import_python_code(
+        "from build123d import Box\\n"
+        "for length in [1, 2]:\\n"
+        "    for width in [3, 4]:\\n"
+        "        box = Box(length, width, 1)\\n"
+    )
+    nested_boxes = [
+        node for node in nested["nodes"]
+        if node["data"]["definition"]["id"].endswith(".Box")
+    ]
+    if len(nested_boxes) != 1:
+        raise AssertionError("Nested loops must not duplicate the body operation")
+    nested_inputs = [
+        socket for socket in nested_boxes[0]["data"]["definition"]["inputs"]
+        if socket["name"].startswith("__flow_iteration_")
+    ]
+    if len(nested_inputs) != 2 or nested_boxes[0]["data"].get("data_matching") != "cross":
+        raise AssertionError("Independent nested loops must form a cross-product stream")
+    nested_result = json.loads(runtime.evaluate_graph_json(json.dumps(nested)))
+    if nested_result["errors"]:
+        raise AssertionError("Independent nested loop mapping failed: " + json.dumps(nested_result["errors"]))
+
+    unpacked = runtime.import_python_code(
+        "from build123d import Box\\n"
+        "for length, width in [(1, 2), (3, 4)]:\\n"
+        "    box = Box(length, width, 1)\\n"
+    )
+    unpacked_result = json.loads(runtime.evaluate_graph_json(json.dumps(unpacked)))
+    if unpacked_result["errors"]:
+        raise AssertionError("Tuple-unpacking loop target failed: " + json.dumps(unpacked_result["errors"]))
+    return {
+        "name": "Python loop lowering",
+        "single_body_node": True,
+        "nested_cross_product": True,
+        "tuple_unpacking": True,
+        "post_loop_binding": True,
+    }
+
+
 def run_python_value_constructor_tests():
     """All declared build123d object socket types share generic constructor import."""
     cases = [
@@ -782,7 +857,7 @@ def run_graph_plan_validation_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_value_constructor_tests(), run_python_scope_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_python_scope_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

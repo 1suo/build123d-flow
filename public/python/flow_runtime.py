@@ -4242,6 +4242,16 @@ def import_python_code(source):
                             _PYTHON_SUBSCRIPT_ID, {"index": index},
                             [("value", assigned[1], assigned[2])], line
                         )
+                        # Tuple-unpacking subscripts are part of the loop body:
+                        # apply them to each tuple item, unlike ordinary Python
+                        # indexing of a collection, which consumes the collection
+                        # as a structure and must not trigger implicit mapping.
+                        unpack_node = next(item for item in graph_nodes if item["id"] == index_node)
+                        unpack_value = next(
+                            socket for socket in unpack_node["data"]["definition"]["inputs"]
+                            if socket["name"] == "value"
+                        )
+                        unpack_value["data_access"] = "item"
                         element_type = (
                             element_types[index]
                             if element_types and index < len(element_types) else "Any"

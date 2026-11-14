@@ -3296,9 +3296,51 @@ def import_python_code(source):
                     ))
                 except (TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
                     raise ValueError("Invalid binary operation at line {}: {}".format(node.lineno, exc))
-            definition_id = next((key for key in definitions if ".operator." + method in key), None)
+            # Resolve the operator from the left operand's concrete class MRO.
+            # Catalog insertion order is unrelated to Python dispatch: selecting
+            # the first matching dunder can bind (for example) Mixin1D.__add__
+            # to a Solid even though that class does not inherit from Mixin1D.
+            receiver_type = None
+            if left[0] == "ref":
+                receiver_node = next(
+                    (item for item in graph_nodes if item["id"] == left[1]), None
+                )
+                if receiver_node:
+                    outputs = receiver_node.get("data", {}).get("definition", {}).get("outputs", [])
+                    if outputs:
+                        receiver_type = outputs[0].get("type")
+            else:
+                try:
+                    receiver_type = _type_name(type(materialize_literal(left[1])))
+                except Exception:
+                    receiver_type = None
+            receiver_class = getattr(b3d, receiver_type, None) if receiver_type else None
+            definition_id = None
+            if inspect.isclass(receiver_class):
+                for owner in receiver_class.__mro__:
+                    candidate_id = (
+                        owner.__module__ + "." + owner.__name__ + ".operator." + method
+                    )
+                    if candidate_id in definitions:
+                        definition_id = candidate_id
+                        break
+            if definition_id is None:
+                # Unknown/abstract receiver types may not map to an exported
+                # class. In that case only accept an unambiguous catalog entry.
+                candidates = [
+                    key for key in definitions if key.endswith(".operator." + method)
+                ]
+                if len(candidates) == 1:
+                    definition_id = candidates[0]
+                elif candidates:
+                    raise ValueError(
+                        "Cannot resolve operator {} for receiver type {} (line {}); "
+                        "candidates: {}".format(method, receiver_type, node.lineno, candidates)
+                    )
             if not definition_id:
-                raise ValueError("No graph node registered for operator {} (line {})".format(method, node.lineno))
+                raise ValueError("No graph node registered for operator {} on {} (line {})".format(
+                    method, receiver_type or "unknown receiver", node.lineno
+                ))
             definition = definitions[definition_id]
             params, links = {}, []
             operands = [left, right]

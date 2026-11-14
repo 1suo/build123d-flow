@@ -2966,7 +2966,8 @@ def import_python_code(source):
                 iterable = expression(generator.iter)
                 if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple)):
                     iterable = add_collection_node(
-                        [("literal", item) for item in iterable[1]], "list", generator.iter.lineno
+                        [("literal", item) for item in iterable[1]], "list",
+                        generator.iter.lineno, map_over_active_loops=False,
                     )
                 if iterable[0] != "ref":
                     raise ValueError("A comprehension iterable must be a sequence or graph output (line {})".format(generator.iter.lineno))

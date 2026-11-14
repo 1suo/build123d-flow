@@ -461,10 +461,10 @@ def run_python_loop_lowering_tests():
         raise AssertionError("Independent nested loops must map to the four Cartesian pairs: " + repr(nested_boxes_value))
 
     repeated = runtime.import_python_code(
-        "from build123d import Box\\n"
-        "for length in [1, 2]:\\n"
-        "    for width in [3, 4]:\\n"
-        "        box = Box(1, 1, 1)\\n"
+        "from build123d import Box\n"
+        "for length in [1, 2]:\n"
+        "    for width in [3, 4]:\n"
+        "        box = Box(1, 1, 1)\n"
     )
     repeated_boxes = [
         node for node in repeated["nodes"]
@@ -480,11 +480,11 @@ def run_python_loop_lowering_tests():
         raise AssertionError("A body independent of loop variables must still execute for all four pairs: " + repr(repeated_value))
 
     mixed_loops = (
-        "from build123d import Box\\n"
-        "for length in [1, 2]:\\n"
-        "    for width in [3, 4]:\\n"
-        "        for depth in [width, width + 1]:\\n"
-        "            box = Box(length, width, depth)\\n"
+        "from build123d import Box\n"
+        "for length in [1, 2]:\n"
+        "    for width in [3, 4]:\n"
+        "        for depth in [width, width + 1]:\n"
+        "            box = Box(length, width, depth)\n"
     )
     try:
         runtime.import_python_code(mixed_loops)
@@ -495,11 +495,11 @@ def run_python_loop_lowering_tests():
         raise AssertionError("Mixed nested mapping modes must be rejected rather than evaluated incorrectly")
 
     nested_post_loop = (
-        "from build123d import Box\\n"
-        "for length in [1, 2]:\\n"
-        "    for width in [3, 4]:\\n"
-        "        box = Box(length, width, 1)\\n"
-        "result = box\\n"
+        "from build123d import Box\n"
+        "for length in [1, 2]:\n"
+        "    for width in [3, 4]:\n"
+        "        box = Box(length, width, 1)\n"
+        "result = box\n"
     )
     try:
         runtime.import_python_code(nested_post_loop)

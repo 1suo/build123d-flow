@@ -3831,16 +3831,47 @@ def import_python_code(source):
                             node.lineno
                         )
                     )
-            argument_sockets = [socket for socket in sockets if socket is not receiver_socket and socket.get("kind") != "var_keyword"]
-            if len(node.args) > len(argument_sockets):
+            var_positional_socket = next(
+                (socket for socket in sockets if socket.get("kind") == "var_positional"), None
+            )
+            argument_sockets = [
+                socket for socket in sockets
+                if socket is not receiver_socket
+                and socket.get("kind") not in {"var_keyword", "var_positional"}
+            ]
+            if len(node.args) > len(argument_sockets) and var_positional_socket is None:
                 raise ValueError("Too many positional arguments for {} at line {}".format(
                     definition.get("name"), node.lineno))
             supplied = {}
-            for index, value in enumerate(node.args):
+            for index, value in enumerate(node.args[:len(argument_sockets)]):
                 supplied[argument_sockets[index]["name"]] = value
+
+            # Python constructors such as Bezier(*points) expose a single
+            # VAR_POSITIONAL parameter. Lower its positional arguments as a
+            # structural list; the evaluator expands that list back into
+            # positional arguments when invoking the native callable.
+            var_positional_value = None
+            extra_positional = node.args[len(argument_sockets):]
+            if extra_positional:
+                if var_positional_socket is None:
+                    raise ValueError("Too many positional arguments for {} at line {}".format(
+                        definition.get("name"), node.lineno))
+                if any(isinstance(value, ast.Starred) for value in extra_positional):
+                    if len(extra_positional) != 1 or not isinstance(extra_positional[0], ast.Starred):
+                        raise ValueError("Mixed starred positional arguments are unsupported at line {}".format(
+                            node.lineno))
+                    var_positional_value = expression(extra_positional[0].value)
+                else:
+                    var_positional_value = add_collection_node(
+                        [expression(value) for value in extra_positional], "list", node.lineno
+                    )
+
             for keyword in node.keywords:
                 if keyword.arg is None:
                     raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
+                if var_positional_socket is not None and keyword.arg == var_positional_socket["name"]:
+                    raise ValueError("Variadic positional parameter '{}' cannot be passed by keyword at line {}".format(
+                        keyword.arg, node.lineno))
                 supplied[keyword.arg] = keyword.value
             known = {socket["name"] for socket in sockets}
             unknown = set(supplied) - known
@@ -3850,6 +3881,14 @@ def import_python_code(source):
             for socket in sockets:
                 name = socket["name"]
                 if socket is receiver_socket:
+                    continue
+                if socket is var_positional_socket:
+                    if var_positional_value is not None:
+                        kind, value, *extra = var_positional_value
+                        if kind == "literal":
+                            params[name] = literal_json_value(value)
+                        else:
+                            links.append((name, value, extra[0]))
                     continue
                 if name not in supplied:
                     if "default" in socket:

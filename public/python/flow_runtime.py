@@ -18,6 +18,10 @@ _CATALOG = {}
 _CATALOG_CALLABLES = {}
 _CATALOG_SIGNATURES = {}
 _CATALOG_HINT_TARGETS = {}
+# Graph-lowering operations are executable runtime primitives, not public API
+# nodes. Keep their definitions available to the evaluator but out of the
+# discoverable palette/catalog returned to the application.
+_INTERNAL_NODE_IDS = set()
 _LAST_SHAPE = None
 _DISCOVERY_REPORT = {}
 _EVAL_CACHE = {}
@@ -1472,7 +1476,11 @@ def discovery_report_json():
 def catalog_json():
     if not _CATALOG:
         discover(include_full=False)
-    return json.dumps(_json_clean(list(_CATALOG.values())), allow_nan=False)
+    public_nodes = [
+        definition for node_id, definition in _CATALOG.items()
+        if node_id not in _INTERNAL_NODE_IDS
+    ]
+    return json.dumps(_json_clean(public_nodes), allow_nan=False)
 
 
 def discover_full():
@@ -2573,9 +2581,11 @@ def import_python_code(source):
     _PYTHON_SUBSCRIPT_ID = "core.python.subscript"
     _PYTHON_SLICE_ID = "core.python.slice"
     _PYTHON_ATTRIBUTE_ID = "core.python.attribute"
+    _INTERNAL_NODE_IDS.update({_PYTHON_SUBSCRIPT_ID, _PYTHON_SLICE_ID, _PYTHON_ATTRIBUTE_ID})
     definitions[_PYTHON_SUBSCRIPT_ID] = {
         "id": _PYTHON_SUBSCRIPT_ID, "name": "Python Subscript",
-        "source": "build123d", "kind": "function", "category": "Python",
+        "source": "python", "kind": "operation", "category": "Internal",
+        "palette_category": "Internal", "palette_section": "Graph lowering",
         "inputs": [
             {"name": "value", "type": "Any", "required": True},
             {"name": "index", "type": "Any", "required": True},
@@ -2584,7 +2594,8 @@ def import_python_code(source):
     }
     definitions[_PYTHON_SLICE_ID] = {
         "id": _PYTHON_SLICE_ID, "name": "Python Slice",
-        "source": "build123d", "kind": "function", "category": "Python",
+        "source": "python", "kind": "operation", "category": "Internal",
+        "palette_category": "Internal", "palette_section": "Graph lowering",
         "inputs": [
             {"name": "start", "type": "Any", "required": False, "default": None},
             {"name": "stop", "type": "Any", "required": False, "default": None},
@@ -2594,7 +2605,8 @@ def import_python_code(source):
     }
     definitions[_PYTHON_ATTRIBUTE_ID] = {
         "id": _PYTHON_ATTRIBUTE_ID, "name": "Python Attribute",
-        "source": "build123d", "kind": "function", "category": "Python",
+        "source": "python", "kind": "operation", "category": "Internal",
+        "palette_category": "Internal", "palette_section": "Graph lowering",
         "inputs": [
             {"name": "value", "type": "Any", "required": True},
             {"name": "name", "type": "String", "required": True},
@@ -2677,11 +2689,13 @@ def import_python_code(source):
         ).hexdigest()[:12]
         definition = {
             "id": definition_id, "name": "Python " + ("Tuple" if structure == "tuple" else "List"),
-            "source": "python", "kind": "function", "category": "Python",
+            "source": "python", "kind": "operation", "category": "Internal",
+            "palette_category": "Internal", "palette_section": "Graph lowering",
             "inputs": input_sockets,
             "outputs": [{"name": "result", "type": "Any", "data_structure": output_structure}],
         }
         definitions[definition_id] = definition
+        _INTERNAL_NODE_IDS.add(definition_id)
         names = [socket["name"] for socket in input_sockets]
         def collect(**values):
             result = [values[name] for name in names]

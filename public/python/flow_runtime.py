@@ -3556,7 +3556,8 @@ def import_python_code(source):
             # Catalog insertion order is unrelated to Python dispatch: selecting
             # the first matching dunder can bind (for example) Mixin1D.__add__
             # to a Solid even though that class does not inherit from Mixin1D.
-            receiver_type = reference_type(left)
+            if left[0] == "ref":
+                receiver_type = reference_type(left)
             else:
                 try:
                     receiver_type = _type_name(type(materialize_literal(left[1])))

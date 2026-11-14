@@ -3050,6 +3050,14 @@ def import_python_code(source):
         constructor_type = _type_name(constructor)
         if constructor_type not in _OBJECT_INPUT_TYPES:
             return None
+        geometry_types = {"Face", "Edge", "Vertex", "Wire", "Shell", "Solid", "Compound"}
+        # Geometry classes are real build123d operations when used as source
+        # expressions (Box(...), Face(...), Solid(...)). Treat them as literal
+        # value constructors only when a typed destination socket explicitly
+        # requests that geometry type; otherwise normal API-node resolution
+        # must retain the constructor and its graph dependencies.
+        if constructor_type in geometry_types and expected_type in (None, "Any"):
+            return None
         if expected_type not in (None, "Any", constructor_type):
             return None
         return constructor, constructor_type

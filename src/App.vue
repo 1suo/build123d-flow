@@ -509,33 +509,17 @@ async function importPythonSource(source: string, sourceLabel: string) {
     updateNodeInternals(importedNodes.map((node: any) => node.id));
     await nextTick();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    addEdges(imported.edges as Edge[]);
+    // All imported node handles are now mounted. Assign the complete edge
+    // model in one transaction rather than calling addEdges, whose connection
+    // validator can reject valid Python receiver links before inferred socket
+    // metadata has settled.
+    edges.value = imported.edges as Edge[];
     await nextTick();
-
-    // Verify the store retained every imported connection. Retry only missing
-    // edges after another handle refresh; never evaluate a partial graph.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     const retainedEdgeIds = new Set(edges.value.map((edge: any) => edge.id));
     const missingEdges = (imported.edges as Edge[]).filter((edge: any) => !retainedEdgeIds.has(edge.id));
     if (missingEdges.length) {
-      updateNodeInternals(importedNodes.map((node: any) => node.id));
-      await nextTick();
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      addEdges(missingEdges);
-      await nextTick();
-    }
-    let finalEdgeIds = new Set(edges.value.map((edge: any) => edge.id));
-    let stillMissing = (imported.edges as Edge[]).filter((edge: any) => !finalEdgeIds.has(edge.id));
-    if (stillMissing.length) {
-      // Vue Flow's mutation helper can reject a programmatic edge while its
-      // internal handle registry is catching up. At this point every node has
-      // rendered, so synchronize the bound model as a final lossless fallback.
-      edges.value = imported.edges as Edge[];
-      await nextTick();
-      finalEdgeIds = new Set(edges.value.map((edge: any) => edge.id));
-      stillMissing = (imported.edges as Edge[]).filter((edge: any) => !finalEdgeIds.has(edge.id));
-    }
-    if (stillMissing.length) {
-      throw new Error("Vue Flow did not retain imported connections: " + JSON.stringify(stillMissing));
+      throw new Error("Vue Flow did not retain imported connections: " + JSON.stringify(missingEdges));
     }
     executionScopes.value = imported.execution_scopes ?? [];
     nextId = importedNodes.length + 1;

@@ -3554,6 +3554,12 @@ def import_python_code(source):
             [("value", value[1], value[2])], line,
         )
         node = next(item for item in graph_nodes if item["id"] == node_id)
+        source_node = next((item for item in graph_nodes if item["id"] == value[1]), None)
+        source_outputs = source_node.get("data", {}).get("definition", {}).get("outputs", []) if source_node else []
+        source_output = next((item for item in source_outputs if item.get("name") == value[2]), None)
+        output_type = source_output.get("type", "Any") if source_output else "Any"
+        node["data"]["definition"]["outputs"][0]["type"] = output_type
+        node["data"]["visible"] = output_type in {"Shape", "Solid", "Compound", "Part", "Sketch"}
         for socket in node["data"]["definition"]["inputs"]:
             if socket.get("name") == "value":
                 socket["data_access"] = "structure"
@@ -3682,6 +3688,9 @@ def import_python_code(source):
                 if active_loop_frames:
                     outer_ids = {frame["node_id"] for frame in active_loop_frames}
                     mapping_matching = "longest" if graph_depends_on(iterable[1], outer_ids) else "cross"
+                for target in target_names:
+                    for outer_frame in active_loop_frames:
+                        outer_frame["written_names"].add(target.id)
                 frame = {
                     "node_id": iterable[1], "output_name": iterable[2],
                     "written_names": set(target.id for target in target_names),
@@ -3711,15 +3720,16 @@ def import_python_code(source):
                         # once per iteration; the token node preserves empty-
                         # sequence behavior and the sequence dependency.
                         loop_value_id = "core.python.loop_value"
+                        literal_type = _type_name(type(materialize_literal(candidate[1])))
                         loop_value_definition = {
                             "id": loop_value_id, "name": "Python Loop Value",
                             "source": "python", "kind": "operation", "category": "Internal",
                             "palette_category": "Internal", "palette_section": "Graph lowering",
                             "inputs": [
-                                {"name": "value", "type": "Any", "required": True, "data_access": "structure"},
+                                {"name": "value", "type": literal_type, "required": True, "data_access": "structure"},
                                 {"name": "iteration", "type": "Any", "required": True, "data_access": "item"},
                             ],
-                            "outputs": [{"name": "result", "type": "Any"}],
+                            "outputs": [{"name": "result", "type": literal_type}],
                         }
                         definitions[loop_value_id] = loop_value_definition
                         _INTERNAL_NODE_IDS.add(loop_value_id)
@@ -3735,6 +3745,28 @@ def import_python_code(source):
                         )
                         candidate = ("ref", carried_id, "result")
                     elif not graph_depends_on(candidate[1], {iterable[1]}):
+                        source_node = next((item for item in graph_nodes if item["id"] == candidate[1]), None)
+                        source_outputs = source_node.get("data", {}).get("definition", {}).get("outputs", []) if source_node else []
+                        source_output = next((item for item in source_outputs if item.get("name") == candidate[2]), None)
+                        carried_type = source_output.get("type", "Any") if source_output else "Any"
+                        loop_value_definition = {
+                            "id": "core.python.loop_value", "name": "Python Loop Value",
+                            "source": "python", "kind": "operation", "category": "Internal",
+                            "palette_category": "Internal", "palette_section": "Graph lowering",
+                            "inputs": [
+                                {"name": "value", "type": carried_type, "required": True, "data_access": "structure"},
+                                {"name": "iteration", "type": "Any", "required": True, "data_access": "item"},
+                            ],
+                            "outputs": [{"name": "result", "type": carried_type}],
+                        }
+                        definitions["core.python.loop_value"] = loop_value_definition
+                        _INTERNAL_NODE_IDS.add("core.python.loop_value")
+                        _CATALOG_CALLABLES["core.python.loop_value"] = lambda value, iteration: value
+                        _CATALOG_SIGNATURES["core.python.loop_value"] = inspect.Signature([
+                            inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                            inspect.Parameter("iteration", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                        ])
+                        _CATALOG_HINT_TARGETS["core.python.loop_value"] = False
                         carried_id = add_node(
                             "core.python.loop_value", {},
                             [("value", candidate[1], candidate[2]),

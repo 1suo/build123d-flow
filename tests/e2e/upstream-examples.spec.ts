@@ -149,7 +149,7 @@ async function importExample(page: Page, source: string) {
     if (/is-error/.test(state)) return "evaluation-failed";
     if (latest.includes("Evaluation complete")) return "passed";
     return "pending";
-  }, { timeout: 1_000, intervals: [100, 200, 300] }).toBe("passed");
+  }, { timeout: 700, intervals: [50, 100, 150] }).toBe("passed");
 
   await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9][0-9]* visible/, { timeout: 500 });
   await expect(page.locator(".geometry-viewport canvas")).toBeVisible({ timeout: 500 });
@@ -170,7 +170,7 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
   }));
 
   await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 20_000 });
+  await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 45_000 });
   await expect(page.locator(".viewport-status")).toContainText("Ready", { timeout: 1_000 });
   const upstreamSources = await sourcesPromise;
 

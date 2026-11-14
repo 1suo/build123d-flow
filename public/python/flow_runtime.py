@@ -15,6 +15,21 @@ import operator
 
 import build123d as b3d
 
+# OCCT's arc-length solver can raise Standard_ConstructionError when asked
+# for the exact end of a Bezier edge (for example, edge @ 1). The endpoint
+# is already available directly from the curve adaptor, so bypass the solver
+# only for exact normalized endpoints and preserve normal behavior elsewhere.
+_original_edge_position_at = b3d.Edge.position_at
+def _stable_edge_position_at(self, position, position_mode=b3d.PositionMode.PARAMETER):
+    if position_mode == b3d.PositionMode.PARAMETER:
+        if position == 0:
+            return self.start_point()
+        if position == 1:
+            return self.end_point()
+    return _original_edge_position_at(self, position, position_mode)
+
+b3d.Edge.position_at = _stable_edge_position_at
+
 _CATALOG = {}
 _CATALOG_CALLABLES = {}
 _CATALOG_SIGNATURES = {}

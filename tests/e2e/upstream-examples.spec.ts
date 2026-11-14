@@ -144,7 +144,7 @@ async function importExample(page: Page, source: string) {
   const previousImportStarts = previousMessages.filter(message => message.includes("Importing Python source")).length;
   const previousImported = previousMessages.filter(message => message.includes("Python imported")).length;
   const previousImportFailures = previousMessages.filter(message => message.includes("Python import failed")).length;
-  const previousEvaluations = previousMessages.filter(message => message.includes("Evaluation complete")).length;
+  const evaluationBeforeImport = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
   await sourceInput.fill(source);
   await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
   await page.getByRole("button", { name: "Import pasted code" }).click();
@@ -163,13 +163,15 @@ async function importExample(page: Page, source: string) {
     return "pending";
   }, { timeout: 5_000, intervals: [50, 100, 150] }).toBe("imported");
 
-  await expect.poll(async () => {
-    const messages = await entries.allTextContents();
-    if (messages.filter(message => message.includes("Evaluation complete")).length > previousEvaluations) return "passed";
-    const state = await page.locator(".viewport-status-dot").getAttribute("class") ?? "";
-    if (/is-error/.test(state)) return "evaluation-failed";
-    return "pending";
-  }, { timeout: 5_000, intervals: [50, 100, 150] }).toBe("passed");
+  const evaluationAfterImport = await expect.poll(async () => {
+    const state = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
+    if (state.revision <= evaluationBeforeImport.revision || state.running) return null;
+    return state;
+  }, { timeout: 10_000, intervals: [50, 100, 150] }).not.toBeNull();
+
+  const evaluation = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
+  expect(evaluation.errors, "graph evaluation errors").toEqual([]);
+  expect(evaluation.geometryCount, "visible geometry count").toBeGreaterThan(0);
 
   await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9][0-9]* visible/, { timeout: 500 });
   await expect(page.locator(".geometry-viewport canvas")).toBeVisible({ timeout: 500 });

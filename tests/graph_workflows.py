@@ -408,18 +408,15 @@ def run_python_loop_lowering_tests():
     if len(box_nodes) != 1:
         raise AssertionError("A loop body must compile to one Box node, not an unrolled copy per item")
     box_node = box_nodes[0]
-    iteration_inputs = [
-        socket for socket in box_node["data"]["definition"]["inputs"]
-        if socket["name"].startswith("__flow_iteration_")
-    ]
-    if len(iteration_inputs) != 1:
-        raise AssertionError("Loop body node is missing its iteration-sequence dependency")
-    iteration_name = iteration_inputs[0]["name"]
+    loop_collection_ids = {
+        node["id"] for node in graph["nodes"]
+        if node["data"]["definition"]["id"].startswith("core.python.collect.")
+    }
     if not any(
-        edge["target"] == box_node["id"] and edge["targetHandle"] == iteration_name
+        edge["target"] == box_node["id"] and edge["source"] in loop_collection_ids
         for edge in graph["edges"]
     ):
-        raise AssertionError("Loop iteration sequence is not connected to the single body node")
+        raise AssertionError("Loop iterable is not connected to the single body node")
     result = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
     if result["errors"]:
         raise AssertionError("Mapped loop did not evaluate: " + json.dumps(result["errors"]))
@@ -459,12 +456,12 @@ def run_python_loop_lowering_tests():
     ]
     if len(nested_boxes) != 1:
         raise AssertionError("Nested loops must not duplicate the body operation")
-    nested_inputs = [
-        socket for socket in nested_boxes[0]["data"]["definition"]["inputs"]
-        if socket["name"].startswith("__flow_iteration_")
-    ]
-    if len(nested_inputs) != 2 or nested_boxes[0]["data"].get("data_matching") != "cross":
-        raise AssertionError("Independent nested loops must form a cross-product stream")
+    nested_sources = {
+        edge["source"] for edge in nested["edges"]
+        if edge["target"] == nested_boxes[0]["id"]
+    }
+    if len(nested_sources) != 2 or nested_boxes[0]["data"].get("data_matching") != "cross":
+        raise AssertionError("Independent nested loops must connect both streams as a cross-product")
     nested_result = json.loads(runtime.evaluate_graph_json(json.dumps(nested)))
     if nested_result["errors"]:
         raise AssertionError("Independent nested loop mapping failed: " + json.dumps(nested_result["errors"]))

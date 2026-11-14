@@ -156,6 +156,28 @@ def _resolve_hints(target):
         return {}
 
 
+def _receiver_socket(owner):
+    """Describe whether a discovered method receives one object or a collection."""
+    receiver_type = _type_name(owner)
+    try:
+        collection_receiver = issubclass(
+            owner, (list, tuple, set, frozenset, collections.abc.Collection)
+        )
+    except TypeError:
+        collection_receiver = False
+    if collection_receiver:
+        return {
+            "name": "self", "label": "collection", "type": "List",
+            "annotation": str(owner), "required": True,
+            "data_structure": "list", "item_type": "Any",
+            "data_access": "structure",
+        }
+    return {
+        "name": "self", "label": "object", "type": receiver_type,
+        "annotation": str(owner), "required": True, "data_access": "item",
+    }
+
+
 def _method_signature(function):
     """Return an implementation signature enriched with its declared overload contract."""
     signature = inspect.signature(function)
@@ -1266,10 +1288,7 @@ def discover(include_full=True):
                         "category": owner.__name__ + " Properties",
                         "palette_category": "API", "palette_section": "Discovered properties",
                         "description": (inspect.getdoc(getter_fn) or "").split("\n")[0][:180],
-                        "inputs": [{
-                            "name": "self", "label": "object", "type": receiver_type,
-                            "annotation": str(owner), "required": True, "data_access": "item",
-                        }],
+                        "inputs": [_receiver_socket(owner)],
                         "outputs": [property_socket],
                     }
                     callables[property_id] = getter
@@ -1288,10 +1307,9 @@ def discover(include_full=True):
                 parameters = list(signature.parameters.values())
                 if not parameters or parameters[0].name not in ("self", "cls"):
                     continue
-                inputs = [{
-                    "name": parameters[0].name, "label": "object", "type": receiver_type,
-                    "annotation": str(owner), "required": True, "data_access": "item",
-                }]
+                receiver_socket = _receiver_socket(owner)
+                receiver_socket["name"] = parameters[0].name
+                inputs = [receiver_socket]
                 for parameter in parameters[1:]:
                     annotation = _resolve_self_annotation(
                         hints.get(parameter.name, parameter.annotation), owner
@@ -1394,10 +1412,7 @@ def discover(include_full=True):
                     "category": owner.__name__ + " Properties",
                     "palette_category": "API", "palette_section": "Discovered properties",
                     "description": "Read the " + field_name.replace("_", " ") + " field",
-                    "inputs": [{
-                        "name": "self", "label": "object", "type": receiver_type,
-                        "annotation": str(owner), "required": True,
-                    }],
+                    "inputs": [_receiver_socket(owner)],
                     "outputs": [field_output],
                 }
                 callables[field_id] = field_getter

@@ -229,6 +229,12 @@ onMounted(() => {
         runGraphWorkflowTests: () => runtime.runGraphWorkflowTests(),
         downloadFile: (path: string, url: string) => runtime.downloadFile(path, url),
         getCurrentGraph: () => graph.value,
+        getEvaluationState: () => ({
+          revision: evaluationRevision,
+          running: running.value,
+          errors: errors.value,
+          geometryCount: Object.keys(previews.value).length,
+        }),
         evaluateCurrentGraph: () => runtime.evaluate(graph.value),
       };
     }

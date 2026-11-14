@@ -245,12 +245,15 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         try {
-          const diagnostics = await page.evaluate(async () => {
+          const hookData = await page.evaluate(async () => {
             const hook = (window as any).__build123dFlowTest;
-            return await hook.evaluateCurrentGraph();
+            return {
+              graph: await hook.getCurrentGraph(),
+              evaluation: await hook.evaluateCurrentGraph(),
+            };
           });
           await test.info().attach(filename.replace(/\\W+/g, "-") + "-evaluation-diagnostics.json", {
-            body: JSON.stringify(diagnostics, null, 2), contentType: "application/json"
+            body: JSON.stringify(hookData, null, 2), contentType: "application/json"
           });
         } catch (diagnosticError) {
           await test.info().attach("evaluation-diagnostics-error.txt", {

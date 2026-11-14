@@ -24,12 +24,24 @@ from build123d.topology.one_d import Mixin1D
 _original_mixin1d_position_at = Mixin1D.position_at
 def _stable_mixin1d_position_at(self, position, position_mode=b3d.PositionMode.PARAMETER):
     if position_mode == b3d.PositionMode.PARAMETER:
-        curve = self.geom_adaptor()
-        value = position if self.is_forward else 1 - position
-        parameter = curve.FirstParameter() + value * (
-            curve.LastParameter() - curve.FirstParameter()
-        )
-        return b3d.Vector(curve.Value(parameter))
+        if position == 0:
+            return self.start_point()
+        if position == 1:
+            return self.end_point()
+        try:
+            return _original_mixin1d_position_at(self, position, position_mode)
+        except Exception as error:
+            # Some degenerate OCCT adaptors fail to invert arc length at an
+            # interior point. Fall back to their native normalized parameter
+            # only for that kernel failure; preserve all other exceptions.
+            if type(error).__name__ != "Standard_ConstructionError":
+                raise
+            curve = self.geom_adaptor()
+            value = position if self.is_forward else 1 - position
+            parameter = curve.FirstParameter() + value * (
+                curve.LastParameter() - curve.FirstParameter()
+            )
+            return b3d.Vector(curve.Value(parameter))
     return _original_mixin1d_position_at(self, position, position_mode)
 
 Mixin1D.position_at = _stable_mixin1d_position_at

@@ -1353,6 +1353,7 @@ def discover(include_full=True):
 
             # Dataclass/typed fields are discoverable from annotations without
             # touching instances. Properties above take precedence.
+            receiver_type = _type_name(owner)
             for field_name, field_annotation in vars(owner).get("__annotations__", {}).items():
                 if field_name.startswith("_"):
                     continue

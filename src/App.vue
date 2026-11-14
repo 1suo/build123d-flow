@@ -228,6 +228,7 @@ onMounted(() => {
       (window as any).__build123dFlowTest = {
         runGraphWorkflowTests: () => runtime.runGraphWorkflowTests(),
         downloadFile: (path: string, url: string) => runtime.downloadFile(path, url),
+        getCurrentGraph: () => graph.value,
         evaluateCurrentGraph: () => runtime.evaluate(graph.value),
       };
     }

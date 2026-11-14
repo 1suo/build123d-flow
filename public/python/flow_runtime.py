@@ -2029,7 +2029,12 @@ def evaluate_graph_json(payload):
             continue
 
         definition_id = data.get("definition", {}).get("id")
-        definition = _CATALOG.get(definition_id)
+        node_definition = data.get("definition", {})
+        has_loop_inputs = any(
+            str(socket.get("name", "")).startswith("__flow_iteration_")
+            for socket in node_definition.get("inputs", [])
+        )
+        definition = node_definition if has_loop_inputs else _CATALOG.get(definition_id)
         if definition is None:
             errors[node_id] = "Unknown or unavailable API node: " + str(definition_id)
             continue
@@ -2097,6 +2102,10 @@ def evaluate_graph_json(payload):
                     bound_method = getattr(receiver_value, method_name)
                     arguments = {name: value for name, value in mapped.items()
                                  if name != receiver_name}
+                    arguments = {
+                        name: value for name, value in arguments.items()
+                        if not name.startswith("__flow_iteration_")
+                    }
                     return _call_with_coercion(
                         bound_method, arguments,
                         signature=bound_signature,
@@ -2104,7 +2113,9 @@ def evaluate_graph_json(payload):
                     )
             else:
                 invoke = lambda mapped: _call_with_coercion(
-                    callable_obj, mapped,
+                    callable_obj,
+                    {name: value for name, value in mapped.items()
+                     if not name.startswith("__flow_iteration_")},
                     signature=signature,
                     hint_target=hint_target,
                 )
@@ -2643,6 +2654,7 @@ def import_python_code(source):
     variables = {}
     stream_variables = set()
     mapping_matching = "longest"
+    active_loop_frames = []
     active_scope_ids = []
     execution_scopes = []
     scope_counter = 0
@@ -2660,7 +2672,21 @@ def import_python_code(source):
             in {"BuildPart", "BuildSketch", "BuildLine"}
             for scope_id in active_scope_ids
         )
-        data = {"definition": definition, "params": params,
+        # A Python loop is a data-mapping scope: each operation is represented
+        # once and receives one item from every active iteration sequence.
+        # Synthetic iteration sockets make even loop-body operations that do
+        # not explicitly read the target execute once per iteration.
+        node_definition = dict(definition)
+        node_definition["inputs"] = list(definition.get("inputs", []))
+        iteration_links = []
+        for index, frame in enumerate(active_loop_frames):
+            input_name = "__flow_iteration_{}".format(index)
+            node_definition["inputs"].append({
+                "name": input_name, "type": "Any", "required": True,
+                "data_access": "item",
+            })
+            iteration_links.append((input_name, frame["node_id"], frame["output_name"]))
+        data = {"definition": node_definition, "params": params,
                 "execution_scope_path": list(active_scope_ids),
                 "visible": not builder_scope_active and any(
                     socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
@@ -2673,7 +2699,7 @@ def import_python_code(source):
             "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
             "data": data
         })
-        for input_name, source_id, output_name in links:
+        for input_name, source_id, output_name in list(links) + iteration_links:
             graph_edges.append({
                 "id": "import_edge_{}".format(len(graph_edges) + 1),
                 "source": source_id, "target": node_id,
@@ -2806,6 +2832,11 @@ def import_python_code(source):
                           for key, item in value.get("kwargs", {}).items()}
                 if kwargs and value["__flow_object__"] in {"Plane", "Location"}:
                     return kwargs
+                # Matrix accepts its row-major storage as one positional
+                # argument; the graph socket stores that value, not a wrapper
+                # list containing the constructor argument.
+                if value["__flow_object__"] == "Matrix" and len(args) == 1:
+                    return args[0]
                 return args if args else kwargs
             return {key: literal_json_value(item) for key, item in value.items()}
         if isinstance(value, (list, tuple)):
@@ -3493,12 +3524,49 @@ def import_python_code(source):
         })
         return node_id
 
+    def graph_depends_on(node_id, ancestors):
+        """Return whether a graph value is derived from any supplied node."""
+        pending = [node_id]
+        visited = set()
+        while pending:
+            current_id = pending.pop()
+            if current_id in ancestors:
+                return True
+            if current_id in visited:
+                continue
+            visited.add(current_id)
+            for edge in graph_edges:
+                if edge.get("target") == current_id:
+                    pending.append(edge.get("source"))
+        return False
+
+    def last_sequence_item(value, line):
+        """Lower Python's post-loop target value to the final mapped item."""
+        if value[0] == "literal":
+            sequence = materialize_literal(value[1])
+            if not isinstance(sequence, (list, tuple)):
+                raise ValueError("Loop iterable is not a sequence at line {}".format(line))
+            if not sequence:
+                raise ValueError("Loop target is unbound because the iterable is empty (line {})".format(line))
+            return ("literal", sequence[-1])
+        node_id = add_node(
+            _PYTHON_SUBSCRIPT_ID, {"index": -1},
+            [("value", value[1], value[2])], line,
+        )
+        node = next(item for item in graph_nodes if item["id"] == node_id)
+        for socket in node["data"]["definition"]["inputs"]:
+            if socket.get("name") == "value":
+                socket["data_access"] = "structure"
+        return ("ref", node_id, "result")
+
     def process_statements(statements):
-        nonlocal scope_counter
+        nonlocal scope_counter, mapping_matching
 
         def assign_target(target, assigned, line):
             if isinstance(target, ast.Name):
                 variables[target.id] = assigned
+                for frame in active_loop_frames:
+                    frame["written_names"].add(target.id)
                 return
             if isinstance(target, (ast.Tuple, ast.List)):
                 if assigned[0] == "literal" and isinstance(assigned[1], (list, tuple)):
@@ -3582,10 +3650,10 @@ def import_python_code(source):
                     assign_target(target, result, statement.lineno)
                 continue
             if isinstance(statement, ast.For):
-                if statement.orelse:
-                    raise ValueError("for-else is not supported (line {})".format(statement.lineno))
+                if statement.is_async:
+                    raise ValueError("async for-loops cannot be represented by the synchronous graph evaluator (line {})".format(statement.lineno))
                 iterable = expression(statement.iter)
-                if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple)):
+                if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple, range)):
                     iterable = add_collection_node(
                         [("literal", item) for item in iterable[1]], "list", statement.iter.lineno
                     )
@@ -3593,24 +3661,91 @@ def import_python_code(source):
                     raise ValueError(
                         "A for-loop iterable must be a sequence or graph output (line {})".format(statement.lineno)
                     )
+
+                saved_variables = dict(variables)
                 saved_stream_variables = set(stream_variables)
+                saved_matching = mapping_matching
                 if isinstance(statement.target, ast.Name):
                     target_names = [statement.target]
                     variables[statement.target.id] = iterable
-                    stream_variables.add(statement.target.id)
                 elif isinstance(statement.target, (ast.Tuple, ast.List)):
                     target_names = [item for item in statement.target.elts if isinstance(item, ast.Name)]
                     if len(target_names) != len(statement.target.elts):
                         raise ValueError("Only simple names are supported in a for-loop unpack target (line {})".format(statement.lineno))
                     assign_target(statement.target, iterable, statement.lineno)
-                    stream_variables.update(item.id for item in target_names)
                 else:
                     raise ValueError("Unsupported for-loop target (line {})".format(statement.lineno))
+
+                # Independent nested iterables form a Cartesian product;
+                # iterables derived from the outer item are zipped/longest-
+                # matched. The body itself is still compiled exactly once.
+                if active_loop_frames:
+                    outer_ids = {frame["node_id"] for frame in active_loop_frames}
+                    mapping_matching = "longest" if graph_depends_on(iterable[1], outer_ids) else "cross"
+                frame = {
+                    "node_id": iterable[1], "output_name": iterable[2],
+                    "written_names": set(target.id for target in target_names),
+                }
+                active_loop_frames.append(frame)
+                stream_variables.update(target.id for target in target_names)
                 process_statements(statement.body)
+                body_variables = dict(variables)
+                active_loop_frames.pop()
                 stream_variables.clear()
                 stream_variables.update(saved_stream_variables)
-                for target in target_names:
-                    variables.pop(target.id, None)
+                mapping_matching = saved_matching
+
+                # Python leaves the loop target bound to its last value. Other
+                # names assigned by the body likewise retain the final
+                # iteration's value. Materialize that final value by indexing
+                # the mapped sequence, rather than leaking a stream outside
+                # the loop or deleting a previously-bound name.
+                variables.clear()
+                variables.update(saved_variables)
+                for name in sorted(frame["written_names"]):
+                    if name not in body_variables:
+                        continue
+                    candidate = body_variables[name]
+                    if candidate[0] == "literal":
+                        # A literal assignment inside the loop still occurs
+                        # once per iteration; the token node preserves empty-
+                        # sequence behavior and the sequence dependency.
+                        loop_value_id = "core.python.loop_value"
+                        loop_value_definition = {
+                            "id": loop_value_id, "name": "Python Loop Value",
+                            "source": "python", "kind": "operation", "category": "Internal",
+                            "palette_category": "Internal", "palette_section": "Graph lowering",
+                            "inputs": [
+                                {"name": "value", "type": "Any", "required": True, "data_access": "structure"},
+                                {"name": "iteration", "type": "Any", "required": True, "data_access": "item"},
+                            ],
+                            "outputs": [{"name": "result", "type": "Any"}],
+                        }
+                        definitions[loop_value_id] = loop_value_definition
+                        _INTERNAL_NODE_IDS.add(loop_value_id)
+                        _CATALOG_CALLABLES[loop_value_id] = lambda value, iteration: value
+                        _CATALOG_SIGNATURES[loop_value_id] = inspect.Signature([
+                            inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                            inspect.Parameter("iteration", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                        ])
+                        _CATALOG_HINT_TARGETS[loop_value_id] = False
+                        carried_id = add_node(
+                            loop_value_id, {"value": literal_json_value(candidate[1])},
+                            [("iteration", iterable[1], iterable[2])], statement.lineno,
+                        )
+                        candidate = ("ref", carried_id, "result")
+                    elif not graph_depends_on(candidate[1], {iterable[1]}):
+                        carried_id = add_node(
+                            "core.python.loop_value", {},
+                            [("value", candidate[1], candidate[2]),
+                             ("iteration", iterable[1], iterable[2])], statement.lineno,
+                        )
+                        candidate = ("ref", carried_id, "result")
+                    variables[name] = last_sequence_item(candidate, statement.lineno)
+
+                if statement.orelse:
+                    # With break rejected below, a for-else suite always runs.
+                    process_statements(statement.orelse)
                 continue
             if isinstance(statement, ast.AugAssign):
                 if not isinstance(statement.target, ast.Name):

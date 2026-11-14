@@ -2714,6 +2714,15 @@ def import_python_code(source):
                     socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
                     for socket in definition.get("outputs", [])
                 )}
+        if active_loop_frames:
+            data["python_loop_sources"] = [
+                {
+                    "node_id": frame["node_id"],
+                    "output_name": frame["output_name"],
+                    "matching": frame.get("matching", "longest"),
+                }
+                for frame in active_loop_frames
+            ]
         if mapping_matching != "longest":
             data["data_matching"] = mapping_matching
         graph_nodes.append({
@@ -3951,8 +3960,11 @@ def export_python_code(payload):
     if not nodes:
         raise ValueError("The canvas is empty")
     if any(
-        any(str(socket.get("name", "")).startswith("__flow_iteration_")
-            for socket in node.get("data", {}).get("definition", {}).get("inputs", []))
+        node.get("data", {}).get("python_loop_sources")
+        or node.get("data", {}).get("definition", {}).get("id") in {
+            "core.python.loop_value", "core.python.loop_last",
+            "core.python.comprehension_constant",
+        }
         for node in nodes.values()
     ):
         raise ValueError(

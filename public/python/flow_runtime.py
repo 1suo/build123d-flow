@@ -1784,7 +1784,13 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
     sequences = {}
     for name, shape in stream_shapes.items():
         value = params.get(name)
-        if shape in ("list", "tuple", "tree") and isinstance(value, (list, tuple)):
+        # A mapped tuple-producing node yields a list of tuple *items*.
+        # Tree recursion follows nested loop lists, not tuple payloads such as
+        # coordinates passed to Vector(*tuple(v)).
+        if shape == "tree":
+            if isinstance(value, list):
+                sequences[name] = list(value)
+        elif shape in ("list", "tuple") and isinstance(value, (list, tuple)):
             sequences[name] = list(value)
     if not sequences:
         if _validate is not None and not path:

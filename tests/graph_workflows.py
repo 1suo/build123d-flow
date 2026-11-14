@@ -395,10 +395,10 @@ def run_preview_style_test():
 def run_python_loop_lowering_tests():
     """Python loops compile once and map their body over iteration sequences."""
     source = (
-        "from build123d import Box\\n"
-        "for length in [1, 2, 3]:\\n"
-        "    box = Box(length, 2, 3)\\n"
-        "result = box\\n"
+        "from build123d import Box\n"
+        "for length in [1, 2, 3]:\n"
+        "    box = Box(length, 2, 3)\n"
+        "result = box\n"
     )
     graph = runtime.import_python_code(source)
     box_nodes = [
@@ -427,21 +427,21 @@ def run_python_loop_lowering_tests():
         raise AssertionError("Post-loop variable did not resolve to the final mapped geometry")
 
     empty_loop = runtime.import_python_code(
-        "from build123d import Box\\n"
-        "box = Box(2, 2, 2)\\n"
-        "for length in []:\\n"
-        "    box = Box(length, 2, 3)\\n"
-        "result = box\\n"
+        "from build123d import Box\n"
+        "box = Box(2, 2, 2)\n"
+        "for length in []:\n"
+        "    box = Box(length, 2, 3)\n"
+        "result = box\n"
     )
     empty_result = json.loads(runtime.evaluate_graph_json(json.dumps(empty_loop)))
     if empty_result["errors"]:
         raise AssertionError("A zero-iteration loop must preserve the previous binding: " + json.dumps(empty_result["errors"]))
 
     nested = runtime.import_python_code(
-        "from build123d import Box\\n"
-        "for length in [1, 2]:\\n"
-        "    for width in [3, 4]:\\n"
-        "        box = Box(length, width, 1)\\n"
+        "from build123d import Box\n"
+        "for length in [1, 2]:\n"
+        "    for width in [3, 4]:\n"
+        "        box = Box(length, width, 1)\n"
     )
     nested_boxes = [
         node for node in nested["nodes"]
@@ -461,17 +461,17 @@ def run_python_loop_lowering_tests():
         raise AssertionError("Independent nested loops must map to the four Cartesian pairs: " + repr(nested_boxes_value))
 
     unpacked = runtime.import_python_code(
-        "from build123d import Box\\n"
-        "for length, width in [(1, 2), (3, 4)]:\\n"
-        "    box = Box(length, width, 1)\\n"
+        "from build123d import Box\n"
+        "for length, width in [(1, 2), (3, 4)]:\n"
+        "    box = Box(length, width, 1)\n"
     )
     unpacked_result = json.loads(runtime.evaluate_graph_json(json.dumps(unpacked)))
     if unpacked_result["errors"]:
         raise AssertionError("Tuple-unpacking loop target failed: " + json.dumps(unpacked_result["errors"]))
 
     comprehension = runtime.import_python_code(
-        "from build123d import Box\\n"
-        "boxes = [Box(1, 2, 3) for length in [1, 2, 3]]\\n"
+        "from build123d import Box\n"
+        "boxes = [Box(1, 2, 3) for length in [1, 2, 3]]\n"
     )
     comprehension_boxes = [
         node for node in comprehension["nodes"]
@@ -483,7 +483,7 @@ def run_python_loop_lowering_tests():
     if comprehension_result["errors"]:
         raise AssertionError("List-comprehension mapping failed: " + json.dumps(comprehension_result["errors"]))
 
-    constants = runtime.import_python_code("values = [7 for item in [1, 2, 3]]\\n")
+    constants = runtime.import_python_code("values = [7 for item in [1, 2, 3]]\n")
     constant_result = json.loads(runtime.evaluate_graph_json(json.dumps(constants)))
     if constant_result["errors"]:
         raise AssertionError("Literal list-comprehension mapping failed: " + json.dumps(constant_result["errors"]))

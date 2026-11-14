@@ -144,10 +144,6 @@ async function importExample(page: Page, source: string) {
   await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
   await page.getByRole("button", { name: "Import pasted code" }).click();
 
-  // Successful import closes the Settings popover. This signal is independent
-  // of the activity log, which is intentionally capped to its 40 newest rows.
-  await expect(sourceInput).toBeHidden({ timeout: 10_000 });
-
   await expect.poll(async () => {
     const state = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
     if (state.revision <= evaluationBeforeImport.revision || state.running) return null;

@@ -169,6 +169,7 @@ def _receiver_socket(owner):
         return {
             "name": "self", "label": "collection", "type": "List",
             "annotation": str(owner), "required": True,
+            "variants": [receiver_type],
             "data_structure": "list", "item_type": "Any",
             "data_access": "structure",
         }

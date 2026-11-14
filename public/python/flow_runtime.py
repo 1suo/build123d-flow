@@ -3445,6 +3445,22 @@ def import_python_code(source):
                     links.append((receiver_name, receiver[1], receiver[2]))
                 elif receiver[0] == "literal":
                     params[receiver_socket["name"]] = literal_json_value(receiver[1])
+            if receiver_socket is not None and isinstance(node.func, ast.Attribute):
+                if receiver is None:
+                    raise ValueError(
+                        "Bound method {} has no resolved receiver at line {}".format(
+                            node.func.attr, node.lineno
+                        )
+                    )
+                if receiver[0] == "ref" and not any(
+                    link[0] == receiver_socket["name"] for link in links
+                ):
+                    raise ValueError(
+                        "Bound method {} failed to connect receiver {} from {} at line {}".format(
+                            node.func.attr, receiver_socket["name"], repr(receiver),
+                            node.lineno
+                        )
+                    )
             argument_sockets = [socket for socket in sockets if socket is not receiver_socket and socket.get("kind") != "var_keyword"]
             if len(node.args) > len(argument_sockets):
                 raise ValueError("Too many positional arguments for {} at line {}".format(

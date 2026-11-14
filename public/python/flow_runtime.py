@@ -3382,21 +3382,32 @@ def import_python_code(source):
                     # receiver for streamed values (for example, face.area in a loop).
                     # The generic attribute node preserves descriptor and instance
                     # semantics while still mapping each receiver item independently.
+                    property_definition = definitions[definition_id]
+                    property_type = next(
+                        (item.get("type", "Any") for item in property_definition.get("outputs", [])),
+                        "Any",
+                    )
                     created = add_node(
                         _PYTHON_ATTRIBUTE_ID, {"name": node.attr},
                         [("value", receiver[1], receiver[2])], node.lineno,
                     )
-                    return ("ref", created, "result")
+                    return ("ref", created, "result", property_type)
                 if candidates:
                     # When static receiver typing cannot distinguish same-named
                     # properties (for example Axis.Y, Vector.Y and Vertex.Y),
                     # preserve Python semantics and defer attribute lookup to
                     # the actual runtime object instead of guessing a class.
+                    candidate_types = {
+                        output.get("type", "Any")
+                        for candidate_id in candidates
+                        for output in definitions.get(candidate_id, {}).get("outputs", [])
+                    }
+                    property_type = next(iter(candidate_types)) if len(candidate_types) == 1 else "Any"
                     created = add_node(
                         _PYTHON_ATTRIBUTE_ID, {"name": node.attr},
                         [("value", receiver[1], receiver[2])], node.lineno,
                     )
-                    return ("ref", created, "result")
+                    return ("ref", created, "result", property_type)
             path = []
             current = node
             while isinstance(current, ast.Attribute):

@@ -2889,7 +2889,9 @@ def import_python_code(source):
         }
         definitions[definition_id] = definition
         _INTERNAL_NODE_IDS.add(definition_id)
-        _CATALOG_CALLABLES[definition_id] = operation
+        def apply_binary(left, right):
+            return operation(left, right)
+        _CATALOG_CALLABLES[definition_id] = apply_binary
         _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
             inspect.Parameter("left", inspect.Parameter.POSITIONAL_OR_KEYWORD),
             inspect.Parameter("right", inspect.Parameter.POSITIONAL_OR_KEYWORD),

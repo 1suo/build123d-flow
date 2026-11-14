@@ -151,6 +151,11 @@ const graph = computed<GraphDocument>(() => JSON.parse(JSON.stringify({
       execution_scope_path: node.data.execution_scope_path,
       scope_binding: node.data.scope_binding,
       scope_result: node.data.scope_result,
+      // Preserve importer metadata that controls Python loop item mapping.
+      // Without these fields, Any-typed loop iterables (for example a
+      // ShapeList returned by group_by(...)[-1]) reach body nodes whole.
+      python_loop_sources: node.data.python_loop_sources,
+      data_matching: node.data.data_matching,
     },
   })),
   edges: edges.value.map((edge: any) => ({

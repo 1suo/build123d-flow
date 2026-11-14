@@ -2684,6 +2684,15 @@ def import_python_code(source):
         node_definition["inputs"] = list(definition.get("inputs", []))
         iteration_links = []
         for index, frame in enumerate(active_loop_frames):
+            # An explicit input already derived from this loop's iterable is
+            # sufficient to trigger item mapping. Add a control token only when
+            # the body operation otherwise has no dependency on this loop.
+            # This avoids multiplying the same sequence twice in nested loops.
+            if any(
+                graph_depends_on(source_id, {frame["node_id"]})
+                for _, source_id, _ in links
+            ):
+                continue
             input_name = "__flow_iteration_{}".format(index)
             node_definition["inputs"].append({
                 "name": input_name, "type": "Any", "required": True,

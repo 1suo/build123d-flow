@@ -15,7 +15,7 @@ def norm(name):
 
 def setup_roots(path):
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    roots, mocks = [Requirement("micropip")], set()
+    roots, mocks = [Requirement("micropip"), Requirement("build123d==0.13.0")], set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "OCP_VERSION" for target in node.targets):
             if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):

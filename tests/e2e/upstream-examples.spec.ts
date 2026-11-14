@@ -120,6 +120,14 @@ with Locations((0, -offset.Y, 0)):
 ];
 
 async function importExample(page: Page, source: string) {
+  if (source.includes("Mesher()")) {
+    const hook = await page.evaluateHandle(() => (window as any).__build123dFlowTest);
+    await page.evaluate(async ({ url }) => {
+      const testHook = (window as any).__build123dFlowTest;
+      await testHook.downloadFile("/low_poly_benchy.stl", url);
+    }, { url: `https://raw.githubusercontent.com/gumyr/build123d/${UPSTREAM_COMMIT}/examples/low_poly_benchy.stl` });
+    await hook.dispose();
+  }
   const log = page.locator(".viewport-log-panel");
   if (!(await log.isVisible())) {
     await page.getByRole("button", { name: "Show activity log" }).click();

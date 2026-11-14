@@ -1928,36 +1928,6 @@ def evaluate_graph_json(payload):
             else:
                 scope_results[scope_id] = None
 
-    def transition_scopes(target_path):
-        common = 0
-        while common < len(active_scopes) and common < len(target_path):
-            if active_scopes[common]["id"] != target_path[common]:
-                break
-            common += 1
-        while len(active_scopes) > common:
-            close_scope(active_scopes[-1]["id"])
-        for scope_id in target_path[common:]:
-            descriptor = scope_definitions.get(scope_id)
-            if descriptor is None:
-                raise ValueError("Unknown Python execution scope: " + str(scope_id))
-            module = importlib.import_module(descriptor["module"])
-            manager_type = getattr(module, descriptor["name"])
-            manager_args = restore_scope_value(descriptor.get("args", []))
-            manager_kwargs = restore_scope_value(descriptor.get("kwargs", {}))
-            manager = manager_type(*manager_args, **manager_kwargs)
-            try:
-                entered = manager.__enter__()
-            except Exception as exc:
-                exception_info = (type(exc), exc, exc.__traceback__)
-                while active_scopes:
-                    try:
-                        close_scope(active_scopes[-1]["id"], exception_info)
-                    except Exception:
-                        # Continue unwinding outer managers even if one cleanup fails.
-                        pass
-                raise
-            scope_values[scope_id] = entered
-            active_scopes.append({"id": scope_id, "manager": manager, "entered": entered})
 
     for node_id in order:
         node = nodes[node_id]
@@ -1966,8 +1936,40 @@ def evaluate_graph_json(payload):
         if any(scope_id in failed_scopes for scope_id in scope_path):
             errors[node_id] = "Execution skipped because an enclosing Python scope failed"
             continue
+        # Enter every nested builder from this evaluator frame. build123d
+        # detects lexical builder nesting by comparing the caller frame in
+        # Builder.__enter__; entering through a helper called once per node
+        # gives each scope a different frame and silently detaches child builders.
+        common = 0
+        while common < len(active_scopes) and common < len(scope_path):
+            if active_scopes[common]["id"] != scope_path[common]:
+                break
+            common += 1
         try:
-            transition_scopes(scope_path)
+            while len(active_scopes) > common:
+                close_scope(active_scopes[-1]["id"])
+            for scope_id in scope_path[common:]:
+                descriptor = scope_definitions.get(scope_id)
+                if descriptor is None:
+                    raise ValueError("Unknown Python execution scope: " + str(scope_id))
+                module = importlib.import_module(descriptor["module"])
+                manager_type = getattr(module, descriptor["name"])
+                manager_args = restore_scope_value(descriptor.get("args", []))
+                manager_kwargs = restore_scope_value(descriptor.get("kwargs", {}))
+                manager = manager_type(*manager_args, **manager_kwargs)
+                try:
+                    entered = manager.__enter__()
+                except Exception as exc:
+                    exception_info = (type(exc), exc, exc.__traceback__)
+                    while active_scopes:
+                        try:
+                            close_scope(active_scopes[-1]["id"], exception_info)
+                        except Exception:
+                            # Continue unwinding outer managers even if one cleanup fails.
+                            pass
+                    raise
+                scope_values[scope_id] = entered
+                active_scopes.append({"id": scope_id, "manager": manager, "entered": entered})
         except Exception as exc:
             errors[node_id] = "Execution scope: " + type(exc).__name__ + ": " + str(exc)
             failed_scopes.update(scope_path)

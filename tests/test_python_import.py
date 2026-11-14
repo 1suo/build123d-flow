@@ -254,7 +254,9 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("scope_dependencies", source)
         self.assertIn("execution_scope_path", source)
         self.assertIn("scope_bindings", source)
-        self.assertIn("add_ordering_dependency", source)
+        self.assertIn("scope_results", source)
+        self.assertIn("execution_scope_path", source)
+        self.assertIn("add_ordering_dependency(node_id, result_node)", source)
 
     def test_expression_resolver_keeps_typed_values_until_serialization(self):
         functions = {

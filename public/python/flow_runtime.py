@@ -3475,6 +3475,50 @@ def import_python_code(source):
                     if isinstance(result, (range, enumerate, zip, reversed)):
                         result = list(result)
                     return ("literal", result)
+            # tuple(item) is common in build123d list comprehensions: a
+            # mapped Vertex/Vector becomes one coordinate tuple per item.
+            # Preserve that as a graph operation instead of trying to execute
+            # the conversion against a graph reference during import.
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "tuple"
+                and len(node.args) == 1
+                and not node.keywords
+            ):
+                tuple_input = expression(node.args[0])
+                if tuple_input[0] == "ref":
+                    per_item = (
+                        isinstance(node.args[0], ast.Name)
+                        and node.args[0].id in stream_variables
+                    )
+                    definition_id = "core.python.builtin.tuple"
+                    definition = {
+                        "id": definition_id, "name": "Python tuple",
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Internal", "palette_section": "Graph lowering",
+                        "inputs": [{
+                            "name": "value", "type": "Any", "required": True,
+                            "data_access": "item" if per_item else "structure",
+                        }],
+                        "outputs": [{
+                            "name": "result", "type": "Tuple",
+                            "data_structure": "tuple", "item_type": "Number",
+                        }],
+                    }
+                    definitions[definition_id] = definition
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = tuple
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    created = add_node(
+                        definition_id, {},
+                        [("value", tuple_input[1], tuple_input[2])],
+                        node.lineno,
+                    )
+                    return ("ref", created, "result", "Tuple")
+
             # Resolve build123d value constructors from the destination socket's
             # declared type. This shares the runtime's type contract instead of
             # maintaining one importer exception per value class.

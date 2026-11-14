@@ -80,8 +80,11 @@ if not restored_environment:
     wheel_paths = [f"emfs:/python/wheels/{item['filename']}" for item in manifest]
     print(f"Installing {len(wheel_paths)} pre-staged PyPI wheels…")
     await micropip.install(wheel_paths, deps=False)
+    print("Installed pre-staged PyPI wheels")
 else:
     print("Restored Python environment; verifying required packages…")
+
+print("Importing build123d…")
 
 # All PyPI-only dependencies and the OCP wasm wheel are staged locally.
 # Pyodide-native dependencies are loaded from the self-hosted lockfile closure.
@@ -89,3 +92,4 @@ else:
 # Fail during environment setup, not later when the graph runtime imports build123d.
 import build123d
 import build123d.exporters
+print("Imported build123d and exporters")

@@ -158,101 +158,119 @@ async function importExample(page: Page, source: string) {
   await expect(page.locator(".geometry-viewport canvas")).toBeVisible({ timeout: 500 });
 }
 
-test("imports and evaluates every pinned upstream build123d example", async ({ page, request }) => {
-  expect(EXAMPLES).toHaveLength(67);
-  expect(new Set(EXAMPLES).size).toBe(EXAMPLES.length);
-  // The pinned corpus includes full-scale CAD examples (e.g. bicycle_tire.py);\n  // allow the complete 67-example acceptance run to finish on slower CI workers.\n  test.setTimeout(1_200_000);
-  const pageErrors: string[] = [];
-  page.on("pageerror", error => pageErrors.push(error.message));
-  await page.goto("./", { waitUntil: "domcontentloaded" });
-  const sourcesPromise = Promise.all(EXAMPLES.map(async filename => {
-    const url = `https://raw.githubusercontent.com/gumyr/build123d/${UPSTREAM_COMMIT}/examples/${filename}`;
-    const response = await request.get(url, { timeout: 10_000 });
-    expect(response.ok(), `upstream fixture fetch failed: ${url}`).toBeTruthy();
-    return { filename, source: await response.text() };
-  }));
+test.describe.configure({ mode: "parallel" });
 
-  await expect(page.locator(".viewport-status")).toContainText("build123d ready", { timeout: 75_000 });
-  await expect(page.locator("#python-source-input")).toBeHidden();
+const SHARDS = [
+  {
+    name: "first half",
+    examples: EXAMPLES.slice(0, 34),
+    smoke: SMOKE_CASES.slice(0, 3),
+    runGraphWorkflowTests: true,
+  },
+  {
+    name: "second half",
+    examples: EXAMPLES.slice(34),
+    smoke: SMOKE_CASES.slice(3),
+    runGraphWorkflowTests: false,
+  },
+];
 
-  // Python import lazily performs full build123d API discovery. Trigger that
-  // through the real palette UI before timing the importer itself. The activity
-  // log is a conditional panel, so mount it before observing discovery events.
-  const log = page.locator(".viewport-log-panel");
-  if (!(await log.isVisible())) {
-    await page.getByRole("button", { name: "Show activity log" }).click();
-  }
-  const activityEntries = page.locator(".viewport-log-entry");
-  await page.getByRole("button", { name: "Create", exact: true }).click();
-  await expect.poll(async () =>
-    (await activityEntries.allTextContents()).some(message => message.includes("API discovery complete")),
-  { timeout: 15_000, intervals: [100, 200, 500] }).toBe(true);
+for (const shard of SHARDS) {
+  test(`imports and evaluates pinned upstream examples — ${shard.name}`, async ({ page, request }) => {
+    expect(EXAMPLES).toHaveLength(67);
+    expect(new Set(EXAMPLES).size).toBe(EXAMPLES.length);
+    expect(shard.examples.length + shard.examples.length).toBeGreaterThan(0);
+    test.setTimeout(15 * 60 * 1000);
 
-  // Run the focused graph/runtime behavioral suite in the already initialized
-  // Pyodide worker. This avoids a second browser/runtime boot and keeps the
-  // full acceptance job inside its two-minute budget.
-  const graphWorkflowResults = await page.evaluate(async () => {
-    const hook = (window as any).__build123dFlowTest;
-    if (!hook) throw new Error("Graph workflow test hook was not installed in CI build");
-    return await hook.runGraphWorkflowTests();
-  });
-  expect(graphWorkflowResults.length).toBeGreaterThan(10);
-  await test.info().attach("graph-workflow-results.json", {
-    body: JSON.stringify(graphWorkflowResults, null, 2),
-    contentType: "application/json",
-  });
+    const pageErrors: string[] = [];
+    page.on("pageerror", error => pageErrors.push(error.message));
+    await page.goto("./", { waitUntil: "domcontentloaded" });
+    const sourcesPromise = Promise.all(shard.examples.map(async filename => {
+      const url = `https://raw.githubusercontent.com/gumyr/build123d/${UPSTREAM_COMMIT}/examples/${filename}`;
+      const response = await request.get(url, { timeout: 10_000 });
+      expect(response.ok(), `upstream fixture fetch failed: ${url}`).toBeTruthy();
+      return { filename, source: await response.text() };
+    }));
 
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.locator(".viewport-status")).toContainText("build123d ready", { timeout: 75_000 });
+    await expect(page.locator("#python-source-input")).toBeHidden();
 
-  const upstreamSources = await sourcesPromise;
+    const log = page.locator(".viewport-log-panel");
+    if (!(await log.isVisible())) {
+      await page.getByRole("button", { name: "Show activity log" }).click();
+    }
+    const activityEntries = page.locator(".viewport-log-entry");
+    await page.getByRole("button", { name: "Create", exact: true }).click();
+    await expect.poll(async () =>
+      (await activityEntries.allTextContents()).some(message => message.includes("API discovery complete")),
+    { timeout: 15_000, intervals: [100, 200, 500] }).toBe(true);
 
-  const failures: string[] = [];
-  const results: string[] = [];
-  const allSources = [
-    ...SMOKE_CASES.map((source, index) => ({ filename: `smoke-${index + 1}.py`, source })),
-    ...upstreamSources
-  ];
-  for (const { filename, source } of allSources) {
-    await test.step(filename, async () => {
-      try {
-        await importExample(page, source);
-        results.push(filename + ": passed");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+    if (shard.runGraphWorkflowTests) {
+      const graphWorkflowResults = await page.evaluate(async () => {
+        const hook = (window as any).__build123dFlowTest;
+        if (!hook) throw new Error("Graph workflow test hook was not installed in CI build");
+        return await hook.runGraphWorkflowTests();
+      });
+      expect(graphWorkflowResults.length).toBeGreaterThan(10);
+      await test.info().attach("graph-workflow-results.json", {
+        body: JSON.stringify(graphWorkflowResults, null, 2),
+        contentType: "application/json",
+      });
+    }
+
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const upstreamSources = await sourcesPromise;
+    const allSources = [
+      ...shard.smoke.map((source, index) => ({ filename: `smoke-${shard.name}-${index + 1}.py`, source })),
+      ...upstreamSources,
+    ];
+    const failures: string[] = [];
+    const results: string[] = [];
+
+    for (const { filename, source } of allSources) {
+      await test.step(filename, async () => {
         try {
+          await importExample(page, source);
           const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
-          await test.info().attach(filename.replace(/\W+/g, "-") + "-graph.json", {
-            body: JSON.stringify(graph, null, 2), contentType: "application/json"
-          });
+          expect(
+            graph.nodes.every((node: any) => node.data.definition.cadOperation?.mapping?.preserveNesting === true),
+            "every imported node must carry a validated kernel-neutral operation contract",
+          ).toBeTruthy();
+          results.push(filename + ": passed");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
           try {
-            const evaluation = await page.evaluate(() => (window as any).__build123dFlowTest.evaluateCurrentGraph());
-            await test.info().attach(filename.replace(/\W+/g, "-") + "-evaluation.json", {
-              body: JSON.stringify(evaluation, null, 2), contentType: "application/json"
+            const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
+            await test.info().attach(filename.replace(/\W+/g, "-") + "-graph.json", {
+              body: JSON.stringify(graph, null, 2), contentType: "application/json"
             });
-          } catch (evaluationError) {
-            await test.info().attach("evaluation-diagnostics-error.txt", { body: String(evaluationError) });
+            try {
+              const evaluation = await page.evaluate(() => (window as any).__build123dFlowTest.evaluateCurrentGraph());
+              await test.info().attach(filename.replace(/\W+/g, "-") + "-evaluation.json", {
+                body: JSON.stringify(evaluation, null, 2), contentType: "application/json"
+              });
+            } catch (evaluationError) {
+              await test.info().attach("evaluation-diagnostics-error.txt", { body: String(evaluationError) });
+            }
+          } catch (diagnosticError) {
+            await test.info().attach("evaluation-diagnostics-error.txt", { body: String(diagnosticError) });
           }
-        } catch (diagnosticError) {
-          await test.info().attach("evaluation-diagnostics-error.txt", {
-            body: String(diagnosticError)
-          });
+          failures.push(filename + ": " + message);
+          const safeName = filename.replace(/\W+/g, "-");
+          await test.info().attach(safeName + ".py", { body: source });
+          await test.info().attach(safeName + "-failure.txt", { body: message });
+          try {
+            const entries = await page.locator(".viewport-log-entry").allTextContents();
+            await test.info().attach(safeName + "-activity-log.txt", { body: entries.join("\n") });
+          } catch {
+            // Preserve the original importer failure if the browser has closed.
+          }
         }
-        failures.push(filename + ": " + message);
-        const safeName = filename.replace(/\W+/g, "-");
-        await test.info().attach(safeName + ".py", { body: source });
-        await test.info().attach(safeName + "-failure.txt", { body: message });
-        try {
-          const log = await page.locator(".viewport-log-entry").allTextContents();
-          await test.info().attach(safeName + "-activity-log.txt", { body: log.join("\n") });
-        } catch {
-          // Preserve the original importer failure if the browser has closed.
-        }
-        // Continue through the corpus; the final assertion still fails unless every case passes.
-      }
-    });
-  }
-  await test.info().attach("upstream-example-results.txt", { body: [...results, ...failures].join("\n") });
-  await test.info().attach("browser-errors.txt", { body: pageErrors.join("\n") });
-  expect(pageErrors, "no uncaught browser errors").toEqual([]);
-  expect(failures, "every upstream example must import and evaluate").toEqual([]);
-});
+      });
+    }
+    await test.info().attach("upstream-example-results.txt", { body: [...results, ...failures].join("\n") });
+    await test.info().attach("browser-errors.txt", { body: pageErrors.join("\n") });
+    expect(pageErrors, "no uncaught browser errors").toEqual([]);
+    expect(failures, "every example in this shard must import and evaluate").toEqual([]);
+  });
+}

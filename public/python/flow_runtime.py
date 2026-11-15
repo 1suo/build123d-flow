@@ -3141,7 +3141,22 @@ def import_python_code(source):
         operation = operations.get(method)
         if operation is None:
             raise ValueError("Unsupported Python scalar operator {} at line {}".format(method, line))
-        left_type, right_type = reference_type(left), reference_type(right)
+        def operand_type(operand):
+            if operand[0] == "ref":
+                return reference_type(operand)
+            value = operand[1]
+            # Value constructors remain typed Python values even when their
+            # arguments are compile-time literals. Preserve that native type
+            # through operator dispatch instead of treating the encoded object
+            # as an untyped dictionary.
+            if isinstance(value, dict) and isinstance(value.get("__flow_object__"), str):
+                return value["__flow_object__"]
+            try:
+                return _type_name(type(materialize_literal(value)))
+            except Exception:
+                return None
+
+        left_type, right_type = operand_type(left), operand_type(right)
 
         def operator_contract(receiver_type, member_name):
             definition_id, winners = resolve_member(member_name, receiver_type)
@@ -4412,7 +4427,13 @@ def import_python_code(source):
                     receiver_type = _type_name(type(materialize_literal(left[1])))
                 except Exception:
                     receiver_type = None
-            if receiver_type in {"Number", "String", "Boolean"}:
+            if receiver_type in {
+                "Number", "Integer", "Float", "String", "Boolean",
+                "Location", "Vector", "Vector2", "Vector3", "Rotation",
+                "Plane", "Axis", "Color", "Matrix", "Shape", "Solid",
+                "Compound", "Part", "Sketch", "Face", "Edge", "Wire",
+                "Shell", "Vertex",
+            }:
                 return add_python_binary_node(method, left, right, node.lineno)
             receiver_class = None
             if left[0] == "ref":

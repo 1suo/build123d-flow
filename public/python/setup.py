@@ -78,8 +78,6 @@ import build123d.exporters
 
 # Use the actual upstream Mesher and the locally built upstream Lib3MF WASM side module.
 # Do not replace or wrap any build123d class in the browser bootstrap.
-import build123d
-import build123d.exporters
 import build123d.mesher as build123d_mesher
 from build123d.mesher import Mesher as NativeMesher
 

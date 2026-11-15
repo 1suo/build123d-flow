@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build the upstream Lib3MF Python binding and Emscripten side module wheel.
 
-The generated Python binding remains upstream Lib3MF 2.4.1. The only vendor
-patch selects the .so suffix on Pyodide, where platform.system() is Emscripten.
+The generated Python binding and C++ library remain upstream Lib3MF 2.4.1.
+Two narrow vendor patches adapt the platform suffix and forward the Emscripten
+toolchain/emulator into upstream's nested bundled-libzip CMake configure.
 """
 from __future__ import annotations
 
@@ -48,6 +49,32 @@ def patch_platform_suffix(source: Path, destination: Path) -> None:
     if text.count(original) != 1:
         raise RuntimeError("Expected exactly one upstream Lib3MF platform suffix block")
     destination.write_text(text.replace(original, replacement), encoding="utf-8")
+
+
+def patch_nested_libzip_configure(source: Path) -> None:
+    cmake_file = source / "CMakeLists.txt"
+    text = cmake_file.read_text(encoding="utf-8")
+    configure_anchor = (
+        '            "-S" "${CMAKE_CURRENT_SOURCE_DIR}/submodules/libzip" '
+        '"-B" "${CMAKE_CURRENT_BINARY_DIR}/libzip"'
+    )
+    configure_replacement = (
+        '            "-DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}"\n'
+        '            "-DCMAKE_CROSSCOMPILING_EMULATOR=${CMAKE_CROSSCOMPILING_EMULATOR}"\n'
+        + configure_anchor
+    )
+    if text.count(configure_anchor) != 1:
+        raise RuntimeError("Expected exactly one bundled libzip configure invocation")
+    text = text.replace(configure_anchor, configure_replacement)
+    result_anchor = '    MESSAGE( STATUS "CMD_ERROR:" ${CMD_ERROR})'
+    result_replacement = (
+        '    if(NOT CMD_ERROR EQUAL 0)\n'
+        '        message(FATAL_ERROR "Failed to configure bundled libzip for the active toolchain: ${CMD_ERROR}")\n'
+        '    endif()'
+    )
+    if text.count(result_anchor) != 1:
+        raise RuntimeError("Expected exactly one bundled libzip configure result")
+    cmake_file.write_text(text.replace(result_anchor, result_replacement), encoding="utf-8")
 
 
 def record_digest(data: bytes) -> str:
@@ -158,6 +185,7 @@ def main() -> None:
             "--recurse-submodules", "--shallow-submodules",
             "https://github.com/3MFConsortium/lib3mf.git", str(source),
         ])
+        patch_nested_libzip_configure(source)
         common_flags = "-O2 -fwasm-exceptions -sSUPPORT_LONGJMP=wasm"
         run([
             "emcmake", "cmake", "-S", str(source), "-B", str(build), "-G", "Ninja",

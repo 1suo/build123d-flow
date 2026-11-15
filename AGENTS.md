@@ -111,6 +111,7 @@ An internal graph node's callable, operand types, argument contract, mapping pol
 - Never register different per-expression closures under one shared operation ID. A later expression must not overwrite the callable used by an earlier graph node.
 - If a runtime callable closes over resolved types or dispatch metadata, its internal definition ID must be deterministic and unique to that resolved contract, or the evaluator must carry the contract per node without shared mutable registry state.
 - Evaluate graphs containing multiple nodes with the same Python operator but different concrete operand types together. Verify that each node uses its own receiver, argument, mapping, and output contract regardless of graph construction order.
+- For scalar-or-collection return annotations, specialize output structure from the actual operand shape. Do not mark every result as a collection merely because one union branch returns a list; test both scalar and collection operands.
 - Internal operation IDs must remain out of the user-facing API palette.
 
 ### 4.6 Stateful builders and lifecycle

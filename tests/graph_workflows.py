@@ -578,6 +578,25 @@ def run_python_loop_lowering_tests():
     if moved_value.get("type") != "Solid":
         raise AssertionError("Location * Shape must return one moved Solid: " + repr(moved_value))
 
+    native_shape_add = runtime.import_python_code(
+        "from build123d import Box, Cylinder\\n"
+        "combined = Box(4, 4, 4) + Cylinder(1, 4)\\n"
+    )
+    add_nodes = [
+        node for node in native_shape_add["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.binary.__add__"
+    ]
+    if len(add_nodes) != 1:
+        raise AssertionError("Box + Cylinder must lower to one native Python addition node")
+    add_output = add_nodes[0]["data"]["definition"]["outputs"][0]
+    if add_output.get("type") != "Shape":
+        raise AssertionError("Box + Cylinder must use the native Shape.__add__ return contract: " + repr(add_output))
+    add_result = json.loads(runtime.evaluate_graph_json(json.dumps(native_shape_add)))
+    if add_result["errors"]:
+        raise AssertionError("Native Box + Cylinder failed: " + json.dumps(add_result["errors"]))
+    if add_nodes[0]["id"] not in add_result["previews"]:
+        raise AssertionError("Native Box + Cylinder produced no preview geometry")
+
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"
         "for width in [3, 4]:\n"

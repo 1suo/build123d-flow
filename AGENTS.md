@@ -154,3 +154,12 @@ The project is ready for engineering use only when:
 - The deployed application is verified after deployment.
 
 **Do not lower this definition of done to match the current implementation. Improve the implementation until it meets the contract, or state precisely what remains incomplete.**
+
+## 8. Repository CI and deployment source of truth
+
+- The authoritative pipeline is `.github/workflows/ci.yml` (workflow name: **Build and deploy**).
+- It runs on pushes to `main`, pull requests, and manual dispatch. The production bundle build is the first validation step; typecheck, Python compilation/unit tests, and Playwright follow it.
+- The full browser acceptance suite is `tests/e2e/upstream-examples.spec.ts`; do not confuse its 67-example upstream corpus with the focused graph workflow tests staged separately for the browser worker.
+- Production deployment is GitHub Pages through `actions/upload-pages-artifact` and `actions/deploy-pages`. Do not report Vercel as the production deployment target for this repository.
+- Verify the workflow run for the exact delivered commit, including the build job and deploy job where applicable. A helper that returns only pull-request-triggered workflow runs is not sufficient evidence for a push-triggered `main` run; use the repository's actual Actions run and job results.
+- After deployment, verify the GitHub Pages application URL and the deployed commit/version. A successful Pages deployment job alone does not prove the browser CAD workflows work.

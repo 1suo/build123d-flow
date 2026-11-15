@@ -874,7 +874,7 @@ def run_python_import_tests():
     endpoint_graph = runtime.import_python_code(
         "from build123d import Bezier\n"
         "curve = Bezier((0.0, 0.0), (7.05, 0.0), (12.18, 1.54), (15.13, 4.54))\n"
-        "direct_endpoint = curve.end_point\n"
+        "direct_endpoint = curve.end_point()\n"
         "endpoint = curve @ 1\n"
     )
     endpoint_node = next(
@@ -913,7 +913,10 @@ def run_python_import_tests():
         ]
         direct_nodes = [
             node for node in endpoint_graph["nodes"]
-            if node["data"].get("params", {}).get("name") == "end_point"
+            if (
+                node["data"].get("params", {}).get("name") == "end_point"
+                or node["data"]["definition"].get("id", "").endswith(".end_point")
+            )
         ]
         direct_value = (
             endpoint_result["socket_values"].get(direct_nodes[0]["id"])

@@ -22,7 +22,7 @@ const activeName = ref("");
 const editorOpen = ref(false);
 
 function currentValue(socket: any): unknown {
-  return props.node.data.params[socket.id] ?? socket.default ?? null;
+  return props.node.data.params[socket.id] ?? socket.defaultValue ?? null;
 }
 function textValue(socket: any): string {
   const value = currentValue(socket);
@@ -30,11 +30,11 @@ function textValue(socket: any): string {
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 function update(socket: any, value: unknown) {
-  props.onParameter(props.node.id, socket.name, value === "" ? undefined : value);
+  props.onParameter(props.node.id, socket.id, value === "" ? undefined : value);
 }
 function openStructured(socket: any) {
-  activeName.value = socket.name;
-  drafts[socket.name] = textValue(socket);
+  activeName.value = socket.id;
+  drafts[socket.id] = textValue(socket);
   editorOpen.value = true;
 }
 function updateStructured(value: string) {
@@ -56,12 +56,12 @@ function updateStructured(value: string) {
   <div class="canvas-inspector-body">
     <section>
       <h4>Inputs</h4>
-      <div v-for="socket in inputs" :key="socket.name" class="inspector-socket" :class="{ 'is-linked': socket.connected }">
+      <div v-for="socket in inputs" :key="socket.id" class="inspector-socket" :class="{ 'is-linked': socket.connected }">
         <div class="inspector-socket-heading">
-          <strong>{{ socket.label || socket.name }}</strong>
+          <strong>{{ socket.label || socket.id }}</strong>
           <small>{{ cadPortTypeLabel(socket) }}{{ socket.connected ? ' · linked' : '' }}</small>
         </div>
-        <DataValue v-if="socket.connected" :label="socket.name" :value="socket.value ?? 'Waiting for value'" />
+        <DataValue v-if="socket.connected" :label="socket.id" :value="socket.value ?? 'Waiting for value'" />
         <div v-else class="inspector-input-control">
           <InputNumber v-if="socket.type === 'Number'" :model-value="currentValue(socket) as number | null"
             :use-grouping="false" :max-fraction-digits="8" @update:model-value="update(socket, $event)" />
@@ -73,19 +73,19 @@ function updateStructured(value: string) {
           <InputText v-else-if="socket.type === 'String'" :model-value="String(currentValue(socket) ?? '')"
             @update:model-value="update(socket, $event)" />
           <Select v-else-if="socket.type === 'Enum'" :model-value="String(currentValue(socket) ?? '')"
-            :options="socket.options || []" placeholder="Default" @update:model-value="update(socket, $event)" />
+            :options="socket.enumValues || []" placeholder="Default" @update:model-value="update(socket, $event)" />
           <Button v-else class="node-structured-trigger" severity="secondary" outlined
             :label="textValue(socket).replace(/\s+/g, ' ').trim() || 'Set value'"
             @click="openStructured(socket)" />
         </div>
-        <div v-if="!socket.connected && socket.description" class="inspector-socket-annotation">{{ socket.annotation }}</div>
+        <div v-if="!socket.connected && socket.description" class="inspector-socket-annotation">{{ socket.description }}</div>
       </div>
     </section>
     <section>
       <h4>Outputs</h4>
-      <div v-for="socket in outputs" :key="socket.name" class="inspector-socket">
-        <div class="inspector-socket-heading"><strong>{{ socket.name }}</strong><small>{{ socketTypeLabel(socket) }}</small></div>
-        <DataValue :label="socket.name" :value="socket.value ?? 'Not evaluated'" />
+      <div v-for="socket in outputs" :key="socket.id" class="inspector-socket">
+        <div class="inspector-socket-heading"><strong>{{ socket.id }}</strong><small>{{ cadPortTypeLabel(socket) }}</small></div>
+        <DataValue :label="socket.id" :value="socket.value ?? 'Not evaluated'" />
       </div>
     </section>
   </div>

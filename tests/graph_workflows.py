@@ -1360,13 +1360,13 @@ def run_operator_overload_tests():
 
 def run_constructor_overload_tests():
     graph = runtime.import_python_code(
-        "from build123d import Curve, Line, Wire\\n"
-        "profile = Curve() + (\\n"
-        "    Line((0, 0), (10, 0)),\\n"
-        "    Line((10, 0), (10, 10)),\\n"
-        ")\\n"
-        "wire = Wire(profile.edges())\\n"
-        "result = len(wire.edges())\\n"
+        "from build123d import Curve, Line, Wire\n"
+        "profile = Curve() + (\n"
+        "    Line((0, 0), (10, 0)),\n"
+        "    Line((10, 0), (10, 10)),\n"
+        ")\n"
+        "wire = Wire(profile.edges())\n"
+        "result = len(wire.edges())\n"
     )
     wire_nodes = [
         node for node in graph["nodes"]

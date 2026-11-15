@@ -566,14 +566,17 @@ def run_python_loop_lowering_tests():
     if len(multiply_nodes) != 1:
         raise AssertionError("A Python multiplication expression must remain one operator node")
     multiply_output = multiply_nodes[0]["data"]["definition"]["outputs"][0]
-    if multiply_output.get("data_structure") != "list":
-        raise AssertionError("Location.__mul__ must expose its native list result contract: " + repr(multiply_output))
+    if multiply_output.get("type") != "Solid" or multiply_output.get("data_structure") is not None:
+        raise AssertionError(
+            "Location * one Shape must retain build123d's scalar Shape return contract: "
+            + repr(multiply_output)
+        )
     operator_result = json.loads(runtime.evaluate_graph_json(json.dumps(native_operator)))
     if operator_result["errors"]:
         raise AssertionError("Native Location multiplication failed: " + json.dumps(operator_result["errors"]))
     moved_value = operator_result["socket_values"][multiply_nodes[0]["id"]]["result"]
-    if moved_value.get("length") != 1:
-        raise AssertionError("Location * Shape must preserve the native one-item result list: " + repr(moved_value))
+    if moved_value.get("type") != "Solid":
+        raise AssertionError("Location * Shape must return one moved Solid: " + repr(moved_value))
 
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"

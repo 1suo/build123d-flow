@@ -3324,9 +3324,10 @@ def import_python_code(source):
             ("right", right, right_port_type),
         ):
             if operand[0] == "literal":
-                params[name] = literal_json_value(
-                    operand[1], preserve_objects=socket_type == "Any"
-                )
+                # Operators consume the native object protocol. Preserve
+                # tagged value constructors even when the resolved operator
+                # signature declares a concrete receiver/argument type.
+                params[name] = literal_json_value(operand[1], preserve_objects=True)
             else:
                 links.append((name, operand[1], operand[2]))
         created = add_node(definition_id, params, links, line)

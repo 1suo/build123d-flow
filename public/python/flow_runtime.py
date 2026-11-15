@@ -1585,7 +1585,17 @@ def _iter_shapes(value):
 
 
 def _as_export_shape(value):
-    shapes = list(_iter_shapes(value))
+    # A mapped graph result may intentionally contain the same native shape
+    # reference at multiple tree positions. Preserve that data in the graph,
+    # but include each object only once in the aggregate preview/export shape:
+    # OCCT Compound rejects adding the same TopoDS child twice.
+    shapes = []
+    seen = set()
+    for shape in _iter_shapes(value):
+        identity = id(shape)
+        if identity not in seen:
+            seen.add(identity)
+            shapes.append(shape)
     if not shapes:
         return None
     return shapes[0] if len(shapes) == 1 else b3d.Compound(children=shapes)

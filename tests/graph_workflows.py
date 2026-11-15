@@ -783,7 +783,49 @@ def run_python_value_constructor_tests():
                 runtime._CATALOG[definition_id] = previous
     if not results:
         raise AssertionError("No build123d value constructors were exercised")
-    return {"name": "Python value constructors", "types": results}
+
+    # A value constructor embedded in a native operator must retain its
+    # runtime type. Flattening Location to a coordinate list makes Shape's
+    # __rmul__ receive a list instead of a Location.
+    operator_graph = runtime.import_python_code(
+        "from build123d import Box, Location\\n"
+        "box = Box(1, 1, 1)\\n"
+        "moved = Location((0, 0, 0)) * box\\n"
+    )
+    multiply_nodes = [
+        node for node in operator_graph["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.binary.__mul__"
+    ]
+    if len(multiply_nodes) != 1:
+        raise AssertionError("Location * Box must lower to one native operator node")
+    def contains_location_tag(value):
+        if isinstance(value, dict):
+            return value.get("__flow_object__") == "Location" or any(
+                contains_location_tag(item) for item in value.values()
+            )
+        if isinstance(value, list):
+            return any(contains_location_tag(item) for item in value)
+        return False
+    if not contains_location_tag(multiply_nodes[0]["data"].get("params", {})):
+        raise AssertionError(
+            "Location literal lost its native type before operator dispatch: "
+            + repr(multiply_nodes[0]["data"].get("params", {}))
+        )
+    operator_result = json.loads(runtime.evaluate_graph_json(json.dumps(operator_graph)))
+    if operator_result["errors"]:
+        raise AssertionError(
+            "Native Location * Box failed: " + json.dumps(operator_result["errors"])
+        )
+    moved_value = operator_result["socket_values"][multiply_nodes[0]["id"]]["result"]
+    if moved_value.get("length") != 1:
+        raise AssertionError(
+            "Location * Box must preserve its native one-item result list: " + repr(moved_value)
+        )
+    return {
+        "name": "Python value constructors",
+        "types": results,
+        "native_operator_value": True,
+    }
 
 
 def run_python_import_tests():

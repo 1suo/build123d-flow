@@ -2514,7 +2514,17 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
             except Exception:
                 pass
         if annotation is not None and annotation is not inspect.Signature.empty:
-            converted[name] = _coerce_annotation(value, annotation)
+            parameter = signature.parameters.get(name)
+            if parameter is not None and parameter.kind == parameter.VAR_POSITIONAL:
+                # A VAR_POSITIONAL annotation describes each positional item,
+                # not the packed list used by the graph socket. Coerce each
+                # item before expanding it into the native Python call.
+                items = value if isinstance(value, (list, tuple)) else (value,)
+                converted[name] = tuple(
+                    _coerce_annotation(item, annotation) for item in items
+                )
+            else:
+                converted[name] = _coerce_annotation(value, annotation)
 
     positional = []
     keywords = {}

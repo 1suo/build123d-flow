@@ -3293,6 +3293,13 @@ def import_python_code(source):
         definitions[definition_id] = definition
         _INTERNAL_NODE_IDS.add(definition_id)
         def apply_binary(left, right):
+            # Binary lowering uses a generic wrapper callable, so its own
+            # signature cannot restore JSON-shaped build123d value operands.
+            # Apply the native operand socket contracts before invoking Python's
+            # operator protocol (e.g. [x, y] -> Vector and nested Location
+            # coordinates -> Location). Geometry objects remain untouched.
+            left = _coerce_graph_receiver(left, {"type": left_port_type})
+            right = _coerce_graph_receiver(right, {"type": right_port_type})
             try:
                 return operation(left, right)
             except Exception as exc:

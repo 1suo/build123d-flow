@@ -3516,13 +3516,33 @@ def import_python_code(source):
         if isinstance(value, enum.Enum):
             return value.name
         if isinstance(value, b3d.Axis):
+            if preserve_objects:
+                return {
+                    "__flow_object__": "Axis",
+                    "args": [list(value.position), list(value.direction)],
+                    "kwargs": {},
+                }
             return [list(value.position), list(value.direction)]
         if isinstance(value, b3d.Plane):
+            if preserve_objects:
+                return {
+                    "__flow_object__": "Plane",
+                    "args": [],
+                    "kwargs": {
+                        "origin": list(value.origin),
+                        "x_dir": list(value.x_dir),
+                        "z_dir": list(value.z_dir),
+                    },
+                }
             return {"origin": list(value.origin), "x_dir": list(value.x_dir),
                     "z_dir": list(value.z_dir)}
         if isinstance(value, b3d.Location):
+            if preserve_objects:
+                return {"__flow_object__": "Location", "args": [list(value.to_tuple())], "kwargs": {}}
             return list(value.to_tuple())
         if isinstance(value, b3d.Vector):
+            if preserve_objects:
+                return {"__flow_object__": "Vector", "args": list(value), "kwargs": {}}
             return list(value)
         if isinstance(value, dict):
             if "__flow_object__" in value:

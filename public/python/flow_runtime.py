@@ -2451,6 +2451,7 @@ def _coerce_annotation(value, annotation):
 def _coerce_graph_receiver(value, socket):
     """Restore JSON-serialized build123d value objects before native method lookup."""
     value_types = {
+        "Vector": b3d.Vector,
         "Vector2": b3d.Vector,
         "Vector3": b3d.Vector,
         "Rotation": b3d.Rotation,
@@ -3316,8 +3317,9 @@ def import_python_code(source):
                         return "{}[{}{}]".format(type(value).__name__, ", ".join(item_types), suffix)
                     return type(value).__name__
                 raise RuntimeError(
-                    "Native {} dispatch received {} and {}: {}".format(
-                        method, describe_operand(left), describe_operand(right), exc
+                    "Native {} dispatch received {} (socket {}) and {} (socket {}), receiver {}: {}".format(
+                        method, describe_operand(left), left_port_type,
+                        describe_operand(right), right_port_type, receiver_side, exc
                     )
                 ) from exc
         _CATALOG_CALLABLES[definition_id] = apply_binary

@@ -584,9 +584,9 @@ def run_python_loop_lowering_tests():
         raise AssertionError("Location * Box must preserve the concrete Box runtime type: " + repr(moved_value))
 
     value_operand_graph = runtime.import_python_code(
-        "from build123d import Location, Sphere, Vector\\n"
-        "moved_sphere = Location((0, -3 * MM, 47 * MM), (90, 0, 0)) * Sphere(40 * MM)\\n"
-        "shifted_vector = Vector(1, 2, 3) + Vector(0, 5)\\n"
+        "from build123d import Location, Sphere, Vector\n"
+        "moved_sphere = Location((0, -3 * MM, 47 * MM), (90, 0, 0)) * Sphere(40 * MM)\n"
+        "shifted_vector = Vector(1, 2, 3) + Vector(0, 5)\n"
     )
     value_operand_result = json.loads(runtime.evaluate_graph_json(json.dumps(value_operand_graph)))
     if value_operand_result["errors"]:
@@ -597,7 +597,7 @@ def run_python_loop_lowering_tests():
 
     native_shape_add = runtime.import_python_code(
         "from build123d import Box, Cylinder\\n"
-        "combined = Box(4, 4, 4) + Cylinder(1, 4)\\n"
+        "combined = Box(4, 4, 4) + Cylinder(1, 4)\n"
     )
     add_nodes = [
         node for node in native_shape_add["nodes"]

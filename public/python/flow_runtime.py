@@ -309,9 +309,37 @@ def _annotation_metadata(annotation):
         variants = sorted({_type_name(arg) for arg in scalar_args})
         if len(variants) > 1:
             metadata["variants"] = variants
-        # A union such as Shape | Iterable[Shape] accepts either one object or
-        # a collection. Keep that collection intact for the native operator.
-        if collection_args:
+
+        # Value-like CAD inputs often accept either a native object or a
+        # coordinate tuple/list (VectorLike, RotationLike, PlaneLike, etc.).
+        # Those sequences are representations of ONE value, not data streams.
+        # Keep them item-access so Location((x, y, z)) constructs one Location.
+        atomic_value_alternatives = {
+            "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis",
+            "Color", "Matrix",
+        }
+        has_atomic_value_alternative = any(
+            _type_name(arg) in atomic_value_alternatives for arg in scalar_args
+        )
+
+        structural_collections = [
+            collection for collection in collection_args
+            if typing.get_origin(collection) is not tuple
+        ]
+        tuple_alternatives = [
+            collection for collection in collection_args
+            if typing.get_origin(collection) is tuple
+        ]
+        value_representation_only = (
+            has_atomic_value_alternative
+            and not structural_collections
+            or has_atomic_value_alternative
+            and all(
+                all(_type_name(item) in {"Number", "Any"} for item in typing.get_args(collection) if item is not Ellipsis)
+                for collection in tuple_alternatives
+            )
+        )
+        if collection_args and not value_representation_only:
             metadata["data_access"] = "structure"
             # A union return such as Location | Plane | list[Location] has a
             # genuine collection branch. Preserve that structural contract in

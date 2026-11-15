@@ -788,9 +788,9 @@ def run_python_value_constructor_tests():
     # runtime type. Flattening Location to a coordinate list makes Shape's
     # __rmul__ receive a list instead of a Location.
     operator_graph = runtime.import_python_code(
-        "from build123d import Box, Location\\n"
-        "box = Box(1, 1, 1)\\n"
-        "moved = Location((0, 0, 0)) * box\\n"
+        "from build123d import Box, Location\n"
+        "box = Box(1, 1, 1)\n"
+        "moved = Location((0, 0, 0)) * box\n"
     )
     multiply_nodes = [
         node for node in operator_graph["nodes"]

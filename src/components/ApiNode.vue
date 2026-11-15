@@ -5,7 +5,7 @@ import Button from "primevue/button";
 import Card from "primevue/card";
 import Popover from "primevue/popover";
 import type { NodeDefinition } from "../types";
-import { isGeometrySocket, socketColor, socketTypeLabel } from "../runtime/socketPresentation";
+import { cadPortColor, cadPortTypeLabel, isCadGeometryPort } from "../runtime/cadKernel";
 
 const props = defineProps<{
   id: string;
@@ -23,12 +23,12 @@ const props = defineProps<{
   };
 }>();
 
-const inputs = computed(() => props.data.definition.inputs);
-const outputs = computed(() => props.data.definition.outputs);
+const inputs = computed(() => props.data.definition.cadOperation?.inputs ?? []);
+const outputs = computed(() => props.data.definition.cadOperation?.outputs ?? []);
 const errorPopover = ref<any>();
-const canPreview = computed(() => outputs.value.some(isGeometrySocket));
+const canPreview = computed(() => outputs.value.some(isCadGeometryPort));
 function socketTitle(socket: any, direction: string): string {
-  return direction + ": " + socket.name + " · " + socketTypeLabel(socket) + (socket.annotation ? " | " + socket.annotation : "");
+  return direction + ": " + socket.label + " · " + cadPortTypeLabel(socket) + (socket.description ? " | " + socket.description : "");
 }
 
 function toggleVisibility() {
@@ -50,8 +50,8 @@ function toggleCollapse() {
         <Button icon="pi pi-chevron-right" text rounded size="small" severity="secondary"
           class="node-collapse" aria-label="Expand node" title="Expand node" @click.stop="toggleCollapse" />
         <div class="collapsed-socket-group collapsed-inputs" aria-label="Inputs">
-          <span v-for="input in inputs" :key="input.name" class="collapsed-socket" :title="socketTitle(input, 'Input')">
-            <Handle :id="input.name" type="target" :position="Position.Top" class="socket-handle" :style="{ '--socket-color': socketColor(input) }" />
+          <span v-for="input in inputs" :key="input.id" class="collapsed-socket" :title="socketTitle(input, 'Input')">
+            <Handle :id="input.name" type="target" :position="Position.Top" class="socket-handle" :style="{ '--socket-color': cadPortColor(input) }" />
           </span>
         </div>
         <div class="collapsed-node-title">
@@ -63,8 +63,8 @@ function toggleCollapse() {
             :aria-label="`Description: ${data.definition.name}`" />
         </div>
         <div class="collapsed-socket-group collapsed-outputs" aria-label="Outputs">
-          <span v-for="output in outputs" :key="output.name" class="collapsed-socket" :title="socketTitle(output, 'Output')">
-            <Handle :id="output.name" type="source" :position="Position.Bottom" class="socket-handle" :style="{ '--socket-color': socketColor(output) }" />
+          <span v-for="output in outputs" :key="output.id" class="collapsed-socket" :title="socketTitle(output, 'Output')">
+            <Handle :id="output.name" type="source" :position="Position.Bottom" class="socket-handle" :style="{ '--socket-color': cadPortColor(output) }" />
           </span>
         </div>
       </div>
@@ -96,11 +96,11 @@ function toggleCollapse() {
         <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
           <Handle :id="input.name" type="target" :position="Position.Left" class="socket-handle"
             :title="socketTitle(input, 'Input')" :style="{ '--socket-color': socketColor(input) }" />
-          <label :title="input.annotation" @click.stop="inspect(input.name, 'input')">{{ input.label || input.name }} <small>{{ socketTypeLabel(input) }}</small></label>
+          <label :title="input.annotation" @click.stop="inspect(input.name, 'input')">{{ input.label || input.id }} <small>{{ socketTypeLabel(input) }}</small></label>
         </div>
         <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
           <span class="output-socket-inspect" :title="`Inspect ${output.name}`"
-            @click.stop="inspect(output.name, 'output')">{{ output.name }} <small>{{ socketTypeLabel(output) }}</small></span>
+            @click.stop="inspect(output.name, 'output')">{{ output.label }} <small>{{ socketTypeLabel(output) }}</small></span>
           <Handle :id="output.name" type="source" :position="Position.Right" class="socket-handle"
             :title="socketTitle(output, 'Output')" :style="{ '--socket-color': socketColor(output) }" />
         </div>

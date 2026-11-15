@@ -4423,10 +4423,14 @@ def import_python_code(source):
             if left[0] == "ref":
                 receiver_type = reference_type(left)
             else:
-                try:
-                    receiver_type = _type_name(type(materialize_literal(left[1])))
-                except Exception:
-                    receiver_type = None
+                encoded_value = left[1]
+                if isinstance(encoded_value, dict) and isinstance(encoded_value.get("__flow_object__"), str):
+                    receiver_type = encoded_value["__flow_object__"]
+                else:
+                    try:
+                        receiver_type = _type_name(type(materialize_literal(encoded_value)))
+                    except Exception:
+                        receiver_type = None
             if receiver_type in {
                 "Number", "Integer", "Float", "String", "Boolean",
                 "Location", "Vector", "Vector2", "Vector3", "Rotation",

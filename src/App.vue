@@ -107,16 +107,17 @@ let evaluationRevision = 0;
 let evaluationTimer: ReturnType<typeof setTimeout> | undefined;
 
 
-const paletteSources = [
-  { id: "build123d", label: "build123d" },
+const kernelProviders = [cadProvider] as const;
+const paletteSources = computed(() => [
+  ...kernelProviders.map((provider) => ({ id: provider.id, label: provider.label })),
   { id: "python", label: "Python & libraries" },
   { id: "flow", label: "Flow nodes" },
-] as const;
-type PaletteSource = typeof paletteSources[number]["id"];
+]);
+type PaletteSource = string;
 function paletteOrigin(item: NodeDefinition): PaletteSource {
   return item.source;
 }
-const dockGroups = computed(() => paletteSources.map((source) => {
+const dockGroups = computed(() => paletteSources.value.map((source) => {
   const sourceItems = catalog.value.filter((item) => paletteOrigin(item) === source.id);
   const categories = [...new Set(sourceItems.map((item) => item.palette_category))].sort((a, b) => a.localeCompare(b));
   return { ...source, categories: categories.map((label) => ({
@@ -868,7 +869,7 @@ async function downloadPython() {
           >
             <template #default>
               <span class="palette-node-icon" :style="{ maskImage: `url(${nodeIcon(item)})`, WebkitMaskImage: `url(${nodeIcon(item)})` }" aria-hidden="true"></span>
-              <span class="context-result-main"><span class="context-result-name">{{ item.name }}</span><span class="context-result-category">{{ paletteSources.find((source) => source.id === paletteOrigin(item))?.label }} · {{ item.category }}</span></span>
+              <span class="context-result-main"><span class="context-result-name">{{ item.name }}</span><span class="context-result-category">{{ paletteSources.value.find((source) => source.id === paletteOrigin(item))?.label }} · {{ item.category }}</span></span>
             </template>
           </Button>
           <span v-if="!contextResults.length" class="context-empty">No matching nodes</span>

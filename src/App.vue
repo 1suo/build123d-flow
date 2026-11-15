@@ -70,17 +70,17 @@ const selectedNode = computed(() => nodes.value.find((node: any) => node.selecte
 const selectedNodeInputs = computed(() => {
   const node = selectedNode.value;
   if (!node) return [];
-  return node.data.definition.inputs.map((socket: any) => {
+  return (node.data.definition.cadOperation?.inputs ?? []).map((socket: any) => {
     const edge = edges.value.find((item: any) => item.target === node.id && item.targetHandle === socket.name) as any;
-    const value = edge ? socketValues.value[edge.source]?.[edge.sourceHandle || "result"] : node.data.params[socket.name] ?? socket.default;
+    const value = edge ? socketValues.value[edge.source]?.[edge.sourceHandle || "result"] : node.data.params[socket.id] ?? socket.defaultValue;
     return { ...socket, connected: Boolean(edge), value };
   });
 });
 const selectedNodeOutputs = computed(() => {
   const node = selectedNode.value;
   if (!node) return [];
-  return node.data.definition.outputs.map((socket: any) => ({
-    ...socket, value: socketValues.value[node.id]?.[socket.name] ?? null,
+  return (node.data.definition.cadOperation?.outputs ?? []).map((socket: any) => ({
+    ...socket, value: socketValues.value[node.id]?.[socket.id] ?? null,
   }));
 });
 const running = ref(false);

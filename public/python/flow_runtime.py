@@ -3325,9 +3325,10 @@ def import_python_code(source):
                 elif hasattr(b3d, root):
                     qualified_name = root + "." + ".".join(reversed(path))
                     definition_id = by_name.get(qualified_name)
-        if definition_id:
-            return definition_id
-
+        # Resolve overloaded public classes before returning the ordinary
+        # name lookup. by_name contains the canonical class entry too, so an
+        # early return here silently bypasses overload selection for classes
+        # such as Location.
         # Public build123d aliases (for example Pos) can refer to an overloaded
         # class whose catalog entries are named Pos(v) / Pos(X, Y, Z), rather
         # than a single Pos node. Resolve the alias to its canonical class and
@@ -3336,7 +3337,7 @@ def import_python_code(source):
         if candidate is None and isinstance(node, ast.Name):
             candidate = getattr(b3d, imported.get(node.id, node.id), None)
         if candidate is None or not inspect.isclass(candidate):
-            return None
+            return definition_id
         canonical_name = getattr(candidate, "__name__", "")
         prefix = getattr(candidate, "__module__", "") + "." + canonical_name + ".overload-"
         overload_ids = sorted(
@@ -3344,7 +3345,7 @@ def import_python_code(source):
             if definition_id.startswith(prefix)
         )
         if not overload_ids:
-            return by_name.get(canonical_name)
+            return definition_id or by_name.get(canonical_name)
 
         if call_node is None:
             return overload_ids[0]

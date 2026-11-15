@@ -642,7 +642,28 @@ def run_python_loop_lowering_tests():
         raise AssertionError("The inner loop's last binding must retain one result per outer iteration: " + repr(inner_group))
     final_nested_box = nested_post_result["socket_values"][nested_post_last[-1]["id"]]["result"]
     if final_nested_box.get("type") not in {"Box", "Solid", "Compound"}:
-        raise AssertionError("The outer loop must retain the last inner-loop result: " + repr(final_nested_box))
+        debug = [
+            {
+                "id": node.get("id"),
+                "params": node.get("data", {}).get("params"),
+                "python_loop_sources": node.get("data", {}).get("python_loop_sources"),
+                "links": [
+                    {
+                        "source": edge.get("source"),
+                        "sourceHandle": edge.get("sourceHandle"),
+                        "targetHandle": edge.get("targetHandle"),
+                    }
+                    for edge in nested_post_graph.get("edges", [])
+                    if edge.get("target") == node.get("id")
+                ],
+            }
+            for node in nested_post_last
+        ]
+        raise AssertionError(
+            "The outer loop must retain the last inner-loop result: "
+            + repr(final_nested_box)
+            + "; loop_last nodes: " + repr(debug)
+        )
 
     nested_inner_binding = runtime.import_python_code(
         "from build123d import Box\n"

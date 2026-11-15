@@ -3261,6 +3261,19 @@ def import_python_code(source):
                 for key in ("data_structure", "item_type", "variants", "semantic_type"):
                     if key in output_socket:
                         result_output[key] = output_socket[key]
+                # Resolve a generic Self-like return from the concrete operand.
+                # Location.__mul__ is overloaded with _ShapeT -> _ShapeT, but
+                # build123d declares _ShapeT only under TYPE_CHECKING, leaving
+                # it as Any at runtime. The native call still returns the moved
+                # object itself for a single Shape/Plane/Location operand.
+                specialization_type = right_type if receiver_side == "left" else left_type
+                if (
+                    result_output.get("type") == "Any"
+                    and "Any" in result_output.get("variants", [])
+                    and specialization_type in (_GEOMETRY_INPUT_TYPES | _OBJECT_INPUT_TYPES)
+                ):
+                    result_output["type"] = specialization_type
+                    result_output.pop("variants", None)
         elif method == "__add__" and left_type == right_type == "String":
             result_output["type"] = "String"
         elif left_type in {"Number", "Integer", "Float"} and right_type in {"Number", "Integer", "Float"}:
@@ -3280,7 +3293,20 @@ def import_python_code(source):
         definitions[definition_id] = definition
         _INTERNAL_NODE_IDS.add(definition_id)
         def apply_binary(left, right):
-            return operation(left, right)
+            try:
+                return operation(left, right)
+            except Exception as exc:
+                def describe_operand(value):
+                    if isinstance(value, (list, tuple)):
+                        item_types = [type(item).__name__ for item in value[:4]]
+                        suffix = ", ..." if len(value) > 4 else ""
+                        return "{}[{}{}]".format(type(value).__name__, ", ".join(item_types), suffix)
+                    return type(value).__name__
+                raise RuntimeError(
+                    "Native {} dispatch received {} and {}: {}".format(
+                        method, describe_operand(left), describe_operand(right), exc
+                    )
+                ) from exc
         _CATALOG_CALLABLES[definition_id] = apply_binary
         _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
             inspect.Parameter("left", inspect.Parameter.POSITIONAL_OR_KEYWORD),

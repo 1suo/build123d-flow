@@ -104,7 +104,16 @@ Exported Python must be executable against the pinned build123d API. For support
 - Distinguish scalar values from iterable values. A float must never be treated as an iterable because of mistaken shape inference or mapping.
 - Preserve None, booleans, numbers, strings, tuples, lists, dictionaries, sets, and geometry objects as distinct runtime values.
 
-### 4.5 Stateful builders and lifecycle
+### 4.5 Runtime callable identity
+
+An internal graph node's callable, operand types, argument contract, mapping policy, and output metadata form one indivisible operation contract.
+
+- Never register different per-expression closures under one shared operation ID. A later expression must not overwrite the callable used by an earlier graph node.
+- If a runtime callable closes over resolved types or dispatch metadata, its internal definition ID must be deterministic and unique to that resolved contract, or the evaluator must carry the contract per node without shared mutable registry state.
+- Evaluate graphs containing multiple nodes with the same Python operator but different concrete operand types together. Verify that each node uses its own receiver, argument, mapping, and output contract regardless of graph construction order.
+- Internal operation IDs must remain out of the user-facing API palette.
+
+### 4.6 Stateful builders and lifecycle
 
 build123d builder/context-manager APIs have lifecycle and scope semantics. Do not expose them as ordinary one-shot nodes unless the graph model explicitly represents their enter/body/exit lifecycle and nesting. A construct that cannot be represented faithfully must be reported as unsupported, not approximated.
 

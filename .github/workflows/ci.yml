@@ -91,7 +91,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Compile Python sources
-        run: python -m py_compile public/python/flow_runtime.py tests/graph_workflows.py scripts/prepare-pyodide.py scripts/build_lib3mf_wasm.py
+        run: python -m py_compile public/python/flow_runtime.py tests/graph_workflows.py tests/test_lib3mf_wasm_build.py scripts/prepare-pyodide.py scripts/build_lib3mf_wasm.py
       - name: Run Python unit tests
         run: python -m unittest discover -s tests -p 'test_*.py'
       - name: Install Playwright Chromium

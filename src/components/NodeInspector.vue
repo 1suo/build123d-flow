@@ -8,7 +8,7 @@ import Select from "primevue/select";
 import Button from "primevue/button";
 import Dialog from "primevue/dialog";
 import DataValue from "./DataValue.vue";
-import { socketTypeLabel } from "../runtime/socketPresentation";
+import { cadPortTypeLabel } from "../runtime/cadKernel";
 
 const props = defineProps<{
   node: any;
@@ -22,7 +22,7 @@ const activeName = ref("");
 const editorOpen = ref(false);
 
 function currentValue(socket: any): unknown {
-  return props.node.data.params[socket.name] ?? socket.default ?? null;
+  return props.node.data.params[socket.id] ?? socket.default ?? null;
 }
 function textValue(socket: any): string {
   const value = currentValue(socket);
@@ -59,7 +59,7 @@ function updateStructured(value: string) {
       <div v-for="socket in inputs" :key="socket.name" class="inspector-socket" :class="{ 'is-linked': socket.connected }">
         <div class="inspector-socket-heading">
           <strong>{{ socket.label || socket.name }}</strong>
-          <small>{{ socketTypeLabel(socket) }}{{ socket.connected ? ' · linked' : '' }}</small>
+          <small>{{ cadPortTypeLabel(socket) }}{{ socket.connected ? ' · linked' : '' }}</small>
         </div>
         <DataValue v-if="socket.connected" :label="socket.name" :value="socket.value ?? 'Waiting for value'" />
         <div v-else class="inspector-input-control">
@@ -78,7 +78,7 @@ function updateStructured(value: string) {
             :label="textValue(socket).replace(/\s+/g, ' ').trim() || 'Set value'"
             @click="openStructured(socket)" />
         </div>
-        <div v-if="!socket.connected && socket.annotation" class="inspector-socket-annotation">{{ socket.annotation }}</div>
+        <div v-if="!socket.connected && socket.description" class="inspector-socket-annotation">{{ socket.annotation }}</div>
       </div>
     </section>
     <section>

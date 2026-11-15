@@ -394,6 +394,29 @@ def run_preview_style_test():
 
 def run_python_loop_lowering_tests():
     """Python loops compile once and map their body over iteration sequences."""
+    accumulated_sketch = runtime.import_python_code(
+        "from build123d import Sketch, Plane, Circle\\n"
+        "art = Sketch()\\n"
+        "for z in [0, 3, 6]:\\n"
+        "    art += Plane(origin=(0, 0, z)) * Circle(5)\\n"
+        "result = len(art.faces())\\n"
+    )
+    accumulated_counts = [
+        node for node in accumulated_sketch["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.builtin.len"
+    ]
+    if len(accumulated_counts) != 1:
+        raise AssertionError("Loop-carried Sketch accumulation must compile to one length operation")
+    accumulated_result = json.loads(runtime.evaluate_graph_json(json.dumps(accumulated_sketch)))
+    if accumulated_result["errors"]:
+        raise AssertionError("Loop-carried augmented assignment failed: " + json.dumps(accumulated_result["errors"]))
+    accumulated_count = accumulated_result["socket_values"][accumulated_counts[0]["id"]]["result"]
+    if accumulated_count.get("value") != 3:
+        raise AssertionError(
+            "Augmented assignment must carry the updated Sketch through each loop iteration: "
+            + repr(accumulated_count)
+        )
+
     source = (
         "from build123d import Box\n"
         "for length in [1, 2, 3]:\n"

@@ -234,6 +234,7 @@ onMounted(() => {
     if (import.meta.env.VITE_E2E_TEST_HOOKS === "true") {
       (window as any).__build123dFlowTest = {
         runGraphWorkflowTests: () => runtime.runGraphWorkflowTests(),
+        importPython: (source: string) => importPythonSource(source, "browser acceptance"),
         downloadFile: (path: string, url: string) => runtime.downloadFile(path, url),
         getCurrentGraph: () => graph.value,
         getEvaluationState: () => ({

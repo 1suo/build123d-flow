@@ -555,6 +555,26 @@ def run_python_loop_lowering_tests():
     if property_result["socket_values"][collection_attributes[0]["id"]]["result"].get("type") != "Face":
         raise AssertionError("ShapeList.last must return one Face")
 
+    native_operator = runtime.import_python_code(
+        "from build123d import Box, Location\n"
+        "moved = Location((0, 0, 0)) * Box(1, 1, 1)\n"
+    )
+    multiply_nodes = [
+        node for node in native_operator["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.binary.__mul__"
+    ]
+    if len(multiply_nodes) != 1:
+        raise AssertionError("A Python multiplication expression must remain one operator node")
+    multiply_output = multiply_nodes[0]["data"]["definition"]["outputs"][0]
+    if multiply_output.get("data_structure") != "list":
+        raise AssertionError("Location.__mul__ must expose its native list result contract: " + repr(multiply_output))
+    operator_result = json.loads(runtime.evaluate_graph_json(json.dumps(native_operator)))
+    if operator_result["errors"]:
+        raise AssertionError("Native Location multiplication failed: " + json.dumps(operator_result["errors"]))
+    moved_value = operator_result["socket_values"][multiply_nodes[0]["id"]]["result"]
+    if moved_value.get("length") != 1:
+        raise AssertionError("Location * Shape must preserve the native one-item result list: " + repr(moved_value))
+
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"
         "for width in [3, 4]:\n"

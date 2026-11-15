@@ -3286,7 +3286,22 @@ def import_python_code(source):
         elif left_type in {"Number", "Integer", "Float"} and right_type in {"Number", "Integer", "Float"}:
             result_output["type"] = "Number"
 
-        definition_id = "core.python.binary." + method
+        # A binary node's callable closes over its concrete operand types,
+        # reflected/native dispatch contract, and mapping access. A shared
+        # definition ID lets later expressions overwrite that closure, causing
+        # earlier graph nodes to execute with unrelated socket contracts.
+        # Key the internal definition by the resolved contract so each callable
+        # remains paired with the exact socket metadata it was built for.
+        contract_definition_id = (
+            contract[0].get("id", "unknown") if contract is not None else "unresolved"
+        )
+        contract_key = json.dumps([
+            method, receiver_side, left_type, right_type,
+            left_port_type, right_port_type, left_access, right_access,
+            contract_definition_id,
+        ], sort_keys=True, separators=(",", ":"))
+        contract_digest = hashlib.sha1(contract_key.encode("utf-8")).hexdigest()[:12]
+        definition_id = "core.python.binary.{}.{}".format(method, contract_digest)
         definition = {
             "id": definition_id, "name": "Python " + method,
             "source": "python", "kind": "operation", "category": "Internal",

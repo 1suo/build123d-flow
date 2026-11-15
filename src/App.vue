@@ -515,7 +515,8 @@ async function importPythonSource(source: string, sourceLabel: string) {
   downloadStatus.value = "Parsing Python source…";
   logActivity("Importing Python source · " + sourceLabel);
   try {
-    const imported = await runtime.importPython(source);
+    const importedCadGraph = await cadProvider.importProgram(source, "python");
+    const imported = cadProvider.toGraphDocument(importedCadGraph);
     const importedNodes = imported.nodes.map((node: any) => ({
       ...node, type: "api", data: {
         ...node.data,

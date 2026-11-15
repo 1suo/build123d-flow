@@ -3378,6 +3378,7 @@ def import_python_code(source):
         contract_key = json.dumps([
             method, receiver_side, left_type, right_type,
             left_port_type, right_port_type, left_access, right_access,
+            left_structure, left_item_type, right_structure, right_item_type,
             contract_definition_id,
         ], sort_keys=True, separators=(",", ":"))
         contract_digest = hashlib.sha1(contract_key.encode("utf-8")).hexdigest()[:12]

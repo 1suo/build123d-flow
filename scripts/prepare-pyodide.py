@@ -16,6 +16,18 @@ def norm(name):
 def setup_roots(path):
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     roots, mocks = [Requirement("micropip"), Requirement("build123d==0.13.0")], set()
+    # Locally built ABI-specific wheels satisfy these distributions; they must
+    # not be resolved from PyPI as if a native platform wheel were available.
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == "LOCAL_PYODIDE_PACKAGES"
+                   for target in node.targets):
+            continue
+        values = node.value.elts if isinstance(node.value, (ast.List, ast.Tuple)) else []
+        for value in values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                mocks.add(norm(Requirement(value.value).name))
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "OCP_VERSION" for target in node.targets):
             if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):

@@ -313,6 +313,19 @@ def _annotation_metadata(annotation):
         # a collection. Keep that collection intact for the native operator.
         if collection_args:
             metadata["data_access"] = "structure"
+            # A union return such as Location | Plane | list[Location] has a
+            # genuine collection branch. Preserve that structural contract in
+            # the graph instead of collapsing it to type Any; the evaluator
+            # still returns the concrete runtime value for each call.
+            collection_kinds = {
+                "set" if typing.get_origin(collection) in (
+                    set, frozenset, collections.abc.Set, collections.abc.MutableSet
+                ) else "list"
+                for collection in collection_args
+                if typing.get_origin(collection) in collection_origins
+            }
+            if len(collection_kinds) == 1:
+                metadata["data_structure"] = collection_kinds.pop()
             item_types = {
                 _type_name(typing.get_args(collection)[0])
                 for collection in collection_args if typing.get_args(collection)

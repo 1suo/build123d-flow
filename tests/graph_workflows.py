@@ -407,10 +407,13 @@ def run_preview_style_test():
 def run_python_loop_lowering_tests():
     """Python loops compile once and map their body over iteration sequences."""
     accumulated_sketch = runtime.import_python_code(
+        "from math import pi, sin\\n"
         "from build123d import Sketch, Plane, Circle\\n"
+        "slice_count = 10\\n"
         "art = Sketch()\\n"
-        "for z in [0, 3, 6]:\\n"
-        "    art += Plane(origin=(0, 0, z)) * Circle(5)\\n"
+        "for i in range(slice_count + 1):\\n"
+        "    plane = Plane(origin=(0, 0, i * 3), z_dir=(0, 0, 1))\\n"
+        "    art += plane * Circle(10 * sin(i * pi / slice_count) + 5)\\n"
         "result = len(art.faces())\\n"
     )
     accumulated_counts = [

@@ -133,9 +133,11 @@ async function importExample(page: Page, source: string) {
     await page.getByRole("button", { name: "Show activity log" }).click();
   }
   const sourceInput = page.locator("#python-source-input");
-  if (!(await sourceInput.isVisible())) {
-    await page.getByRole("button", { name: "Settings" }).click();
-  }
+  // Wait for the previous import's popover-close transition to finish before
+  // opening it again. isVisible() alone can observe the outgoing DOM node.
+  await expect(sourceInput).toBeHidden({ timeout: 2_000 });
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(sourceInput).toBeVisible({ timeout: 2_000 });
 
   const evaluationBeforeImport = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
   // Fill directly after opening the popover. A separate visibility/value
@@ -156,6 +158,8 @@ async function importExample(page: Page, source: string) {
 
   await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9][0-9]* visible/, { timeout: 500 });
   await expect(page.locator(".geometry-viewport canvas")).toBeVisible({ timeout: 500 });
+  // Do not let the next example race the settings popover's close transition.
+  await expect(sourceInput).toBeHidden({ timeout: 2_000 });
 }
 
 test.describe.configure({ mode: "parallel" });
@@ -220,7 +224,6 @@ for (const shard of SHARDS) {
       });
     }
 
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
     const upstreamSources = await sourcesPromise;
     const allSources = [
       ...shard.smoke.map((source, index) => ({ filename: `smoke-${shard.name}-${index + 1}.py`, source })),

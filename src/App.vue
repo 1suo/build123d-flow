@@ -14,6 +14,7 @@ import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
 import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
+import { adaptRuntimeOperation } from "./runtime/cadKernel";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
 
 const runtime = new PythonRuntime();
@@ -216,7 +217,7 @@ onMounted(() => {
   void runtime.initialize(updateRuntimeStatus).then(async () => {
     const discovered = await runtime.getCatalog();
     const byName = new Map(discovered.map((item) => [item.name, item]));
-    catalog.value = discovered;
+    catalog.value = discovered.map((definition) => ({ ...definition, cadOperation: adaptRuntimeOperation(definition) }));
     for (const node of nodes.value as any[]) {
       const resolved = byName.get(node.data.definition.name);
       if (resolved) node.data.definition = resolved;
@@ -267,7 +268,7 @@ async function ensureFullCatalog() {
   if (fullCatalogLoaded || discoveryPromise || !runtime.isReady) return discoveryPromise;
   discoveryPromise = runtime.discoverCatalog().then(async (discovered) => {
     const byId = new Map(discovered.map((item) => [item.id, item]));
-    catalog.value = discovered;
+    catalog.value = discovered.map((definition) => ({ ...definition, cadOperation: adaptRuntimeOperation(definition) }));
     for (const node of nodes.value as any[]) {
       const resolved = byId.get(node.data.definition.id) ?? discovered.find((item) => item.name === node.data.definition.name);
       if (resolved) node.data.definition = resolved;
@@ -509,6 +510,7 @@ async function importPythonSource(source: string, sourceLabel: string) {
     const importedNodes = imported.nodes.map((node: any) => ({
       ...node, type: "api", data: {
         ...node.data,
+        definition: { ...node.data.definition, cadOperation: adaptRuntimeOperation(node.data.definition) },
         icon: nodeIcon(node.data.definition),
         onParameter, onVisibility, onCollapse, onInspect,
       }

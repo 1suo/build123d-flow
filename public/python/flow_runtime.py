@@ -3655,13 +3655,63 @@ def import_python_code(source):
                 return "scalar"
             return None
 
+        def inferred_argument_contract(argument):
+            # Infer the contract of a graph-producing method call without
+            # compiling the argument twice. This is essential for overloads
+            # such as Wire(TopoDS_Wire), Wire(Edge), and
+            # Wire(Iterable[Edge]): a call like curve.edges() is a collection
+            # even though its AST is not a literal list expression.
+            if isinstance(argument, ast.Call) and isinstance(argument.func, ast.Attribute):
+                receiver_node = argument.func.value
+                if isinstance(receiver_node, ast.Name) and receiver_node.id in variables:
+                    receiver_type = reference_type(variables[receiver_node.id])
+                    member_id, _ = resolve_member(argument.func.attr, receiver_type)
+                    member = definitions.get(member_id) if member_id else None
+                    outputs = member.get("outputs", []) if member else []
+                    if outputs:
+                        return outputs[0]
+            if isinstance(argument, ast.Name) and argument.id in variables:
+                value = variables[argument.id]
+                if value[0] == "ref":
+                    return reference_output(value)
+                if value[0] == "literal":
+                    return {"type": _type_name(type(materialize_literal(value[1])))}
+            return None
+
         def overload_argument_score(argument, socket):
             shape = literal_argument_shape(argument)
-            if shape is None:
-                return 0
+            contract = inferred_argument_contract(argument)
             access = socket.get("data_access")
             structure = socket.get("data_structure")
             target_types = set(socket.get("variants") or [socket.get("type", "Any")])
+
+            if contract is not None:
+                actual_structure = contract.get("data_structure")
+                actual_item_type = contract.get("item_type")
+                actual_type = contract.get("type", "Any")
+                target_item_type = socket.get("item_type")
+                score = 0
+                if actual_structure:
+                    score += 14 if access == "structure" else -14
+                    if structure == actual_structure:
+                        score += 8
+                    if target_item_type and actual_item_type:
+                        score += 12 if target_item_type == actual_item_type else -4
+                    annotation = socket.get("annotation", "")
+                    if any(token in annotation for token in ("Iterable[", "Sequence[", "Collection[")):
+                        score += 5
+                else:
+                    score += 3 if access in (None, "item") else -3
+                    if actual_type in target_types:
+                        score += 12
+                    elif actual_type in _GEOMETRY_INPUT_TYPES and target_types.intersection(_GEOMETRY_INPUT_TYPES):
+                        score += 4
+                if target_types.intersection(_GEOMETRY_INPUT_TYPES | _OBJECT_INPUT_TYPES):
+                    score += 1
+                return score
+
+            if shape is None:
+                return 0
             if shape in {"tuple", "list", "set", "dict"}:
                 score = 12 if shape in set(socket.get("literal_shapes") or []) else 0
                 if structure == shape:

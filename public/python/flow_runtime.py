@@ -2087,6 +2087,18 @@ def evaluate_graph_json(payload):
             return {key: restore_scope_value(item) for key, item in value.items()}
         return value
 
+    def restore_scope_arguments(values):
+        """Restore positional context-manager arguments, including native * expansion."""
+        arguments = []
+        for value in values:
+            if isinstance(value, dict) and "__flow_starred__" in value:
+                # list.extend deliberately delegates to Python's iterator
+                # protocol, matching call-site *iterable expansion.
+                arguments.extend(restore_scope_value(value["__flow_starred__"]))
+            else:
+                arguments.append(restore_scope_value(value))
+        return arguments
+
     def close_scope(scope_id, exception_info=(None, None, None)):
         entry = active_scopes.pop()
         manager = entry["manager"]
@@ -2128,7 +2140,7 @@ def evaluate_graph_json(payload):
                     raise ValueError("Unknown Python execution scope: " + str(scope_id))
                 module = importlib.import_module(descriptor["module"])
                 manager_type = getattr(module, descriptor["name"])
-                manager_args = restore_scope_value(descriptor.get("args", []))
+                manager_args = restore_scope_arguments(descriptor.get("args", []))
                 manager_kwargs = restore_scope_value(descriptor.get("kwargs", {}))
                 manager = manager_type(*manager_args, **manager_kwargs)
                 try:
@@ -4411,7 +4423,12 @@ def import_python_code(source):
         if not supports_context:
             raise ValueError("{} is not a context manager (line {})".format(
                 manager.__name__, node.lineno))
-        args = [scope_expression(argument) for argument in node.args]
+        args = [
+            {"__flow_starred__": scope_expression(argument.value)}
+            if isinstance(argument, ast.Starred)
+            else scope_expression(argument)
+            for argument in node.args
+        ]
         kwargs = {}
         for keyword in node.keywords:
             if keyword.arg is None:
@@ -4960,7 +4977,11 @@ def export_python_code(payload):
                     return "{" + ", ".join(repr(key) + ": " + scope_code_value(item)
                                             for key, item in value.items()) + "}"
                 return repr(value)
-            args = [scope_code_value(value) for value in descriptor.get("args", [])]
+            def scope_code_argument(value):
+                if isinstance(value, dict) and "__flow_starred__" in value:
+                    return "*" + scope_code_value(value["__flow_starred__"])
+                return scope_code_value(value)
+            args = [scope_code_argument(value) for value in descriptor.get("args", [])]
             kwargs = ["{}={}".format(key, scope_code_value(value))
                       for key, value in descriptor.get("kwargs", {}).items()]
             manager_var = "_scope_" + str(len(active_export_scopes) + 1)

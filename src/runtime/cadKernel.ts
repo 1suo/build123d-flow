@@ -242,6 +242,7 @@ export function toCadProceduralGraph(graph: GraphDocument): CadProceduralGraph {
       providerData: {
         definition: node.data.definition,
         data: {
+          visible: node.data.visible,
           execution_scope_path: node.data.execution_scope_path,
           scope_binding: node.data.scope_binding,
           scope_result: node.data.scope_result,

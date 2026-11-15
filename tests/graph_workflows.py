@@ -559,6 +559,19 @@ def run_python_loop_lowering_tests():
         "from build123d import Box, Location\n"
         "moved = Location((0, 0, 0)) * Box(1, 1, 1)\n"
     )
+    location_nodes = [
+        node for node in native_operator["nodes"]
+        if ".Location.overload-" in node["data"]["definition"]["id"]
+    ]
+    if len(location_nodes) != 1:
+        raise AssertionError("Location(VectorLike) must resolve to one constructor overload")
+    location_inputs = {
+        socket["name"] for socket in location_nodes[0]["data"]["definition"]["inputs"]
+    }
+    if "position" not in location_inputs or "location" in location_inputs:
+        raise AssertionError(
+            "Location((x, y, z)) selected the wrong overload: " + repr(location_inputs)
+        )
     multiply_nodes = [
         node for node in native_operator["nodes"]
         if node["data"]["definition"]["id"] == "core.python.binary.__mul__"

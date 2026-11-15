@@ -584,35 +584,37 @@ def run_python_loop_lowering_tests():
         raise AssertionError("Location * Box must preserve the concrete Box runtime type: " + repr(moved_value))
 
     value_operand_graph = runtime.import_python_code(
-        "from build123d import Location, Sphere, Vector\n"
-        "moved_sphere = Location((0, -3 * MM, 47 * MM), (90, 0, 0)) * Sphere(40 * MM)\n"
-        "shifted_vector = Vector(1, 2, 3) + Vector(0, 5)\n"
+        "from build123d import Location, Sphere, Vector, Box, Cylinder\\n"
+        "moved_sphere = Location((0, -3 * MM, 47 * MM), (90, 0, 0)) * Sphere(40 * MM)\\n"
+        "scaled_vector = Vector(1, 2, 3) * 2\\n"
+        "shifted_vector = Vector(1, 2, 3) + Vector(0, 5)\\n"
+        "combined = Box(4, 4, 4) + Cylinder(1, 4)\\n"
     )
     value_operand_result = json.loads(runtime.evaluate_graph_json(json.dumps(value_operand_graph)))
     if value_operand_result["errors"]:
         raise AssertionError(
-            "Native operators must restore typed Location/Vector operands: "
+            "Native operators must restore typed CAD operands without cross-node callable leakage: "
             + json.dumps(value_operand_result["errors"])
         )
-
-    native_shape_add = runtime.import_python_code(
-        "from build123d import Box, Cylinder\n"
-        "combined = Box(4, 4, 4) + Cylinder(1, 4)\n"
-    )
-    add_nodes = [
-        node for node in native_shape_add["nodes"]
+    mixed_multiply_nodes = [
+        node for node in value_operand_graph["nodes"]
+        if node["data"]["definition"]["id"].startswith("core.python.binary.__mul__.")
+    ]
+    mixed_add_nodes = [
+        node for node in value_operand_graph["nodes"]
         if node["data"]["definition"]["id"].startswith("core.python.binary.__add__.")
     ]
-    if len(add_nodes) != 1:
-        raise AssertionError("Box + Cylinder must lower to one native Python addition node")
-    add_output = add_nodes[0]["data"]["definition"]["outputs"][0]
-    if add_output.get("type") != "Shape":
-        raise AssertionError("Box + Cylinder must use the native Shape.__add__ return contract: " + repr(add_output))
-    add_result = json.loads(runtime.evaluate_graph_json(json.dumps(native_shape_add)))
-    if add_result["errors"]:
-        raise AssertionError("Native Box + Cylinder failed: " + json.dumps(add_result["errors"]))
-    if add_nodes[0]["id"] not in add_result["previews"]:
-        raise AssertionError("Native Box + Cylinder produced no preview geometry")
+    if len(mixed_multiply_nodes) != 2 or len(mixed_add_nodes) != 2:
+        raise AssertionError(
+            "Mixed native operators must retain separate per-contract nodes: "
+            + repr((len(mixed_multiply_nodes), len(mixed_add_nodes)))
+        )
+    shape_add_nodes = [
+        node for node in mixed_add_nodes
+        if node["data"]["definition"]["outputs"][0].get("type") == "Shape"
+    ]
+    if len(shape_add_nodes) != 1 or shape_add_nodes[0]["id"] not in value_operand_result["previews"]:
+        raise AssertionError("Box + Cylinder must produce previewable native Shape geometry")
 
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"

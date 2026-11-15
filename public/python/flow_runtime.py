@@ -314,9 +314,11 @@ def _annotation_metadata(annotation):
         if collection_args:
             metadata["data_access"] = "structure"
             collection_kinds = {
-                "set" if typing.get_origin(collection) in (
-                    set, frozenset, collections.abc.Set, collections.abc.MutableSet
-                ) else "list"
+                (
+                    "set" if typing.get_origin(collection) in (
+                        set, frozenset, collections.abc.Set, collections.abc.MutableSet
+                    ) else "tuple" if typing.get_origin(collection) is tuple else "list"
+                )
                 for collection in collection_args
                 if typing.get_origin(collection) in collection_origins
             }
@@ -3409,7 +3411,12 @@ def import_python_code(source):
                             else _coerce_graph_receiver(item, {"type": item_type})
                             for item in items
                         ]
-                    return coerce_items(value)
+                    converted_items = coerce_items(value)
+                    if structure == "tuple":
+                        return tuple(converted_items)
+                    if structure == "set":
+                        return set(converted_items)
+                    return converted_items
                 return _coerce_graph_receiver(value, {"type": port_type})
 
             left = coerce_operand(left, left_port_type, left_structure, left_item_type)

@@ -3820,6 +3820,7 @@ def import_python_code(source):
             def graph_depends_on(node_id, ancestors):
                 pending = [node_id]
                 visited = set()
+                nodes_by_id = {item.get("id"): item for item in graph_nodes}
                 while pending:
                     current_id = pending.pop()
                     if current_id in ancestors:
@@ -3828,9 +3829,22 @@ def import_python_code(source):
                         continue
                     visited.add(current_id)
                     for edge in graph_edges:
-                        if edge.get("target") != current_id:
-                            continue
-                        source_id = edge.get("source")
+                        if edge.get("target") == current_id:
+                            source_id = edge.get("source")
+                            if source_id in ancestors:
+                                return True
+                            pending.append(source_id)
+                    current = nodes_by_id.get(current_id, {})
+                    data = current.get("data", {})
+                    # Loop iteration dependencies are semantic graph edges
+                    # carried as metadata because the body is represented once.
+                    for source in data.get("python_loop_sources", []):
+                        source_id = source.get("node_id")
+                        if source_id in ancestors:
+                            return True
+                        if source_id:
+                            pending.append(source_id)
+                    for source_id in data.get("scope_dependencies", []):
                         if source_id in ancestors:
                             return True
                         pending.append(source_id)
@@ -4804,6 +4818,7 @@ def import_python_code(source):
         """Return whether a graph value is derived from any supplied node."""
         pending = [node_id]
         visited = set()
+        nodes_by_id = {item.get("id"): item for item in graph_nodes}
         while pending:
             current_id = pending.pop()
             if current_id in ancestors:
@@ -4813,7 +4828,24 @@ def import_python_code(source):
             visited.add(current_id)
             for edge in graph_edges:
                 if edge.get("target") == current_id:
-                    pending.append(edge.get("source"))
+                    source_id = edge.get("source")
+                    if source_id in ancestors:
+                        return True
+                    pending.append(source_id)
+            current = nodes_by_id.get(current_id, {})
+            data = current.get("data", {})
+            # A loop body is compiled once, so its iteration dependencies are
+            # explicit metadata rather than ordinary socket edges.
+            for source in data.get("python_loop_sources", []):
+                source_id = source.get("node_id")
+                if source_id in ancestors:
+                    return True
+                if source_id:
+                    pending.append(source_id)
+            for source_id in data.get("scope_dependencies", []):
+                if source_id in ancestors:
+                    return True
+                pending.append(source_id)
         return False
 
     def select_loop_mapping(iterable_id, ancestors, line):

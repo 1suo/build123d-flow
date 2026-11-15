@@ -1287,8 +1287,39 @@ def run_operator_mro_resolution_tests():
     return {"name": "operator receiver MRO", "nearest_owner": True, "unrelated_rejected": True}
 
 
+def run_operator_overload_tests():
+    graph = runtime.import_python_code(
+        "from build123d import Circle, Plane\n"
+        "plane = Plane(origin=(0, 0, 0))\n"
+        "circle = Circle(2)\n"
+        "result = plane * circle\n"
+    )
+    binary_nodes = [
+        node for node in graph["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.binary.__mul__"
+    ]
+    if len(binary_nodes) != 1:
+        raise AssertionError("Plane * Circle must lower to one native multiplication node")
+    definition = binary_nodes[0]["data"]["definition"]
+    inputs = {socket["name"]: socket for socket in definition.get("inputs", [])}
+    if inputs.get("right", {}).get("data_access") != "item":
+        raise AssertionError(
+            "A scalar Shape overload must consume one item, not the iterable union: "
+            + repr(inputs.get("right"))
+        )
+    output = definition.get("outputs", [{}])[0]
+    if output.get("data_structure") in {"list", "tree", "tuple", "set"}:
+        raise AssertionError(
+            "Plane * Circle must retain its scalar Shape return contract: " + repr(output)
+        )
+    evaluated = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
+    if evaluated["errors"]:
+        raise AssertionError("Plane * Circle native operator evaluation failed: " + json.dumps(evaluated["errors"]))
+    return {"name": "operator overload selection", "scalar_shape_overload": True}
+
+
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_operator_overload_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

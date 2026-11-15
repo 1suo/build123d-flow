@@ -21,6 +21,7 @@ VERSION = "2.4.1"
 SOURCE_TAG = "v2.4.1"
 PYTHON_TAG = "cp314-cp314"
 PLATFORM_TAG = "pyemscripten_2026_0_wasm32"
+EMSCRIPTEN_VERSION = "5.0.3"
 WHEEL_NAME = f"lib3mf-{VERSION}-{PYTHON_TAG}-{PLATFORM_TAG}.whl"
 
 
@@ -124,6 +125,12 @@ def make_wheel(source_root: Path, library: Path, wheelhouse: Path) -> Path:
 
 
 def main() -> None:
+    emcc_version = subprocess.check_output(["emcc", "--version"], text=True)
+    if EMSCRIPTEN_VERSION not in emcc_version:
+        raise RuntimeError(
+            "Expected Emscripten {}, got: {}".format(EMSCRIPTEN_VERSION, emcc_version.splitlines()[0])
+        )
+    print("Using Emscripten {}".format(EMSCRIPTEN_VERSION), flush=True)
     parser = argparse.ArgumentParser()
     parser.add_argument("wheelhouse", type=Path)
     args = parser.parse_args()

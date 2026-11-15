@@ -585,7 +585,7 @@ def run_python_loop_lowering_tests():
 
     value_operand_graph = runtime.import_python_code(
         "from build123d import Location, Sphere, Vector\\n"
-        "moved_sphere = Location((0, 0, 0)) * Sphere(2)\\n"
+        "moved_sphere = Location((0, -3 * MM, 47 * MM), (90, 0, 0)) * Sphere(40 * MM)\\n"
         "shifted_vector = Vector(1, 2, 3) + Vector(0, 5)\\n"
     )
     value_operand_result = json.loads(runtime.evaluate_graph_json(json.dumps(value_operand_graph)))

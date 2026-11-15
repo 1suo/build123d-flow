@@ -3249,13 +3249,19 @@ def import_python_code(source):
             if receiver_side == "left":
                 left_access = access_for(receiver_socket)
                 right_access = access_for(argument_socket)
-                left_port_type = receiver_socket.get("type", "Any")
-                right_port_type = argument_socket.get("type", "Any") if argument_socket else "Any"
+                # Unannotated self parameters often appear as Any in the
+                # discovered signature. The concrete MRO lookup already
+                # established the receiver type, so retain that contract for
+                # restoring serialized CAD value operands.
+                left_port_type = left_type
+                argument_type_name = argument_socket.get("type", "Any") if argument_socket else "Any"
+                right_port_type = argument_type_name if argument_type_name != "Any" else right_type
             else:
                 right_access = access_for(receiver_socket)
                 left_access = access_for(argument_socket)
-                right_port_type = receiver_socket.get("type", "Any")
-                left_port_type = argument_socket.get("type", "Any") if argument_socket else "Any"
+                right_port_type = right_type
+                argument_type_name = argument_socket.get("type", "Any") if argument_socket else "Any"
+                left_port_type = argument_type_name if argument_type_name != "Any" else left_type
             if output_socket:
                 result_output["type"] = output_socket.get("type", "Any")
                 for key in ("data_structure", "item_type", "variants", "semantic_type"):

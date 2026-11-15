@@ -63,16 +63,16 @@ function updateStructured(value: string) {
         </div>
         <DataValue v-if="socket.connected" :label="socket.id" :value="socket.value ?? 'Waiting for value'" />
         <div v-else class="inspector-input-control">
-          <InputNumber v-if="socket.type === 'Number'" :model-value="currentValue(socket) as number | null"
+          <InputNumber v-if="socket.valueType === 'number' || socket.valueType === 'integer'" :model-value="currentValue(socket) as number | null"
             :use-grouping="false" :max-fraction-digits="8" @update:model-value="update(socket, $event)" />
-          <Checkbox v-else-if="socket.type === 'Boolean'" :model-value="Boolean(currentValue(socket))" binary
+          <Checkbox v-else-if="socket.valueType === 'boolean'" :model-value="Boolean(currentValue(socket))" binary
             @update:model-value="update(socket, $event)" />
-          <Button v-else-if="socket.type === 'Code'" class="node-structured-trigger" severity="secondary" outlined
+          <Button v-else-if="socket.valueType === 'string' && socket.description?.toLowerCase().includes('code')" class="node-structured-trigger" severity="secondary" outlined
             :label="String(currentValue(socket) ?? '').replace(/\s+/g, ' ').trim() || 'Edit code…'"
             @click="openStructured(socket)" />
-          <InputText v-else-if="socket.type === 'String'" :model-value="String(currentValue(socket) ?? '')"
+          <InputText v-else-if="socket.valueType === 'string'" :model-value="String(currentValue(socket) ?? '')"
             @update:model-value="update(socket, $event)" />
-          <Select v-else-if="socket.type === 'Enum'" :model-value="String(currentValue(socket) ?? '')"
+          <Select v-else-if="socket.valueType === 'enum'" :model-value="String(currentValue(socket) ?? '')"
             :options="socket.enumValues || []" placeholder="Default" @update:model-value="update(socket, $event)" />
           <Button v-else class="node-structured-trigger" severity="secondary" outlined
             :label="textValue(socket).replace(/\s+/g, ' ').trim() || 'Set value'"

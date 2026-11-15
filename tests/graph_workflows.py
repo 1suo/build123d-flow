@@ -874,6 +874,7 @@ def run_python_import_tests():
     endpoint_graph = runtime.import_python_code(
         "from build123d import Bezier\n"
         "curve = Bezier((0.0, 0.0), (7.05, 0.0), (12.18, 1.54), (15.13, 4.54))\n"
+        "direct_endpoint = curve.end_point()\n"
         "endpoint = curve @ 1\n"
     )
     endpoint_node = next(
@@ -902,9 +903,23 @@ def run_python_import_tests():
             }
             for edge in receiver_edges
         ]
+        constructor_node = next(
+            node for node in endpoint_graph["nodes"]
+            if node["data"]["definition"].get("name") == "Bezier"
+        )
+        constructor_edges = [
+            edge for edge in endpoint_graph["edges"]
+            if edge["target"] == constructor_node["id"]
+        ]
+        direct_node = next(
+            node for node in endpoint_graph["nodes"]
+            if node["data"]["definition"].get("name") == "end_point"
+        )
+        direct_value = endpoint_result["socket_values"].get(direct_node["id"])
         raise AssertionError(
-            "Bezier @ 1 returned the wrong endpoint: {}; operator node: {}; receiver sources: {}".format(
-                repr(endpoint_value), repr(endpoint_node), repr(receiver_sources)
+            "Bezier endpoint mismatch: @1 {}; direct end_point {}; constructor inputs {}; constructor node {}; operator node {}; receiver sources {}".format(
+                repr(endpoint_value), repr(direct_value), repr(constructor_edges),
+                repr(constructor_node), repr(endpoint_node), repr(receiver_sources)
             )
         )
 

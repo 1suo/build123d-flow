@@ -37,14 +37,14 @@ class PythonImportSourceTests(unittest.TestCase):
             for node in ast.walk(self.importer)
         ))
 
-    def test_importer_keeps_catalog_resolution_local(self):
+    def test_importer_delegates_to_shared_mro_resolver(self):
         functions = {
             node.name: node for node in self.importer.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
         self.assertIn("resolve_member", functions)
         source = ast.unparse(functions["resolve_member"])
-        self.assertIn("variants", source)
+        self.assertIn("_resolve_catalog_member", source)
         self.assertIn("receiver_type", source)
 
     def test_importer_never_executes_or_evaluates_source(self):
@@ -60,16 +60,12 @@ class PythonImportSourceTests(unittest.TestCase):
             node.name: node for node in self.module.body
             if isinstance(node, ast.FunctionDef)
         }
-        importer = functions["import_python_code"]
-        resolver = next(
-            node for node in ast.walk(importer)
-            if isinstance(node, ast.FunctionDef) and node.name == "resolve_member"
-        )
-        source = ast.unparse(resolver)
+        source = ast.unparse(functions["_resolve_catalog_member"])
         self.assertIn("candidate_id.rsplit", source)
         self.assertIn("member_name", source)
         self.assertNotIn("candidate.get('name')", source)
         self.assertNotIn('candidate.get("name")', source)
+        self.assertIn("_receiver_type_distance", source)
 
     def test_build123d_vector_class_matches_vector3_socket_type(self):
         functions = {
@@ -88,30 +84,34 @@ class PythonImportSourceTests(unittest.TestCase):
         self.assertIn("'Vertex'", source)
         self.assertIn('return shape_name', source)
 
-    def test_unmatched_receiver_resolves_only_a_unique_discovered_method(self):
-        resolver = next(
-            node for node in self.importer.body
-            if isinstance(node, ast.FunctionDef) and node.name == "resolve_member"
-        )
+    def _resolver_namespace(self):
+        functions = {
+            node.name: node for node in self.module.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        names = [
+            "_discovered_class", "_class_mro_distance",
+            "_receiver_type_distance", "_resolve_catalog_member",
+        ]
+        module = ast.Module(body=[copy.deepcopy(functions[name]) for name in names], type_ignores=[])
+        namespace = {
+            "b3d": types.SimpleNamespace(),
+            "_DISCOVERED_CLASSES": {},
+            "inspect": inspect,
+        }
+        exec(compile(module, "<catalog_resolver_test>", "exec"), namespace)
+        return namespace
 
-        def resolve(definitions, receiver_type):
-            module = ast.Module(body=[copy.deepcopy(resolver)], type_ignores=[])
-            namespace = {
-                "definitions": definitions,
-                "b3d": types.SimpleNamespace(),
-                "inspect": inspect,
-            }
-            exec(compile(module, "<resolve_member_test>", "exec"), namespace)
-            return namespace["resolve_member"]("group_by", receiver_type)
+    def test_unmatched_receiver_resolves_only_a_unique_discovered_method(self):
+        namespace = self._resolver_namespace()
+        resolve = namespace["_resolve_catalog_member"]
 
         def method(receiver_type):
-            return {
-                "inputs": [{"name": "self", "type": receiver_type}],
-            }
+            return {"inputs": [{"name": "self", "type": receiver_type}]}
 
         unique_id = "build123d.topology.ShapeList.group_by"
         self.assertEqual(
-            resolve({unique_id: method("ShapeList")}, "UnrecognizedCollection"),
+            resolve({unique_id: method("ShapeList")}, "group_by", "UnrecognizedCollection"),
             (unique_id, (unique_id,)),
         )
 
@@ -120,7 +120,7 @@ class PythonImportSourceTests(unittest.TestCase):
             resolve({
                 unique_id: method("ShapeList"),
                 other_id: method("OtherList"),
-            }, "UnrecognizedCollection"),
+            }, "group_by", "UnrecognizedCollection"),
             (None, tuple(sorted((unique_id, other_id)))),
         )
 
@@ -128,9 +128,39 @@ class PythonImportSourceTests(unittest.TestCase):
             resolve({
                 unique_id: method("ShapeList"),
                 other_id: method("OtherList"),
-            }, "ShapeList"),
+            }, "group_by", "ShapeList"),
             (unique_id, (unique_id,)),
         )
+
+    def test_catalog_member_resolution_uses_nearest_python_mro_owner(self):
+        class Root:
+            pass
+
+        class Intermediate(Root):
+            pass
+
+        class Concrete(Intermediate):
+            pass
+
+        namespace = self._resolver_namespace()
+        namespace["_DISCOVERED_CLASSES"] = {
+            "Root": (Root,),
+            "Intermediate": (Intermediate,),
+            "Concrete": (Concrete,),
+        }
+        definitions = {
+            "fixture.Root.operator.__add__": {
+                "inputs": [{"name": "self", "type": "Root"}],
+            },
+            "fixture.Intermediate.operator.__add__": {
+                "inputs": [{"name": "self", "type": "Intermediate"}],
+            },
+        }
+        selected, winners = namespace["_resolve_catalog_member"](
+            definitions, "__add__", "Concrete"
+        )
+        self.assertEqual(selected, "fixture.Intermediate.operator.__add__")
+        self.assertEqual(winners, (selected,))
 
     def test_ambiguous_properties_defer_to_native_python_lookup(self):
         functions = {

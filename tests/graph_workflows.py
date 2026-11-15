@@ -538,6 +538,23 @@ def run_python_loop_lowering_tests():
     if max(x_coordinates) - min(x_coordinates) < 10.5:
         raise AssertionError("Locations must preserve all three loop-derived positions: " + repr((min(x_coordinates), max(x_coordinates))))
 
+    shape_list_property = runtime.import_python_code(
+        "from build123d import Axis, Box\n"
+        "shape = Box(2, 2, 2)\n"
+        "last_face = shape.faces().sort_by(Axis.Z).last\n"
+    )
+    collection_attributes = [
+        node for node in shape_list_property["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.attribute.structure"
+    ]
+    if len(collection_attributes) != 1:
+        raise AssertionError("ShapeList properties must use a structure-consuming attribute node")
+    property_result = json.loads(runtime.evaluate_graph_json(json.dumps(shape_list_property)))
+    if property_result["errors"]:
+        raise AssertionError("ShapeList.last must run on the collection, not each Face: " + json.dumps(property_result["errors"]))
+    if property_result["socket_values"][collection_attributes[0]["id"]]["result"].get("type") != "Face":
+        raise AssertionError("ShapeList.last must return one Face")
+
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"
         "for width in [3, 4]:\n"

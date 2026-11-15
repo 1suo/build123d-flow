@@ -527,9 +527,16 @@ def run_python_loop_lowering_tests():
     loop_location_result = json.loads(runtime.evaluate_graph_json(json.dumps(loop_locations)))
     if loop_location_result["errors"]:
         raise AssertionError("Tuple-valued Locations inside a loop failed: " + json.dumps(loop_location_result["errors"]))
-    loop_location_boxes_value = loop_location_result["socket_values"][loop_location_boxes[0]["id"]]["result"]
-    if loop_location_boxes_value.get("length") != 3:
-        raise AssertionError("A tuple location must be built once per loop item: " + repr(loop_location_boxes_value))
+    part_result_node = next(
+        node for node in loop_locations["nodes"]
+        if node["data"].get("scope_result")
+    )
+    part_preview = loop_location_result["previews"].get(part_result_node["id"])
+    if not part_preview or not part_preview.get("vertices"):
+        raise AssertionError("The mapped Locations builder scope produced no preview geometry")
+    x_coordinates = part_preview["vertices"][0::3]
+    if max(x_coordinates) - min(x_coordinates) < 10.5:
+        raise AssertionError("Locations must preserve all three loop-derived positions: " + repr((min(x_coordinates), max(x_coordinates))))
 
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"

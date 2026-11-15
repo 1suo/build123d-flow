@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "upstream-examples.spec.ts",
   globalTimeout: 8 * 60 * 1000,
-  fullyParallel: false,
+  fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   workers: 2,

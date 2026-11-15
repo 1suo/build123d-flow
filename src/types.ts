@@ -31,7 +31,7 @@ export interface NodeDefinition {
   name: string;
   category: string;
   /** Explicit API/runtime provenance; independent of node identity and presentation. */
-  source: "build123d" | "python" | "flow";
+  source: string;
   /** User-facing functional palette category. */
   palette_category: string;
   /** Optional subgroup within a functional palette category. */

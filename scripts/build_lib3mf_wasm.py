@@ -190,6 +190,7 @@ def main() -> None:
         run([
             "emcmake", "cmake", "-S", str(source), "-B", str(build), "-G", "Ninja",
             "-DCMAKE_BUILD_TYPE=Release",
+            "-DBUILD_SHARED_LIBS=ON",
             "-DLIB3MF_TESTS=OFF",
             "-DSTRIP_BINARIES=OFF",
             "-DUSE_INCLUDED_ZLIB=ON",

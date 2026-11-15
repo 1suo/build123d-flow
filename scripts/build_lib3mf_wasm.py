@@ -158,7 +158,7 @@ def main() -> None:
             raise RuntimeError("Lib3MF build produced no shared library")
         library = candidates[0]
         wasm = library.read_bytes()
-        if not wasm.startswith(b"\\x00asm") or b"dylink.0" not in wasm:
+        if not wasm.startswith(b"\x00asm") or b"dylink.0" not in wasm:
             raise RuntimeError(f"Lib3MF output is not an Emscripten side module: {library}")
         wheel = make_wheel(source, library, args.wheelhouse)
         print(f"Built {wheel} ({wheel.stat().st_size:,} bytes)", flush=True)

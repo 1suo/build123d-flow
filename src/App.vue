@@ -275,7 +275,7 @@ async function ensureFullCatalog() {
     const byId = new Map(portableDefinitions.map((item) => [item.id, item]));
     catalog.value = portableDefinitions;
     for (const node of nodes.value as any[]) {
-      const resolved = byId.get(node.data.definition.id) ?? discovered.find((item) => item.name === node.data.definition.name);
+      const resolved = byId.get(node.data.definition.id) ?? portableDefinitions.find((item) => item.name === node.data.definition.name);
       if (resolved) node.data.definition = resolved;
       node.data.icon = nodeIcon(node.data.definition);
     }

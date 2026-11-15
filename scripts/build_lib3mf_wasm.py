@@ -148,6 +148,7 @@ def main() -> None:
         run([
             "emcmake", "cmake", "-S", str(source), "-B", str(build), "-G", "Ninja",
             "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
             "-DLIB3MF_TESTS=OFF",
             "-DSTRIP_BINARIES=OFF",
             "-DUSE_INCLUDED_ZLIB=ON",

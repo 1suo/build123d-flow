@@ -71,7 +71,7 @@ const selectedNodeInputs = computed(() => {
   const node = selectedNode.value;
   if (!node) return [];
   return (node.data.definition.cadOperation?.inputs ?? []).map((socket: any) => {
-    const edge = edges.value.find((item: any) => item.target === node.id && item.targetHandle === socket.name) as any;
+    const edge = edges.value.find((item: any) => item.target === node.id && item.targetHandle === socket.id) as any;
     const value = edge ? socketValues.value[edge.source]?.[edge.sourceHandle || "result"] : node.data.params[socket.id] ?? socket.defaultValue;
     return { ...socket, connected: Boolean(edge), value };
   });

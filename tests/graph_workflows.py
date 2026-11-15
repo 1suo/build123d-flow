@@ -586,6 +586,7 @@ def run_python_loop_lowering_tests():
     value_operand_graph = runtime.import_python_code(
         "from build123d import Location, Sphere, Vector, Box, Cylinder, MM\\n"
         "moved_sphere = Location((0, -3 * MM, 47 * MM), (90, 0, 0)) * Sphere(40 * MM)\\n"
+        "moved_spheres = Location((0, 0, 0)) * [Sphere(20 * MM), Sphere(10 * MM)]\\n"
         "scaled_vector = Vector(1, 2, 3) * 2\\n"
         "shifted_vector = Vector(1, 2, 3) + Vector(0, 5)\\n"
         "combined = Box(4, 4, 4) + Cylinder(1, 4)\\n"
@@ -604,7 +605,7 @@ def run_python_loop_lowering_tests():
         node for node in value_operand_graph["nodes"]
         if node["data"]["definition"]["id"].startswith("core.python.binary.__add__.")
     ]
-    if len(mixed_multiply_nodes) != 2 or len(mixed_add_nodes) != 2:
+    if len(mixed_multiply_nodes) != 3 or len(mixed_add_nodes) != 2:
         raise AssertionError(
             "Mixed native operators must retain separate per-contract nodes: "
             + repr((len(mixed_multiply_nodes), len(mixed_add_nodes)))
@@ -614,6 +615,15 @@ def run_python_loop_lowering_tests():
         or len({node["data"]["definition"]["id"] for node in mixed_add_nodes}) != len(mixed_add_nodes)
     ):
         raise AssertionError("Distinct native operator contracts must never share callable IDs")
+    list_multiply_nodes = [
+        node for node in mixed_multiply_nodes
+        if node["data"]["definition"]["outputs"][0].get("data_structure") == "list"
+    ]
+    if len(list_multiply_nodes) != 1:
+        raise AssertionError(
+            "Location * a list of Shapes must retain its native list return contract: "
+            + repr([node["data"]["definition"]["outputs"][0] for node in mixed_multiply_nodes])
+        )
     shape_add_nodes = [
         node for node in mixed_add_nodes
         if node["data"]["definition"]["outputs"][0].get("type") == "Shape"

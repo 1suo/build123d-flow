@@ -159,6 +159,18 @@ def run_annotation_resolution_tests():
                 raise AssertionError("Cross-module ForwardRef hints were not resolved")
             break
 
+    # A union of one geometry object and an iterable of geometry objects
+    # must preserve an existing collection. Trying Edge(list) first silently
+    # wraps the collection as one Edge and fails later inside the kernel.
+    edge = runtime.b3d.Edge.make_line((0, 0, 0), (1, 0, 0))
+    edge_union = runtime.b3d.Edge | collections.abc.Iterable[runtime.b3d.Edge]
+    coerced_edges = runtime._coerce_annotation([edge], edge_union)
+    if not isinstance(coerced_edges, list) or coerced_edges != [edge]:
+        raise AssertionError(
+            "Geometry-or-iterable union must preserve the iterable: "
+            + repr(coerced_edges)
+        )
+
     # A bare Iterable ABC (Pos's v parameter) is a structural contract as well.
     bare_iterable = runtime._annotation_metadata(collections.abc.Iterable)
     if bare_iterable.get("data_structure") != "list" or bare_iterable.get("data_access") is not None:

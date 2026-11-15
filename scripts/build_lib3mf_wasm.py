@@ -35,7 +35,6 @@ def run(command: list[str], cwd: Path | None = None) -> None:
 
 
 def patch_platform_suffix(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
     text = source.read_text(encoding="utf-8")
     original = (
         "\t\telif platform.system() == 'Darwin':\n"

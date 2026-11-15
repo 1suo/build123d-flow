@@ -166,11 +166,6 @@ def _type_name(annotation):
     if origin is typing.Annotated:
         return _type_name(args[0]) if args else "Any"
     if inspect.isclass(annotation):
-        # Coercion must be idempotent for values already satisfying the
-        # declared contract. Re-wrapping build123d topology objects attempts
-        # to downcast a Python Edge/Face wrapper as if it were a TopoDS shape.
-        if isinstance(value, annotation):
-            return value
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
@@ -2739,6 +2734,11 @@ def _coerce_annotation(value, annotation):
             return value
         raise ValueError("Expected one of: " + ", ".join(map(str, args)))
     if inspect.isclass(annotation):
+        # Coercion is idempotent for values already satisfying the declared
+        # contract. Re-wrapping topology wrappers would pass a Python Edge or
+        # Face where the constructor expects an underlying TopoDS object.
+        if isinstance(value, annotation):
+            return value
         try:
             if issubclass(annotation, enum.Enum):
                 return value if isinstance(value, annotation) else annotation[value] if isinstance(value, str) else annotation(value)

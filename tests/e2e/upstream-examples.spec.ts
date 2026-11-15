@@ -179,7 +179,9 @@ for (const shard of SHARDS) {
   test(`imports and evaluates pinned upstream examples — ${shard.name}`, async ({ page, request }) => {
     expect(EXAMPLES).toHaveLength(67);
     expect(new Set(EXAMPLES).size).toBe(EXAMPLES.length);
-    expect(shard.examples.length + shard.examples.length).toBeGreaterThan(0);
+    expect(shard.examples.length + shard.smoke.length).toBeGreaterThan(0);
+    expect(SHARDS.reduce((total, item) => total + item.examples.length, 0)).toBe(EXAMPLES.length);
+    expect(SHARDS.reduce((total, item) => total + item.smoke.length, 0)).toBe(SMOKE_CASES.length);
     test.setTimeout(15 * 60 * 1000);
 
     const pageErrors: string[] = [];

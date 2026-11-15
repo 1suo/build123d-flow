@@ -874,7 +874,7 @@ def run_python_import_tests():
     endpoint_graph = runtime.import_python_code(
         "from build123d import Bezier\n"
         "curve = Bezier((0.0, 0.0), (7.05, 0.0), (12.18, 1.54), (15.13, 4.54))\n"
-        "direct_endpoint = curve.end_point()\n"
+        "direct_endpoint = curve.end_point\n"
         "endpoint = curve @ 1\n"
     )
     endpoint_node = next(

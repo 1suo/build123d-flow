@@ -166,6 +166,11 @@ def _type_name(annotation):
     if origin is typing.Annotated:
         return _type_name(args[0]) if args else "Any"
     if inspect.isclass(annotation):
+        # Coercion must be idempotent for values already satisfying the
+        # declared contract. Re-wrapping build123d topology objects attempts
+        # to downcast a Python Edge/Face wrapper as if it were a TopoDS shape.
+        if isinstance(value, annotation):
+            return value
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
@@ -2683,8 +2688,16 @@ def _coerce_annotation(value, annotation):
         # collection unions such as Edge | Iterable[Edge], leave the iterable
         # branch to the normal candidate resolver: constructing Edge(list)
         # would wrap the collection itself as one geometry object.
-        if isinstance(value, (list, tuple)) and any(
-            typing.get_origin(candidate) is tuple for candidate in candidates
+        fixed_tuple_candidates = [
+            candidate for candidate in candidates
+            if typing.get_origin(candidate) is tuple
+            and len(typing.get_args(candidate)) > 1
+            and typing.get_args(candidate)[-1] is not Ellipsis
+        ]
+        if (
+            isinstance(value, (list, tuple))
+            and fixed_tuple_candidates
+            and any(len(value) == len(typing.get_args(candidate)) for candidate in fixed_tuple_candidates)
         ):
             object_candidates = [
                 candidate for candidate in candidates

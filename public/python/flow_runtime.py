@@ -2559,14 +2559,44 @@ def evaluate_graph_json(payload):
                 loop_group = loop_source_groups.get((str(source_id), str(source_output)))
                 if loop_group is not None:
                     stream_groups[input_name] = loop_group
-            result = _map_item_inputs(
-                params, stream_shapes, invoke,
-                matching=node.get("data", {}).get(
-                    "data_matching", definition.get("data_matching", "longest")
-                ),
-                _validate=lambda: _validate_stream_items(definition, params, stream_shapes),
-                stream_groups=stream_groups,
-            )
+            loop_carried_input = data.get("loop_carried_input")
+            if loop_carried_input:
+                # Augmented assignment is sequential, unlike an ordinary map.
+                # Fold the loop-dependent right operand while carrying the
+                # left value from one iteration to the next.
+                fold_streams = [
+                    name for name in stream_shapes
+                    if not name.startswith("__flow_iteration_")
+                ]
+                if len(fold_streams) != 1:
+                    raise ValueError(
+                        "A loop-carried augmented assignment requires exactly one mapped right operand"
+                    )
+                stream_name = fold_streams[0]
+                sequence = params.get(stream_name)
+                if not isinstance(sequence, (list, tuple)):
+                    raise TypeError("Loop-carried input is not a sequence")
+                _validate_stream_items(definition, params, stream_shapes)
+                accumulator = params[loop_carried_input]
+                folded = []
+                for index, item in enumerate(sequence):
+                    mapped = dict(params)
+                    mapped[loop_carried_input] = accumulator
+                    mapped[stream_name] = item
+                    accumulator = _map_item_inputs(
+                        mapped, {}, invoke, path=(index,)
+                    )
+                    folded.append(accumulator)
+                result = folded
+            else:
+                result = _map_item_inputs(
+                    params, stream_shapes, invoke,
+                    matching=node.get("data", {}).get(
+                        "data_matching", definition.get("data_matching", "longest")
+                    ),
+                    _validate=lambda: _validate_stream_items(definition, params, stream_shapes),
+                    stream_groups=stream_groups,
+                )
             values[node_id] = {"result": result}
             if key:
                 _EVAL_CACHE[key] = result
@@ -3346,7 +3376,7 @@ def import_python_code(source):
             return "Any", None
         return output.get("item_type", "Any"), output.get("item_types")
 
-    def add_python_binary_node(method, left, right, line):
+    def add_python_binary_node(method, left, right, line, loop_carried=False):
         operations = {
             "__add__": operator.add, "__sub__": operator.sub,
             "__mul__": operator.mul, "__truediv__": operator.truediv,
@@ -3499,6 +3529,10 @@ def import_python_code(source):
         elif left_type in {"Number", "Integer", "Float"} and right_type in {"Number", "Integer", "Float"}:
             result_output["type"] = "Number"
 
+        if loop_carried:
+            # Augmented assignment inside a loop is a scan: each iteration
+            # receives the previous iteration result as its left operand.
+            left_access = "structure"
         definition_id = "core.python.binary." + method
         definition = {
             "id": definition_id, "name": "Python " + method,
@@ -3533,6 +3567,8 @@ def import_python_code(source):
             else:
                 links.append((name, operand[1], operand[2]))
         created = add_node(definition_id, params, links, line)
+        if loop_carried:
+            next(node for node in graph_nodes if node["id"] == created)["data"]["loop_carried_input"] = "left"
         return ("ref", created, "result", result_output["type"])
 
     def resolve_callable(node, call_node=None):
@@ -5447,7 +5483,8 @@ def import_python_code(source):
                         materialize_literal(current[1]), materialize_literal(left_expr[1])))
                 else:
                     variables[statement.target.id] = add_python_binary_node(
-                        method, current, left_expr, statement.lineno
+                        method, current, left_expr, statement.lineno,
+                        loop_carried=bool(active_loop_frames),
                     )
                 continue
             if isinstance(statement, ast.If):

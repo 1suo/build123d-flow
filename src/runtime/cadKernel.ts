@@ -171,9 +171,9 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
     valueType: RUNTIME_TYPE_MAP[sourceType] ?? "any",
     collection,
     ...(collection !== "item" ? { itemType: RUNTIME_TYPE_MAP[sourceType] ?? "any" } : {}),
-    ...(socket.data_access ? {
-      access: socket.data_access === "structure" ? "collection" : socket.data_access,
-    } : {}),
+    access: socket.data_access === "structure"
+      ? "collection"
+      : socket.data_access ?? (collection === "item" ? "item" : "collection"),
     ...(socket.required !== undefined ? { required: socket.required } : {}),
     ...(socket.default !== undefined ? { defaultValue: socket.default } : {}),
     ...(socket.annotation ? { description: socket.annotation } : {}),
@@ -188,10 +188,18 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
  * owned and invoked by its provider.
  */
 export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationDefinition {
-  const mapped = definition.inputs.some((input) => input.data_access === "item");
-  const alignment = definition.data_matching === "cross" ? "cartesian"
-    : definition.data_matching === "shortest" ? "zip-shortest"
-      : definition.data_matching === "longest" ? "zip-longest" : "single";
+  // Runtime item-access is the default for scalar ports. Collection ports
+  // remain structural unless the runtime explicitly declares item access.
+  // Keep this default identical to flow_runtime.py so provider metadata and
+  // actual evaluation cannot disagree about whether a node maps over a stream.
+  const mapped = definition.inputs.some((input) =>
+    input.data_access === "item" ||
+    (input.data_access === undefined && portCollection(input) === "item"),
+  );
+  const alignment = !mapped ? "single"
+    : definition.data_matching === "cross" ? "cartesian"
+      : definition.data_matching === "shortest" ? "zip-shortest"
+        : "zip-longest";
   return {
     id: definition.id,
     label: definition.name,

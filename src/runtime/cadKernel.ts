@@ -198,3 +198,27 @@ export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationD
     nativeOperation: definition.id,
   };
 }
+
+const CAD_GEOMETRY_TYPES = new Set<CadValueType>([
+  "geometry", "solid", "shell", "face", "wire", "edge", "vertex", "curve", "surface", "mesh",
+]);
+
+export function isCadGeometryPort(port: CadPortDefinition): boolean {
+  return CAD_GEOMETRY_TYPES.has(port.valueType) ||
+    (port.itemType !== undefined && CAD_GEOMETRY_TYPES.has(port.itemType));
+}
+
+export function cadPortTypeLabel(port: CadPortDefinition): string {
+  const value = port.itemType ?? port.valueType;
+  if (port.collection === "item") return value;
+  const label = port.collection === "map" ? "Map" : port.collection[0].toUpperCase() + port.collection.slice(1);
+  return `${label}[${value}]`;
+}
+
+export function cadPortColor(port: CadPortDefinition): string {
+  const type = port.itemType ?? port.valueType;
+  if (CAD_GEOMETRY_TYPES.has(type)) return "var(--socket-geometry)";
+  if (["number", "integer", "vector2", "vector3", "transform", "plane", "axis"].includes(type)) return "var(--socket-numeric)";
+  if (["string", "enum"].includes(type)) return "var(--socket-text)";
+  return "var(--socket-generic)";
+}

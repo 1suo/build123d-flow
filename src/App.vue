@@ -14,7 +14,7 @@ import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
 import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
-import { adaptRuntimeOperation, Build123dKernelProvider, toCadProceduralGraph } from "./runtime/cadKernel";
+import { Build123dKernelProvider, toCadProceduralGraph } from "./runtime/cadKernel";
 import type { GraphDocument, NodeDefinition, MeshPreview } from "./types";
 
 const runtime = new PythonRuntime();
@@ -218,7 +218,9 @@ onMounted(() => {
   void runtime.initialize(updateRuntimeStatus).then(async () => {
     const discovered = await runtime.getCatalog();
     cadProvider.setDefinitions(discovered);
-    const portableDefinitions = discovered.map((definition) => ({ ...definition, cadOperation: adaptRuntimeOperation(definition) }));
+    const operations = await cadProvider.discoverOperations();
+    const operationById = new Map(operations.map((operation) => [operation.id, operation]));
+    const portableDefinitions = discovered.map((definition) => ({ ...definition, cadOperation: operationById.get(definition.id)! }));
     const byName = new Map(portableDefinitions.map((item) => [item.name, item]));
     catalog.value = portableDefinitions;
     for (const node of nodes.value as any[]) {
@@ -270,8 +272,10 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
 async function ensureFullCatalog() {
   if (fullCatalogLoaded || discoveryPromise || !runtime.isReady) return discoveryPromise;
   discoveryPromise = runtime.discoverCatalog().then(async (discovered) => {
-    const portableDefinitions = discovered.map((definition) => ({ ...definition, cadOperation: adaptRuntimeOperation(definition) }));
-    cadProvider.setDefinitions(portableDefinitions);
+    cadProvider.setDefinitions(discovered);
+    const operations = await cadProvider.discoverOperations();
+    const operationById = new Map(operations.map((operation) => [operation.id, operation]));
+    const portableDefinitions = discovered.map((definition) => ({ ...definition, cadOperation: operationById.get(definition.id)! }));
     const byId = new Map(portableDefinitions.map((item) => [item.id, item]));
     catalog.value = portableDefinitions;
     for (const node of nodes.value as any[]) {

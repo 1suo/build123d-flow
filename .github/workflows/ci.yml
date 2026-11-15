@@ -47,6 +47,12 @@ jobs:
         run: |
           echo "192b5864e6e6d30ab074861af800cb8b4acb0998ef0f9342c3367448aeb86645  /tmp/pyodide-314.0.7.tar.bz2" | sha256sum --check
           python scripts/prepare-pyodide.py /tmp/pyodide-314.0.7.tar.bz2 public/pyodide/v314.0.7/full public/python/setup.py public/python/wheels
+      - name: Install CMake compatible with upstream Lib3MF
+        if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv /tmp/cmake-env
+          /tmp/cmake-env/bin/pip install cmake==3.31.8
+          echo "/tmp/cmake-env/bin" >> "$GITHUB_PATH"
       - name: Set up Emscripten for the Pyodide ABI
         if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'
         uses: mymindstorm/setup-emsdk@v14

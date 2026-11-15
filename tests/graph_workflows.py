@@ -868,6 +868,30 @@ def run_python_import_tests():
         raise AssertionError(
             "Imported ShapeList.group_by workflows failed: " + json.dumps(grouped_result["errors"])
         )
+
+    # Bezier endpoints are exact topological vertices. The @ operator must
+    # return those vertices rather than a failed OCCT arc-length inversion.
+    endpoint_graph = runtime.import_python_code(
+        "from build123d import Bezier\\n"
+        "curve = Bezier((0.0, 0.0), (7.05, 0.0), (12.18, 1.54), (15.13, 4.54))\\n"
+        "endpoint = curve @ 1\\n"
+    )
+    endpoint_node = next(
+        node for node in endpoint_graph["nodes"]
+        if node["data"]["definition"].get("name") == "Mixin1D @"
+    )
+    endpoint_result = json.loads(runtime.evaluate_graph_json(json.dumps(endpoint_graph)))
+    if endpoint_result["errors"]:
+        raise AssertionError(
+            "Bezier endpoint operator failed: " + json.dumps(endpoint_result["errors"])
+        )
+    endpoint_value = endpoint_result["socket_values"][endpoint_node["id"]]["result"]
+    endpoint_attributes = endpoint_value.get("attributes", {})
+    endpoint_x = endpoint_attributes.get("X", {}).get("value")
+    endpoint_y = endpoint_attributes.get("Y", {}).get("value")
+    if endpoint_x is None or endpoint_y is None or abs(endpoint_x - 15.13) > 1e-6 or abs(endpoint_y - 4.54) > 1e-6:
+        raise AssertionError("Bezier @ 1 returned the wrong endpoint: " + repr(endpoint_value))
+
     public_catalog = json.loads(runtime.catalog_json())
     if any(item["id"] in runtime._INTERNAL_NODE_IDS for item in public_catalog):
         raise AssertionError("Python graph-lowering operations leaked into the public catalog")

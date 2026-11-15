@@ -134,11 +134,20 @@ async function importExample(page: Page, source: string, throughEditor: boolean)
       await page.getByRole("button", { name: "Show activity log" }).click();
     }
     const sourceInput = page.locator("#python-source-input");
-    // The source editor may remain open after an import. Only reopen Settings
-    // when it is actually closed; if it is closing, wait for that transition.
+    const waitForSettingsTransition = () => page.waitForFunction(() => {
+      const input = document.querySelector("#python-source-input");
+      const popover = input?.closest(".p-popover");
+      return !popover || !popover.getAnimations({ subtree: true }).some(
+        (animation) => animation.playState === "running" || animation.playState === "pending"
+      );
+    }, undefined, { timeout: 2_000 });
+    // The editor may remain open after import. Wait for any enter/leave
+    // transition to settle, then reopen Settings only if it is actually closed.
+    await waitForSettingsTransition();
     if (!(await sourceInput.isVisible())) {
-      await expect(sourceInput).toBeHidden({ timeout: 2_000 });
       await page.getByRole("button", { name: "Settings", exact: true }).click();
+      await expect(sourceInput).toBeVisible({ timeout: 2_000 });
+      await waitForSettingsTransition();
     }
     await expect(sourceInput).toBeVisible({ timeout: 2_000 });
     // Exercise the actual paste-and-import UI for the smoke cases.

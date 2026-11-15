@@ -51,7 +51,7 @@ function toggleCollapse() {
           class="node-collapse" aria-label="Expand node" title="Expand node" @click.stop="toggleCollapse" />
         <div class="collapsed-socket-group collapsed-inputs" aria-label="Inputs">
           <span v-for="input in inputs" :key="input.id" class="collapsed-socket" :title="socketTitle(input, 'Input')">
-            <Handle :id="input.name" type="target" :position="Position.Top" class="socket-handle" :style="{ '--socket-color': cadPortColor(input) }" />
+            <Handle :id="input.id" type="target" :position="Position.Top" class="socket-handle" :style="{ '--socket-color': cadPortColor(input) }" />
           </span>
         </div>
         <div class="collapsed-node-title">
@@ -64,7 +64,7 @@ function toggleCollapse() {
         </div>
         <div class="collapsed-socket-group collapsed-outputs" aria-label="Outputs">
           <span v-for="output in outputs" :key="output.id" class="collapsed-socket" :title="socketTitle(output, 'Output')">
-            <Handle :id="output.name" type="source" :position="Position.Bottom" class="socket-handle" :style="{ '--socket-color': cadPortColor(output) }" />
+            <Handle :id="output.id" type="source" :position="Position.Bottom" class="socket-handle" :style="{ '--socket-color': cadPortColor(output) }" />
           </span>
         </div>
       </div>
@@ -93,16 +93,16 @@ function toggleCollapse() {
     </template>
     <template #content>
       <div v-if="!data.collapsed" class="node-body">
-        <div v-for="input in inputs" :key="input.name" class="socket-row input-row">
-          <Handle :id="input.name" type="target" :position="Position.Left" class="socket-handle"
-            :title="socketTitle(input, 'Input')" :style="{ '--socket-color': socketColor(input) }" />
-          <label :title="input.annotation" @click.stop="inspect(input.name, 'input')">{{ input.label || input.id }} <small>{{ socketTypeLabel(input) }}</small></label>
+        <div v-for="input in inputs" :key="input.id" class="socket-row input-row">
+          <Handle :id="input.id" type="target" :position="Position.Left" class="socket-handle"
+            :title="socketTitle(input, 'Input')" :style="{ '--socket-color': cadPortColor(input) }" />
+          <label :title="input.description" @click.stop="inspect(input.id, 'input')">{{ input.label || input.id }} <small>{{ cadPortTypeLabel(input) }}</small></label>
         </div>
-        <div v-for="output in outputs" :key="output.name" class="socket-row output-row">
-          <span class="output-socket-inspect" :title="`Inspect ${output.name}`"
-            @click.stop="inspect(output.name, 'output')">{{ output.label }} <small>{{ socketTypeLabel(output) }}</small></span>
-          <Handle :id="output.name" type="source" :position="Position.Right" class="socket-handle"
-            :title="socketTitle(output, 'Output')" :style="{ '--socket-color': socketColor(output) }" />
+        <div v-for="output in outputs" :key="output.id" class="socket-row output-row">
+          <span class="output-socket-inspect" :title="`Inspect ${output.id}`"
+            @click.stop="inspect(output.id, 'output')">{{ output.label }} <small>{{ cadPortTypeLabel(output) }}</small></span>
+          <Handle :id="output.id" type="source" :position="Position.Right" class="socket-handle"
+            :title="socketTitle(output, 'Output')" :style="{ '--socket-color': cadPortColor(output) }" />
         </div>
       </div>
     </template>

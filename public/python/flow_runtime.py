@@ -3844,10 +3844,17 @@ def import_python_code(source):
                             return True
                         if source_id:
                             pending.append(source_id)
-                    for source_id in data.get("scope_dependencies", []):
-                        if source_id in ancestors:
+                    scope_bindings = {
+                        item.get("data", {}).get("scope_binding"): item.get("id")
+                        for item in graph_nodes
+                        if item.get("data", {}).get("scope_binding")
+                    }
+                    for scope_id in data.get("scope_dependencies", []):
+                        binding_id = scope_bindings.get(scope_id)
+                        if binding_id in ancestors:
                             return True
-                        pending.append(source_id)
+                        if binding_id:
+                            pending.append(binding_id)
                 return False
             def compile_generator(index):
                 nonlocal mapping_matching
@@ -4842,10 +4849,17 @@ def import_python_code(source):
                     return True
                 if source_id:
                     pending.append(source_id)
-            for source_id in data.get("scope_dependencies", []):
-                if source_id in ancestors:
+            scope_bindings = {
+                item.get("data", {}).get("scope_binding"): item.get("id")
+                for item in graph_nodes
+                if item.get("data", {}).get("scope_binding")
+            }
+            for scope_id in data.get("scope_dependencies", []):
+                binding_id = scope_bindings.get(scope_id)
+                if binding_id in ancestors:
                     return True
-                pending.append(source_id)
+                if binding_id:
+                    pending.append(binding_id)
         return False
 
     def select_loop_mapping(iterable_id, ancestors, line):

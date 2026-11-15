@@ -35,7 +35,7 @@ function compatibleTypes(source: string, target: string): boolean {
   return target === "geometry" && GEOMETRY_TYPES.has(source);
 }
 
-function structureOf(port: CadPortDefinition): CadCollectionShape {
+function portTypesCompatible(source: CadPortDefinition, target: CadPortDefinition, sourceItems = false, targetItems = false): boolean {\n  const sourceTypes = sourceItems ? [itemType(source), ...(source.variants ?? [])] : [source.valueType, ...(source.variants ?? [])];\n  const targetTypes = targetItems ? [itemType(target), ...(target.variants ?? [])] : [target.valueType, ...(target.variants ?? [])];\n  return sourceTypes.some((sourceType) => targetTypes.some((targetType) => compatibleTypes(sourceType, targetType)));\n}\n\nfunction structureOf(port: CadPortDefinition): CadCollectionShape {
   return port.collection;
 }
 
@@ -75,16 +75,16 @@ function compatible(source: CadPortDefinition, target: CadPortDefinition): boole
   const targetAccess = accessOf(target);
   if (sourceStructure !== "item" && targetAccess === "item") {
     if (sourceStructure === "set" || sourceStructure === "map") return false;
-    return compatibleTypes(itemType(source), target.valueType);
+    return portTypesCompatible(source, target, true, false);
   }
   if (sourceStructure !== "item" && targetAccess !== "item") {
     const targetStructure = structureOf(target);
     if (targetStructure !== "item" && targetStructure !== sourceStructure &&
         !(targetStructure === "tree" && sourceStructure === "list")) return false;
-    return compatibleTypes(itemType(source), itemType(target));
+    return portTypesCompatible(source, target, true, true);
   }
   if (sourceStructure === "item" && targetAccess !== "item") return false;
-  return compatibleTypes(source.valueType, target.valueType);
+  return portTypesCompatible(source, target);
 }
 
 function nodeInput(node: GraphNode, portId: string | null | undefined): CadPortDefinition | undefined {

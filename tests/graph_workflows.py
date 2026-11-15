@@ -1215,8 +1215,59 @@ def run_graph_plan_validation_tests():
     return {"name": "graph plan validation", "duplicate_inputs": True, "cycles": True}
 
 
+def run_operator_mro_resolution_tests():
+    class FlowTestRoot:
+        pass
+
+    class FlowTestBase(FlowTestRoot):
+        pass
+
+    class FlowTestLeaf(FlowTestBase):
+        pass
+
+    class FlowTestUnrelated:
+        pass
+
+    previous = runtime._DISCOVERED_CLASSES
+    runtime._DISCOVERED_CLASSES = {
+        "FlowTestRoot": (FlowTestRoot,),
+        "FlowTestBase": (FlowTestBase,),
+        "FlowTestLeaf": (FlowTestLeaf,),
+        "FlowTestUnrelated": (FlowTestUnrelated,),
+    }
+    try:
+        definitions = {
+            "fixture.FlowTestRoot.operator.__add__": {
+                "inputs": [{"name": "self", "type": "FlowTestRoot"}],
+            },
+            "fixture.FlowTestBase.operator.__add__": {
+                "inputs": [{"name": "self", "type": "FlowTestBase"}],
+            },
+        }
+        selected, winners = runtime._resolve_catalog_member(
+            definitions, "__add__", "FlowTestLeaf"
+        )
+        if selected != "fixture.FlowTestBase.operator.__add__" or winners != (selected,):
+            raise AssertionError(
+                "Member resolution did not select the nearest Python MRO owner: "
+                + repr((selected, winners))
+            )
+        if runtime._receiver_type_distance(
+            "FlowTestLeaf", ["FlowTestRoot"]
+        ) != 2:
+            raise AssertionError("Root receiver distance did not follow Python's MRO")
+        if runtime._receiver_type_distance(
+            "FlowTestLeaf", ["FlowTestUnrelated"]
+        ) is not None:
+            raise AssertionError("An unrelated receiver class was treated as compatible")
+    finally:
+        runtime._DISCOVERED_CLASSES = previous
+
+    return {"name": "operator receiver MRO", "nearest_owner": True, "unrelated_rejected": True}
+
+
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

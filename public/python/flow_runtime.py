@@ -2908,6 +2908,26 @@ def import_python_code(source):
                     break
             if has_mapped_dependency:
                 continue
+            # A lexical context manager may consume the loop stream itself
+            # (for example Locations((x, 0)) inside a loop). In that case its
+            # builder context already represents the complete mapped set, so
+            # body operations that do not otherwise read the loop item execute
+            # once inside that context instead of replaying it for every item.
+            scope_consumes_loop = False
+            for scope_id in active_scope_ids:
+                binding = next((
+                    item for item in graph_nodes
+                    if item.get("data", {}).get("scope_binding") == scope_id
+                ), None)
+                dependencies = (
+                    binding.get("data", {}).get("scope_dependencies", [])
+                    if binding else []
+                )
+                if any(graph_depends_on(source_id, {frame["node_id"]}) for source_id in dependencies):
+                    scope_consumes_loop = True
+                    break
+            if scope_consumes_loop:
+                continue
             input_name = "__flow_iteration_{}".format(index)
             node_definition["inputs"].append({
                 "name": input_name, "type": "Any", "required": True,

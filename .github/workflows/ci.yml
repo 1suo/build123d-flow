@@ -30,7 +30,7 @@ jobs:
           path: |
             public/pyodide/v314.0.7/full
             public/python/wheels
-          key: pyodide-staged-314.0.7-${{ hashFiles('scripts/prepare-pyodide.py', 'scripts/build_lib3mf_wasm.py', 'public/python/setup.py') }}
+          key: pyodide-staged-314.0.7-${{ hashFiles('scripts/prepare-pyodide.py', 'scripts/build_lib3mf_wasm.py', 'public/python/setup.py', '.github/workflows/ci.yml') }}
       - name: Cache Pyodide source archive
         id: pyodide-archive-cache
         if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'

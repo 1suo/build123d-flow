@@ -134,16 +134,18 @@ async function importExample(page: Page, source: string, throughEditor: boolean)
       await page.getByRole("button", { name: "Show activity log" }).click();
     }
     const sourceInput = page.locator("#python-source-input");
-    // isVisible() can observe the outgoing popover DOM during its close
-    // transition. Wait for the previous import to finish closing before
-    // opening a fresh editor for this smoke case.
-    await expect(sourceInput).toBeHidden({ timeout: 2_000 });
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    // The source editor may remain open after an import. Only reopen Settings
+    // when it is actually closed; if it is closing, wait for that transition.
+    if (!(await sourceInput.isVisible())) {
+      await expect(sourceInput).toBeHidden({ timeout: 2_000 });
+      await page.getByRole("button", { name: "Settings", exact: true }).click();
+    }
     await expect(sourceInput).toBeVisible({ timeout: 2_000 });
     // Exercise the actual paste-and-import UI for the smoke cases.
     await sourceInput.fill(source);
-    await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
-    await page.getByRole("button", { name: "Import pasted code" }).click();
+    const importButton = page.getByRole("button", { name: "Import pasted code" });
+    await expect(importButton).toBeEnabled();
+    await importButton.click({ timeout: 5_000 });
   } else {
     // The upstream corpus exercises the same application import pipeline,
     // but avoids replaying textarea/popover transitions 67 times.

@@ -153,6 +153,7 @@ async function importExample(page: Page, source: string, throughEditor: boolean)
     // Exercise the actual paste-and-import UI for the smoke cases.
     await sourceInput.fill(source);
     const importButton = page.getByRole("button", { name: "Import pasted code" });
+    await expect(importButton).toBeVisible({ timeout: 2_000 });
     await expect(importButton).toBeEnabled();
     await importButton.click({ timeout: 5_000 });
   } else {

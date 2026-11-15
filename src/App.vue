@@ -159,6 +159,10 @@ const graph = computed<GraphDocument>(() => JSON.parse(JSON.stringify({
       // ShapeList returned by group_by(...)[-1]) reach body nodes whole.
       python_loop_sources: node.data.python_loop_sources,
       data_matching: node.data.data_matching,
+      // Augmented assignments inside loops are sequential folds, not maps.
+      // Preserve the accumulator input marker through the graph-state
+      // serializer so evaluation can carry it between mapped iterations.
+      loop_carried_input: node.data.loop_carried_input,
     },
   })),
   edges: edges.value.map((edge: any) => ({

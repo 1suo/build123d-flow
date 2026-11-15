@@ -256,6 +256,7 @@ export function toCadProceduralGraph(graph: GraphDocument): CadProceduralGraph {
           execution_scope_path: node.data.execution_scope_path,
           scope_binding: node.data.scope_binding,
           scope_result: node.data.scope_result,
+          scope_dependencies: (node.data as any).scope_dependencies,
           python_loop_sources: (node.data as any).python_loop_sources,
           data_matching: (node.data as any).data_matching,
         },

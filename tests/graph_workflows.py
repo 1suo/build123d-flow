@@ -493,25 +493,23 @@ def run_python_loop_lowering_tests():
             + repr(repeated_value)
         )
 
-    face_plane_loop = runtime.import_python_code(
+    face_plane_mapping = runtime.import_python_code(
         "from build123d import Box, Plane\n"
         "shape = Box(2, 2, 2)\n"
-        "planes = [Plane(face) for face in shape.faces()]\n"
+        "planes = Plane(shape.faces())\n"
     )
     plane_nodes = [
-        node for node in face_plane_loop["nodes"]
+        node for node in face_plane_mapping["nodes"]
         if node["data"]["definition"]["name"] == "Python Plane"
     ]
     if len(plane_nodes) != 1:
-        raise AssertionError("A mapped value constructor must remain one Plane node")
-    if len(plane_nodes[0]["data"].get("python_loop_sources", [])) != 1:
-        raise AssertionError("The mapped Plane constructor lost its face stream")
-    plane_result = json.loads(runtime.evaluate_graph_json(json.dumps(face_plane_loop)))
+        raise AssertionError("A face collection must connect to one Plane node, not duplicated operations")
+    plane_result = json.loads(runtime.evaluate_graph_json(json.dumps(face_plane_mapping)))
     if plane_result["errors"]:
-        raise AssertionError("Plane(Face) mapping failed: " + json.dumps(plane_result["errors"]))
+        raise AssertionError("One-node Plane mapping over Face collection failed: " + json.dumps(plane_result["errors"]))
     plane_values = plane_result["socket_values"][plane_nodes[0]["id"]]["result"]
     if plane_values.get("length") != 6:
-        raise AssertionError("Plane(Face) must execute once per face and preserve six results: " + repr(plane_values))
+        raise AssertionError("One Plane node must execute once per face and preserve six results: " + repr(plane_values))
 
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"

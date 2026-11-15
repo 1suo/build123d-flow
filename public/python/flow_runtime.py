@@ -3346,6 +3346,7 @@ def import_python_code(source):
                     and output_socket.get("type", "Any") == "Any"
                 ):
                     result_output["data_structure"] = possible_structures[0]
+                    result_output.pop("variants", None)
                     if argument_item_type:
                         result_output["type"] = argument_item_type
                         result_output["item_type"] = argument_item_type

@@ -335,6 +335,22 @@ def _annotation_metadata(annotation):
                 for collection in collection_args
             )
         )
+        if value_representation_only:
+            # Preserve the accepted literal representation separately from
+            # stream shape. Overload resolution needs to distinguish
+            # VectorLike(tuple[float, ...]) from Location(Location).
+            literal_shapes = set()
+            if any(typing.get_origin(arg) is tuple for arg in scalar_args):
+                literal_shapes.add("tuple")
+            if any(
+                typing.get_origin(collection) in {
+                    list, collections.abc.Sequence, collections.abc.MutableSequence
+                }
+                for collection in collection_args
+            ):
+                literal_shapes.add("list")
+            if literal_shapes:
+                metadata["literal_shapes"] = sorted(literal_shapes)
         if collection_args and not value_representation_only:
             metadata["data_access"] = "structure"
             # A union return such as Location | Plane | list[Location] has a
@@ -3387,7 +3403,7 @@ def import_python_code(source):
             structure = socket.get("data_structure")
             target_types = set(socket.get("variants") or [socket.get("type", "Any")])
             if shape in {"tuple", "list", "set", "dict"}:
-                score = 0
+                score = 12 if shape in set(socket.get("literal_shapes") or []) else 0
                 if structure == shape:
                     score += 8
                 if access == "structure":

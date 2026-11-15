@@ -249,25 +249,18 @@ def _annotation_metadata(annotation):
     if origin is None and annotation in collection_origins:
         origin = annotation
         args = args or (typing.Any,)
-    # build123d collection types can be generic aliases whose origin is a
-    # concrete class (for example ShapeList[Face]), not one of the standard
-    # collection ABCs. Classify the origin structurally so loop mapping works
-    # for both parameterized and bare custom iterable return types.
+    # Concrete collection subclasses (including custom list/sequence types)
+    # are structural. Do not infer collection semantics from mere iterability:
+    # domain objects may be iterable for traversal or representation while
+    # still denoting one value. The declared collection ABC is the contract.
     collection_class = origin if origin is not None else annotation
-    # Many build123d geometry/value objects are iterable for topology,
-    # coordinates, or serialization, but they are atomic CAD values in the
-    # graph. Treat only actual collection types (e.g. ShapeList) as streams.
-    atomic_iterable_types = {
-        "Shape", "Solid", "Compound", "Face", "Edge", "Vertex", "Wire", "Shell",
-        "Part", "Sketch", "Curve", "Surface", "Vector2", "Vector3", "Rotation",
-        "Plane", "Location", "Axis", "Color", "Matrix",
-    }
-    is_atomic_value = inspect.isclass(collection_class) and _type_name(collection_class) in atomic_iterable_types
-    if inspect.isclass(collection_class) and collection_class not in mapping_origins and not is_atomic_value:
+    if inspect.isclass(collection_class) and collection_class not in mapping_origins:
         try:
-            if issubclass(collection_class, collections.abc.Iterable):
+            if issubclass(collection_class, collections.abc.Collection):
                 if issubclass(collection_class, (set, frozenset, collections.abc.Set)):
                     origin = set
+                elif issubclass(collection_class, (tuple,)):
+                    origin = tuple
                 else:
                     origin = list
                 args = args or (typing.Any,)
@@ -295,38 +288,42 @@ def _annotation_metadata(annotation):
         metadata["key_type"] = _type_name(args[0]) if args else "String"
         metadata["value_type"] = _type_name(args[1]) if len(args) > 1 else "Any"
     if origin in (typing.Union, types.UnionType):
-        # Tuple alternatives are structural too. In particular build123d's
-        # RotationLike contract is Rotation | tuple[float, float, float].
-        # Without this, a JSON rotation [x, y, z] is item-mapped into three
-        # scalar calls, eventually passing an int where a wrapped geometry /
-        # rotation object is expected.
+        # A tuple in a union is a fixed-arity value representation, not a
+        # stream. Only explicitly declared collection contracts participate
+        # in structural mapping.
         collection_args = [
             arg for arg in args
             if typing.get_origin(arg) in collection_origins or arg in collection_origins
-            or typing.get_origin(arg) is tuple
         ]
         scalar_args = [arg for arg in args if arg is not type(None) and arg not in collection_args]
         variants = sorted({_type_name(arg) for arg in scalar_args})
         if len(variants) > 1:
             metadata["variants"] = variants
 
-        # Value-like CAD inputs often accept either a native object or a
-        # coordinate tuple/list (VectorLike, RotationLike, PlaneLike, etc.).
-        # Those sequences are representations of ONE value, not data streams.
-        # Keep them item-access so Location((x, y, z)) constructs one Location.
-        atomic_value_alternatives = {
-            "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis",
-            "Color", "Matrix",
-        }
-        has_atomic_value_alternative = any(
-            _type_name(arg) in atomic_value_alternatives for arg in scalar_args
-        )
+        def is_primitive_annotation(value):
+            if value is typing.Any:
+                return True
+            candidate = typing.get_origin(value) or value
+            if not inspect.isclass(candidate):
+                return False
+            try:
+                return issubclass(candidate, (str, bytes, bool, int, float, complex))
+            except TypeError:
+                return False
 
+        # A union of an object value and a collection of primitive components
+        # describes alternate encodings of one value (for example, a vector
+        # object or its numeric coordinates). This rule is type-driven and
+        # applies uniformly, without naming domain classes.
+        has_object_alternative = any(
+            inspect.isclass(arg) and not is_primitive_annotation(arg)
+            for arg in scalar_args
+        )
         value_representation_only = (
-            has_atomic_value_alternative
+            has_object_alternative
             and all(
                 all(
-                    _type_name(item) in {"Number", "Any"}
+                    is_primitive_annotation(item)
                     for item in typing.get_args(collection)
                     if item is not Ellipsis
                 )

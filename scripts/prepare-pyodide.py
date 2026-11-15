@@ -159,7 +159,7 @@ def stage(archive, destination, setup, wheelhouse):
         json.dumps(sorted(resolver.required), indent=2) + "\n", encoding="utf-8"
     )
     print("Runtime roots:", ", ".join(sorted({r.name for r in roots})))
-    print("Mocked distributions:", ", ".join(sorted(mocks)))
+    print("Mocked or locally supplied distributions:", ", ".join(sorted(mocks)))
     print("Staged Pyodide closure:", ", ".join(sorted(resolver.required)))
     print("Staged PyPI wheels:", ", ".join(f'{x["name"]}=={x["version"]}' for x in manifest))
     print(f"Staged {len(required)} Pyodide files and {len(manifest)} PyPI wheels ({total:,} bytes)")

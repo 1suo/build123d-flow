@@ -3405,13 +3405,14 @@ def import_python_code(source):
             # coordinates -> Location). Geometry objects remain untouched.
             def coerce_operand(value, port_type, structure, item_type):
                 if structure in {"list", "tuple", "set"} and item_type and isinstance(value, (list, tuple, set)):
-                    def coerce_items(items):
-                        return [
-                            coerce_items(item) if isinstance(item, (list, tuple))
-                            else _coerce_graph_receiver(item, {"type": item_type})
-                            for item in items
-                        ]
-                    converted_items = coerce_items(value)
+                    # Each top-level collection item may itself be a list of
+                    # constructor arguments (e.g. Sphere(radius)); coerce that
+                    # whole item rather than recursively treating its arguments
+                    # as another collection level.
+                    converted_items = [
+                        _coerce_graph_receiver(item, {"type": item_type})
+                        for item in value
+                    ]
                     if structure == "tuple":
                         return tuple(converted_items)
                     if structure == "set":

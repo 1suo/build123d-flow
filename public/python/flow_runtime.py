@@ -2884,14 +2884,29 @@ def import_python_code(source):
         node_definition["inputs"] = list(definition.get("inputs", []))
         iteration_links = []
         for index, frame in enumerate(active_loop_frames if map_over_active_loops else []):
-            # An explicit input already derived from this loop's iterable is
-            # sufficient to trigger item mapping. Add a control token only when
-            # the body operation otherwise has no dependency on this loop.
-            # This avoids multiplying the same sequence twice in nested loops.
-            if any(
-                graph_depends_on(source_id, {frame["node_id"]})
-                for _, source_id, _ in links
-            ):
+            # Only an item-access input triggers this loop's mapping. A
+            # structure-access input may depend on the loop while still
+            # carrying a whole collection (for example face.edges()); that
+            # value must stay intact while the collection node executes once
+            # per enclosing iteration.
+            has_mapped_dependency = False
+            for input_name, source_id, _ in links:
+                input_socket = next(
+                    (socket for socket in node_definition["inputs"]
+                     if socket.get("name") == input_name),
+                    None,
+                )
+                access = input_socket.get("data_access") if input_socket else "item"
+                if access is None and input_socket is not None:
+                    access = (
+                        "structure"
+                        if _socket_data_structure(input_socket) != "item"
+                        else "item"
+                    )
+                if access == "item" and graph_depends_on(source_id, {frame["node_id"]}):
+                    has_mapped_dependency = True
+                    break
+            if has_mapped_dependency:
                 continue
             input_name = "__flow_iteration_{}".format(index)
             node_definition["inputs"].append({
@@ -2931,13 +2946,27 @@ def import_python_code(source):
 
     def add_collection_node(items, structure, line, map_over_active_loops=True):
         """Build a structural list/tuple value from literal and graph-backed items."""
-        input_sockets = [
-            {"name": "item_{}".format(index), "type": "Any", "required": True,
-             "data_access": "structure"}
-            for index in range(len(items))
-        ]
-        output_structure = structure
         source_nodes = {item["id"]: item for item in graph_nodes}
+        input_sockets = []
+        for index, (kind, value, *extra) in enumerate(items):
+            # A scalar/geometry stream item is consumed once per mapped
+            # iteration. A collection-valued input remains structural, and
+            # add_node supplies a separate iteration dependency when needed.
+            access = "structure"
+            if kind == "ref":
+                source = source_nodes.get(value)
+                output_name = extra[0] if extra else "result"
+                output = next((
+                    socket for socket in source["data"]["definition"].get("outputs", [])
+                    if socket.get("name") == output_name
+                ), None) if source else None
+                if output is not None and _socket_data_structure(output) == "item":
+                    access = "item"
+            input_sockets.append({
+                "name": "item_{}".format(index), "type": "Any",
+                "required": True, "data_access": access,
+            })
+        output_structure = structure
         for kind, value, *extra in items:
             if kind != "ref":
                 continue

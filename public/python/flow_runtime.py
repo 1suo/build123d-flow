@@ -14,20 +14,16 @@ import hashlib
 import operator
 
 import build123d as b3d
-from build123d.topology.one_d import Mixin1D
+from build123d.topology.one_d import Edge, Wire
 from OCP.GCPnts import GCPnts_AbscissaPoint
 
 
-# Preserve build123d's arc-length semantics when OCCT's direct inversion
-# fails on a valid curve. Bisection over partial arc lengths is slower but
-# computes the same normalized-distance position without changing the
-# behavior of successful OCCT calls.
-_original_occt_param_at = Mixin1D._occt_param_at
-
-
-def _stable_occt_param_at(self, position, position_mode=b3d.PositionMode.PARAMETER):
+# Edge and Wire each implement _occt_param_at themselves; the shared
+# Mixin1D base does not. Preserve their original implementations and only
+# replace the OCCT construction-error path with an arc-length bisection.
+def _stable_occt_param_at(original, self, position, position_mode=b3d.PositionMode.PARAMETER):
     try:
-        return _original_occt_param_at(self, position, position_mode)
+        return original(self, position, position_mode)
     except Exception as error:
         if type(error).__name__ != "Standard_ConstructionError":
             raise
@@ -57,7 +53,14 @@ def _stable_occt_param_at(self, position, position_mode=b3d.PositionMode.PARAMET
         return curve, (low + high) / 2, self.is_forward
 
 
-Mixin1D._occt_param_at = _stable_occt_param_at
+_original_edge_occt_param_at = Edge._occt_param_at
+_original_wire_occt_param_at = Wire._occt_param_at
+Edge._occt_param_at = lambda self, position, position_mode=b3d.PositionMode.PARAMETER: (
+    _stable_occt_param_at(_original_edge_occt_param_at, self, position, position_mode)
+)
+Wire._occt_param_at = lambda self, position, position_mode=b3d.PositionMode.PARAMETER: (
+    _stable_occt_param_at(_original_wire_occt_param_at, self, position, position_mode)
+)
 
 
 _CATALOG = {}

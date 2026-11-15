@@ -619,9 +619,12 @@ def run_python_loop_lowering_tests():
         node for node in mixed_multiply_nodes
         if node["data"]["definition"]["outputs"][0].get("data_structure") == "list"
     ]
-    if len(list_multiply_nodes) != 1:
+    if (
+        len(list_multiply_nodes) != 1
+        or list_multiply_nodes[0]["data"]["definition"]["outputs"][0].get("item_type") != "Sphere"
+    ):
         raise AssertionError(
-            "Location * a list of Shapes must retain its native list return contract: "
+            "Location * a list of Shapes must retain its native list and item-type contract: "
             + repr([node["data"]["definition"]["outputs"][0] for node in mixed_multiply_nodes])
         )
     shape_add_nodes = [

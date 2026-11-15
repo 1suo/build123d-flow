@@ -3228,6 +3228,14 @@ def import_python_code(source):
             "__pow__": operator.pow, "__and__": operator.and_,
             "__or__": operator.or_, "__xor__": operator.xor,
             "__lshift__": operator.lshift, "__rshift__": operator.rshift,
+            "__matmul__": operator.matmul,
+            "__iadd__": operator.iadd, "__isub__": operator.isub,
+            "__imul__": operator.imul, "__itruediv__": operator.itruediv,
+            "__ifloordiv__": operator.ifloordiv, "__imod__": operator.imod,
+            "__ipow__": operator.ipow, "__iand__": operator.iand,
+            "__ior__": operator.ior, "__ixor__": operator.ixor,
+            "__ilshift__": operator.ilshift, "__irshift__": operator.irshift,
+            "__imatmul__": operator.imatmul,
         }
         reverse_methods = {
             "__add__": "__radd__", "__sub__": "__rsub__",
@@ -3236,6 +3244,16 @@ def import_python_code(source):
             "__pow__": "__rpow__", "__and__": "__rand__",
             "__or__": "__ror__", "__xor__": "__rxor__",
             "__lshift__": "__rlshift__", "__rshift__": "__rrshift__",
+            "__matmul__": "__rmatmul__",
+        }
+        inplace_fallbacks = {
+            "__iadd__": "__add__", "__isub__": "__sub__",
+            "__imul__": "__mul__", "__itruediv__": "__truediv__",
+            "__ifloordiv__": "__floordiv__", "__imod__": "__mod__",
+            "__ipow__": "__pow__", "__iand__": "__and__",
+            "__ior__": "__or__", "__ixor__": "__xor__",
+            "__ilshift__": "__lshift__", "__irshift__": "__rshift__",
+            "__imatmul__": "__matmul__",
         }
         operation = operations.get(method)
         if operation is None:
@@ -3282,8 +3300,11 @@ def import_python_code(source):
 
         contract = operator_contract(left_type, method)
         receiver_side = "left"
+        if contract is None and method in inplace_fallbacks:
+            contract = operator_contract(left_type, inplace_fallbacks[method])
         if contract is None:
-            contract = operator_contract(right_type, reverse_methods.get(method))
+            reverse_method = reverse_methods.get(inplace_fallbacks.get(method, method))
+            contract = operator_contract(right_type, reverse_method)
             receiver_side = "right" if contract is not None else "left"
 
         def access_for(socket):
@@ -3314,7 +3335,7 @@ def import_python_code(source):
                 for key in ("data_structure", "item_type", "variants", "semantic_type"):
                     if key in output_socket:
                         result_output[key] = output_socket[key]
-        elif method == "__add__" and left_type == right_type == "String":
+        elif inplace_fallbacks.get(method, method) == "__add__" and left_type == right_type == "String":
             result_output["type"] = "String"
         elif left_type in {"Number", "Integer", "Float"} and right_type in {"Number", "Integer", "Float"}:
             result_output["type"] = "Number"
@@ -5235,42 +5256,36 @@ def import_python_code(source):
                 if current is None:
                     raise ValueError("Unresolved augmented-assignment target '{}' at line {}".format(
                         statement.target.id, statement.lineno))
-                combined = ast.BinOp(
-                    left=ast.Constant(value=None), op=statement.op, right=statement.value
-                )
-                ast.copy_location(combined, statement)
-                # Reuse the normal operator lowering without synthesizing source text.
+                # Augmented assignment has its own Python protocol. Builder
+                # objects may implement __isub__ while rejecting ordinary
+                # __sub__ outside a builder context.
                 left_expr = expression(statement.value)
+                inplace_methods = {
+                    ast.Add: ("__iadd__", operator.iadd),
+                    ast.Sub: ("__isub__", operator.isub),
+                    ast.Mult: ("__imul__", operator.imul),
+                    ast.Div: ("__itruediv__", operator.itruediv),
+                    ast.FloorDiv: ("__ifloordiv__", operator.ifloordiv),
+                    ast.Mod: ("__imod__", operator.imod),
+                    ast.Pow: ("__ipow__", operator.ipow),
+                    ast.BitAnd: ("__iand__", operator.iand),
+                    ast.BitOr: ("__ior__", operator.ior),
+                    ast.BitXor: ("__ixor__", operator.ixor),
+                    ast.LShift: ("__ilshift__", operator.ilshift),
+                    ast.RShift: ("__irshift__", operator.irshift),
+                    ast.MatMult: ("__imatmul__", operator.imatmul),
+                }
+                inplace = inplace_methods.get(type(statement.op))
+                if inplace is None:
+                    raise ValueError("Unsupported augmented operator at line {}".format(statement.lineno))
+                method, operation = inplace
                 if current[0] == "literal" and left_expr[0] == "literal":
-                    methods = {
-                        ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-                        ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
-                        ast.Mod: operator.mod, ast.Pow: operator.pow,
-                    }
-                    operation = methods.get(type(statement.op))
-                    if operation is None:
-                        raise ValueError("Unsupported augmented operator at line {}".format(statement.lineno))
                     variables[statement.target.id] = ("literal", operation(
                         materialize_literal(current[1]), materialize_literal(left_expr[1])))
                 else:
-                    methods = {
-                        ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",
-                        ast.Div: "__truediv__", ast.FloorDiv: "__floordiv__",
-                        ast.Mod: "__mod__", ast.Pow: "__pow__",
-                    }
-                    method = methods.get(type(statement.op))
-                    definition_id = next((key for key in definitions if ".operator." + str(method) in key), None)
-                    if not definition_id:
-                        raise ValueError("No graph node registered for augmented operator at line {}".format(statement.lineno))
-                    definition = definitions[definition_id]
-                    params, links = {}, []
-                    for socket, operand in zip(definition.get("inputs", []), (current, left_expr)):
-                        if operand[0] == "literal":
-                            params[socket["name"]] = literal_json_value(operand[1])
-                        else:
-                            links.append((socket["name"], operand[1], operand[2]))
-                    created = add_node(definition_id, params, links, statement.lineno)
-                    variables[statement.target.id] = ("ref", created, "result")
+                    variables[statement.target.id] = add_python_binary_node(
+                        method, current, left_expr, statement.lineno
+                    )
                 continue
             if isinstance(statement, ast.If):
                 condition = expression(statement.test)

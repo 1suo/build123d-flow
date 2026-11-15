@@ -3329,7 +3329,50 @@ def import_python_code(source):
         keyword_names = {
             keyword.arg for keyword in call_node.keywords if keyword.arg is not None
         }
-        for overload_id in overload_ids:
+
+        def literal_argument_shape(argument):
+            if isinstance(argument, ast.Tuple):
+                return "tuple"
+            if isinstance(argument, ast.List):
+                return "list"
+            if isinstance(argument, ast.Set):
+                return "set"
+            if isinstance(argument, ast.Dict):
+                return "dict"
+            if isinstance(argument, ast.Constant):
+                return "scalar"
+            return None
+
+        def overload_argument_score(argument, socket):
+            shape = literal_argument_shape(argument)
+            if shape is None:
+                return 0
+            access = socket.get("data_access")
+            structure = socket.get("data_structure")
+            target_types = set(socket.get("variants") or [socket.get("type", "Any")])
+            if shape in {"tuple", "list", "set", "dict"}:
+                score = 0
+                if structure == shape:
+                    score += 8
+                if access == "structure":
+                    score += 5
+                elif access == "item":
+                    score -= 5
+                if target_types.intersection(_GEOMETRY_INPUT_TYPES | _OBJECT_INPUT_TYPES):
+                    score -= 3
+                return score
+            score = 1 if access in (None, "item") else -1
+            value = argument.value
+            if isinstance(value, bool):
+                score += 3 if "Boolean" in target_types else 0
+            elif isinstance(value, (int, float)):
+                score += 3 if target_types.intersection({"Number", "Integer", "Float"}) else 0
+            elif isinstance(value, str):
+                score += 3 if "String" in target_types else 0
+            return score
+
+        candidates = []
+        for overload_index, overload_id in enumerate(overload_ids):
             sockets = definitions[overload_id].get("inputs", [])
             positional_sockets = [
                 socket for socket in sockets
@@ -3354,7 +3397,19 @@ def import_python_code(source):
             }
             if required - supplied - keyword_names:
                 continue
-            return overload_id
+            score = sum(
+                overload_argument_score(argument, positional_sockets[index])
+                for index, argument in enumerate(call_node.args[:len(positional_sockets)])
+            )
+            keyword_sockets = {socket["name"]: socket for socket in sockets}
+            score += sum(
+                overload_argument_score(keyword.value, keyword_sockets[keyword.arg])
+                for keyword in call_node.keywords
+                if keyword.arg in keyword_sockets
+            )
+            candidates.append((score, -overload_index, overload_id))
+        if candidates:
+            return max(candidates)[2]
         return overload_ids[0]
 
     def safe_stdlib_value(module_name, attribute):

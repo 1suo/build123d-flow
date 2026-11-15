@@ -5098,7 +5098,11 @@ def import_python_code(source):
         _CATALOG_HINT_TARGETS[definition_id] = False
         params = {
             "has_fallback": fallback is not _MISSING,
-            "preserve_depth": len(active_loop_frames),
+            # add_node already carries this node through every enclosing loop
+            # scope via its iteration dependencies. Recursively preserving the
+            # same depth applies loop nesting twice and turns the final inner-
+            # loop value back into a list.
+            "preserve_depth": 0,
         }
         links = [("sequence", value[1], value[2])]
         if fallback is not _MISSING:

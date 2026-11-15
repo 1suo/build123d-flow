@@ -47,8 +47,13 @@ def _type_name(annotation):
             except TypeError:
                 pass
         names = {_type_name(arg) for arg in union_args}
-        if "Rotation" in names and any(typing.get_origin(arg) is tuple for arg in args):
-            return "Rotation"
+        tuple_alternatives = [arg for arg in union_args if typing.get_origin(arg) is tuple]
+        object_alternatives = [
+            arg for arg in union_args
+            if inspect.isclass(arg) and not issubclass(arg, (str, bytes, bool, int, float, complex))
+        ]
+        if len(object_alternatives) == 1 and tuple_alternatives:
+            return _type_name(object_alternatives[0])
         collection_origins = {
             list, set, frozenset, collections.abc.Sequence, collections.abc.MutableSequence,
             collections.abc.Iterable, collections.abc.Collection, collections.abc.Set,
@@ -2411,11 +2416,22 @@ def _coerce_annotation(value, annotation):
         if value is None and type(None) in args:
             return None
         candidates = [candidate for candidate in args if candidate is not type(None)]
-        # Build123d RotationLike is Rotation | tuple[float, float, float].
+        # If a union accepts both a domain object and its fixed tuple
+        # representation, try the object constructor generically before
+        # falling back to the tuple alternative.
         if isinstance(value, (list, tuple)) and any(
-            inspect.isclass(candidate) and candidate.__name__ == "Rotation" for candidate in candidates
-        ) and any(typing.get_origin(candidate) is tuple for candidate in candidates):
-            return b3d.Rotation(tuple(value))
+            typing.get_origin(candidate) is tuple for candidate in candidates
+        ):
+            object_candidates = [
+                candidate for candidate in candidates
+                if inspect.isclass(candidate)
+                and not issubclass(candidate, (str, bytes, bool, int, float, complex))
+            ]
+            for candidate in object_candidates:
+                try:
+                    return candidate(value)
+                except Exception:
+                    continue
         for candidate in candidates:
             try:
                 converted = _coerce_annotation(value, candidate)

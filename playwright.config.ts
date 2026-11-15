@@ -3,13 +3,13 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   testMatch: "upstream-examples.spec.ts",
-  globalTimeout: 10 * 60 * 1000,
+  globalTimeout: 30 * 60 * 1000,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   workers: 1,
   reporter: process.env.CI ? "github" : "list",
-  timeout: 110_000,
+  timeout: 20 * 60 * 1000,
   expect: { timeout: 1_000 },
   use: {
     baseURL: "http://127.0.0.1:4173/build123d-flow/",

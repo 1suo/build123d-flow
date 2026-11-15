@@ -35,7 +35,24 @@ function compatibleTypes(source: string, target: string): boolean {
   return target === "geometry" && GEOMETRY_TYPES.has(source);
 }
 
-function portTypesCompatible(source: CadPortDefinition, target: CadPortDefinition, sourceItems = false, targetItems = false): boolean {\n  const sourceTypes = sourceItems ? [itemType(source), ...(source.variants ?? [])] : [source.valueType, ...(source.variants ?? [])];\n  const targetTypes = targetItems ? [itemType(target), ...(target.variants ?? [])] : [target.valueType, ...(target.variants ?? [])];\n  return sourceTypes.some((sourceType) => targetTypes.some((targetType) => compatibleTypes(sourceType, targetType)));\n}\n\nfunction structureOf(port: CadPortDefinition): CadCollectionShape {
+function portTypesCompatible(
+  source: CadPortDefinition,
+  target: CadPortDefinition,
+  sourceItems = false,
+  targetItems = false,
+): boolean {
+  const sourceTypes = sourceItems
+    ? [itemType(source), ...(source.variants ?? [])]
+    : [source.valueType, ...(source.variants ?? [])];
+  const targetTypes = targetItems
+    ? [itemType(target), ...(target.variants ?? [])]
+    : [target.valueType, ...(target.variants ?? [])];
+  return sourceTypes.some((sourceType) =>
+    targetTypes.some((targetType) => compatibleTypes(sourceType, targetType))
+  );
+}
+
+function structureOf(port: CadPortDefinition): CadCollectionShape {
   return port.collection;
 }
 

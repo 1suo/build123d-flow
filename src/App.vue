@@ -14,10 +14,11 @@ import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
 import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
-import { adaptRuntimeOperation } from "./runtime/cadKernel";
+import { adaptRuntimeOperation, Build123dKernelProvider, toCadProceduralGraph } from "./runtime/cadKernel";
 import type { GraphDocument, NodeDefinition, EvaluationResult, MeshPreview } from "./types";
 
 const runtime = new PythonRuntime();
+const cadProvider = new Build123dKernelProvider(runtime);
 const activePalette = ref("tikal");
 const paletteOptions = [
   { value: "alexandria", label: "Alexandria" },
@@ -216,6 +217,7 @@ onMounted(() => {
   mobileMediaQuery.addEventListener("change", updateMobileLayout);
   void runtime.initialize(updateRuntimeStatus).then(async () => {
     const discovered = await runtime.getCatalog();
+    cadProvider.setDefinitions(discovered);
     const byName = new Map(discovered.map((item) => [item.name, item]));
     catalog.value = discovered.map((definition) => ({ ...definition, cadOperation: adaptRuntimeOperation(definition) }));
     for (const node of nodes.value as any[]) {
@@ -267,6 +269,7 @@ function addDefinition(definition: NodeDefinition, position?: { x: number; y: nu
 async function ensureFullCatalog() {
   if (fullCatalogLoaded || discoveryPromise || !runtime.isReady) return discoveryPromise;
   discoveryPromise = runtime.discoverCatalog().then(async (discovered) => {
+    cadProvider.setDefinitions(discovered);
     const byId = new Map(discovered.map((item) => [item.id, item]));
     catalog.value = discovered.map((definition) => ({ ...definition, cadOperation: adaptRuntimeOperation(definition) }));
     for (const node of nodes.value as any[]) {
@@ -440,10 +443,10 @@ async function evaluate() {
   errors.value = [];
   logActivity("Evaluating graph");
   try {
-    const result: EvaluationResult = await runtime.evaluate(graph.value);
+    const result = await cadProvider.evaluate({ graph: toCadProceduralGraph(graph.value) });
     if (revision !== evaluationRevision) return;
     previews.value = result.previews;
-    socketValues.value = result.socket_values ?? {};
+    socketValues.value = result.values;
     errors.value = Object.entries(result.errors).map(([id, error]) => `${id}: ${error}`);
     if (errors.value.length) errors.value.forEach((error) => logActivity(error, "error"));
     else logActivity("Evaluation complete · " + Object.keys(result.previews).length + " visible geometry · cache " + (result.cache?.hits ?? 0) + " hits", "success");
@@ -472,7 +475,7 @@ async function downloadStep() {
   logActivity("Preparing STEP export");
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   try {
-    const bytes = await runtime.exportStep();
+    const bytes = await cadProvider.exportProgram(toCadProceduralGraph(graph.value), "step") as Uint8Array;
     if (!bytes) {
       downloadStatus.value = "Nothing to export";
       logActivity("STEP export skipped · no evaluated solid", "warning");
@@ -588,7 +591,7 @@ async function downloadPython() {
   downloadStatus.value = "Generating build123d Python…";
   logActivity("Generating build123d Python source");
   try {
-    const source = await runtime.exportPython(graph.value);
+    const source = await cadProvider.exportProgram(toCadProceduralGraph(graph.value), "python") as string;
     const url = URL.createObjectURL(new Blob([source], { type: "text/x-python;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;

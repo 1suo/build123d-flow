@@ -119,30 +119,38 @@ with Locations((0, -offset.Y, 0)):
 `
 ];
 
-async function importExample(page: Page, source: string) {
+async function importExample(page: Page, source: string, throughEditor: boolean) {
   if (source.includes("Mesher()")) {
-    const hook = await page.evaluateHandle(() => (window as any).__build123dFlowTest);
     await page.evaluate(async ({ url }) => {
       const testHook = (window as any).__build123dFlowTest;
       await testHook.downloadFile("low_poly_benchy.stl", url);
     }, { url: `https://raw.githubusercontent.com/gumyr/build123d/${UPSTREAM_COMMIT}/examples/low_poly_benchy.stl` });
-    await hook.dispose();
-  }
-  const log = page.locator(".viewport-log-panel");
-  if (!(await log.isVisible())) {
-    await page.getByRole("button", { name: "Show activity log" }).click();
-  }
-  const sourceInput = page.locator("#python-source-input");
-  if (!(await sourceInput.isVisible())) {
-    await page.getByRole("button", { name: "Settings" }).click();
   }
 
   const evaluationBeforeImport = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
-  // Fill directly after opening the popover. A separate visibility/value
-  // assertion introduced a race with the popover's transition lifecycle.
-  await sourceInput.fill(source);
-  await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
-  await page.getByRole("button", { name: "Import pasted code" }).click();
+  if (throughEditor) {
+    const log = page.locator(".viewport-log-panel");
+    if (!(await log.isVisible())) {
+      await page.getByRole("button", { name: "Show activity log" }).click();
+    }
+    const sourceInput = page.locator("#python-source-input");
+    if (!(await sourceInput.isVisible())) {
+      await page.getByRole("button", { name: "Settings" }).click();
+    }
+    // Exercise the actual paste-and-import UI for the smoke cases.
+    await sourceInput.fill(source);
+    await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
+    await page.getByRole("button", { name: "Import pasted code" }).click();
+  } else {
+    // The upstream corpus exercises the same application import pipeline,
+    // but avoids replaying textarea/popover transitions 67 times.
+    const imported = await page.evaluate(async (code) => {
+      const hook = (window as any).__build123dFlowTest;
+      if (typeof hook?.importPython !== "function") throw new Error("Application import test hook is unavailable");
+      return await hook.importPython(code);
+    }, source);
+    expect(imported, "application import pipeline result").toBe(true);
+  }
 
   await expect.poll(async () => {
     const state = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
@@ -223,16 +231,16 @@ for (const shard of SHARDS) {
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     const upstreamSources = await sourcesPromise;
     const allSources = [
-      ...shard.smoke.map((source, index) => ({ filename: `smoke-${shard.name}-${index + 1}.py`, source })),
-      ...upstreamSources,
+      ...shard.smoke.map((source, index) => ({ filename: `smoke-${shard.name}-${index + 1}.py`, source, throughEditor: true })),
+      ...upstreamSources.map(example => ({ ...example, throughEditor: false })),
     ];
     const failures: string[] = [];
     const results: string[] = [];
 
-    for (const { filename, source } of allSources) {
+    for (const { filename, source, throughEditor } of allSources) {
       await test.step(filename, async () => {
         try {
-          await importExample(page, source);
+          await importExample(page, source, throughEditor);
           const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
           expect(
             graph.nodes.every((node: any) => node.data.definition.cadOperation?.mapping?.preserveNesting === true),

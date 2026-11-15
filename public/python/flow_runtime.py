@@ -14,54 +14,6 @@ import hashlib
 import operator
 
 import build123d as b3d
-from build123d.topology.one_d import Edge, Wire
-from OCP.GCPnts import GCPnts_AbscissaPoint
-
-
-# Edge and Wire each implement _occt_param_at themselves; the shared
-# Mixin1D base does not. Preserve their original implementations and only
-# replace the OCCT construction-error path with an arc-length bisection.
-def _stable_occt_param_at(original, self, position, position_mode=b3d.PositionMode.PARAMETER):
-    try:
-        return original(self, position, position_mode)
-    except Exception as error:
-        if type(error).__name__ != "Standard_ConstructionError":
-            raise
-        curve = self.geom_adaptor()
-        first = curve.FirstParameter()
-        last = curve.LastParameter()
-        total_length = GCPnts_AbscissaPoint.Length_s(curve)
-        if position_mode == b3d.PositionMode.PARAMETER:
-            fraction = position
-        else:
-            fraction = position / total_length
-        if not self.is_forward:
-            fraction = 1 - fraction
-        target_length = total_length * fraction
-        if target_length <= 0:
-            return curve, first, self.is_forward
-        if target_length >= total_length:
-            return curve, last, self.is_forward
-        low, high = first, last
-        for _ in range(64):
-            middle = (low + high) / 2
-            partial_length = GCPnts_AbscissaPoint.Length_s(curve, first, middle)
-            if partial_length < target_length:
-                low = middle
-            else:
-                high = middle
-        return curve, (low + high) / 2, self.is_forward
-
-
-_original_edge_occt_param_at = Edge._occt_param_at
-_original_wire_occt_param_at = Wire._occt_param_at
-Edge._occt_param_at = lambda self, position, position_mode=b3d.PositionMode.PARAMETER: (
-    _stable_occt_param_at(_original_edge_occt_param_at, self, position, position_mode)
-)
-Wire._occt_param_at = lambda self, position, position_mode=b3d.PositionMode.PARAMETER: (
-    _stable_occt_param_at(_original_wire_occt_param_at, self, position, position_mode)
-)
-
 
 _CATALOG = {}
 _CATALOG_CALLABLES = {}

@@ -572,6 +572,15 @@ def run_python_loop_lowering_tests():
         raise AssertionError(
             "Location((x, y, z)) selected the wrong overload: " + repr(location_inputs)
         )
+    position_socket = next(
+        socket for socket in location_nodes[0]["data"]["definition"]["inputs"]
+        if socket["name"] == "position"
+    )
+    if position_socket.get("data_access", "item") != "item":
+        raise AssertionError(
+            "VectorLike coordinates must be one atomic input, not a mapped stream: "
+            + repr(position_socket)
+        )
     multiply_nodes = [
         node for node in native_operator["nodes"]
         if node["data"]["definition"]["id"] == "core.python.binary.__mul__"

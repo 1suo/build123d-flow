@@ -22,6 +22,7 @@ SOURCE_TAG = "v2.4.1"
 PYTHON_TAG = "cp314-cp314"
 PLATFORM_TAG = "pyemscripten_2026_0_wasm32"
 EMSCRIPTEN_VERSION = "5.0.3"
+CMAKE_VERSION = "3.31.10"
 WHEEL_NAME = f"lib3mf-{VERSION}-{PYTHON_TAG}-{PLATFORM_TAG}.whl"
 
 
@@ -108,6 +109,10 @@ def make_wheel(source_root: Path, library: Path, wheelhouse: Path) -> Path:
         for name, data in entries:
             archive.writestr(name, data)
 
+    return wheel_path
+
+
+def register_wheel(wheelhouse: Path, wheel_path: Path) -> None:
     manifest_path = wheelhouse / "manifest.json"
     if not manifest_path.is_file():
         raise RuntimeError(f"Pyodide wheel manifest must be staged first: {manifest_path}")
@@ -121,19 +126,28 @@ def make_wheel(source_root: Path, library: Path, wheelhouse: Path) -> Path:
     })
     manifest.sort(key=lambda item: item["name"].lower())
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    return wheel_path
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("wheelhouse", type=Path)
+    args = parser.parse_args()
+    args.wheelhouse.mkdir(parents=True, exist_ok=True)
+    cached_wheel = args.wheelhouse / WHEEL_NAME
+    if cached_wheel.is_file():
+        register_wheel(args.wheelhouse, cached_wheel)
+        print(f"Registered cached {cached_wheel}", flush=True)
+        return
+
     emcc_version = subprocess.check_output(["emcc", "--version"], text=True)
     if EMSCRIPTEN_VERSION not in emcc_version:
         raise RuntimeError(
             "Expected Emscripten {}, got: {}".format(EMSCRIPTEN_VERSION, emcc_version.splitlines()[0])
         )
-    print("Using Emscripten {}".format(EMSCRIPTEN_VERSION), flush=True)
-    parser = argparse.ArgumentParser()
-    parser.add_argument("wheelhouse", type=Path)
-    args = parser.parse_args()
+    cmake_version = subprocess.check_output(["cmake", "--version"], text=True).split()[2]
+    if cmake_version != CMAKE_VERSION:
+        raise RuntimeError("Expected CMake {}, got {}".format(CMAKE_VERSION, cmake_version))
+    print("Using Emscripten {} and CMake {}".format(EMSCRIPTEN_VERSION, CMAKE_VERSION), flush=True)
 
     with tempfile.TemporaryDirectory(prefix="build123d-flow-lib3mf-") as temporary:
         root = Path(temporary)
@@ -168,6 +182,7 @@ def main() -> None:
         if not wasm.startswith(b"\x00asm") or b"dylink.0" not in wasm:
             raise RuntimeError(f"Lib3MF output is not an Emscripten side module: {library}")
         wheel = make_wheel(source, library, args.wheelhouse)
+        register_wheel(args.wheelhouse, wheel)
         print(f"Built {wheel} ({wheel.stat().st_size:,} bytes)", flush=True)
 
 

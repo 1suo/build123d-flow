@@ -609,6 +609,11 @@ def run_python_loop_lowering_tests():
             "Mixed native operators must retain separate per-contract nodes: "
             + repr((len(mixed_multiply_nodes), len(mixed_add_nodes)))
         )
+    if (
+        len({node["data"]["definition"]["id"] for node in mixed_multiply_nodes}) != len(mixed_multiply_nodes)
+        or len({node["data"]["definition"]["id"] for node in mixed_add_nodes}) != len(mixed_add_nodes)
+    ):
+        raise AssertionError("Distinct native operator contracts must never share callable IDs")
     shape_add_nodes = [
         node for node in mixed_add_nodes
         if node["data"]["definition"]["outputs"][0].get("type") == "Shape"

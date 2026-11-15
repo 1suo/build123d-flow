@@ -511,6 +511,26 @@ def run_python_loop_lowering_tests():
     if plane_values.get("length") != 6:
         raise AssertionError("One Plane node must execute once per face and preserve six results: " + repr(plane_values))
 
+    loop_locations = runtime.import_python_code(
+        "from build123d import BuildPart, Box, Locations\n"
+        "with BuildPart() as part:\n"
+        "    for x in [0, 5, 10]:\n"
+        "        with Locations((x, 0, 0)):\n"
+        "            Box(1, 1, 1)\n"
+    )
+    loop_location_boxes = [
+        node for node in loop_locations["nodes"]
+        if node["data"]["definition"]["id"].endswith(".Box")
+    ]
+    if len(loop_location_boxes) != 1:
+        raise AssertionError("A Box inside mapped Locations must remain one node")
+    loop_location_result = json.loads(runtime.evaluate_graph_json(json.dumps(loop_locations)))
+    if loop_location_result["errors"]:
+        raise AssertionError("Tuple-valued Locations inside a loop failed: " + json.dumps(loop_location_result["errors"]))
+    loop_location_boxes_value = loop_location_result["socket_values"][loop_location_boxes[0]["id"]]["result"]
+    if loop_location_boxes_value.get("length") != 3:
+        raise AssertionError("A tuple location must be built once per loop item: " + repr(loop_location_boxes_value))
+
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"
         "for width in [3, 4]:\n"

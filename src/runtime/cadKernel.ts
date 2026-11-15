@@ -1,3 +1,5 @@
+import type { NodeDefinition, SocketDefinition } from "../types";
+
 /**
  * Kernel-neutral procedural CAD contract.
  *
@@ -14,7 +16,7 @@ export type CadValueType =
 
 export type CadCollectionShape = "item" | "list" | "tree" | "tuple" | "set" | "map";
 export type CadInputAccess = "item" | "collection" | "tree";
-export type CadExecutionMode = "pure" | "stateful" | "effect";
+export type CadExecutionMode = "pure" | "stateful" | "effect" | "unspecified";
 
 /** Opaque value identity: the editor never inspects or mutates kernel objects. */
 export interface CadGeometryHandle {
@@ -128,4 +130,71 @@ export function validateCadOperation(operation: CadOperationDefinition): string[
     errors.push(`Operation ${operation.id}: Cartesian alignment requires map mode`);
   }
   return errors;
+}
+
+
+const RUNTIME_TYPE_MAP: Readonly<Record<string, CadValueType>> = {
+  Number: "number", Boolean: "boolean", String: "string", Vector2: "vector2",
+  Vector3: "vector3", Rotation: "transform", Location: "transform", Plane: "plane",
+  Axis: "axis", Shape: "geometry", Solid: "solid", Compound: "geometry",
+  Face: "face", Edge: "edge", Wire: "wire", Shell: "shell", Part: "solid",
+  Sketch: "geometry", Curve: "curve", Surface: "surface", Mesh: "mesh",
+  Color: "material", Enum: "enum", Any: "any", Code: "string",
+};
+
+function portCollection(socket: SocketDefinition): CadCollectionShape {
+  if (socket.data_structure) return socket.data_structure === "dict" ? "map" : socket.data_structure;
+  switch (socket.type) {
+    case "List": return "list";
+    case "Tuple": return "tuple";
+    case "Set": return "set";
+    case "Dict": return "map";
+    default: return "item";
+  }
+}
+
+function cadPort(socket: SocketDefinition): CadPortDefinition {
+  const collection = portCollection(socket);
+  const sourceType = socket.item_type ?? socket.value_type ?? socket.type;
+  return {
+    id: socket.name,
+    label: socket.label ?? socket.name,
+    valueType: RUNTIME_TYPE_MAP[sourceType] ?? "any",
+    collection,
+    ...(collection !== "item" ? { itemType: RUNTIME_TYPE_MAP[sourceType] ?? "any" } : {}),
+    ...(socket.data_access ? {
+      access: socket.data_access === "structure" ? "collection" : socket.data_access,
+    } : {}),
+    ...(socket.required !== undefined ? { required: socket.required } : {}),
+    ...(socket.default !== undefined ? { defaultValue: socket.default } : {}),
+    ...(socket.annotation ? { description: socket.annotation } : {}),
+    ...(socket.options ? { enumValues: socket.options } : {}),
+  };
+}
+
+/**
+ * Translate a discovered runtime operation into the kernel-neutral graph
+ * contract. This is metadata adaptation only: the native operation remains
+ * owned and invoked by its provider.
+ */
+export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationDefinition {
+  const mapped = definition.inputs.some((input) => input.data_access === "item");
+  const alignment = definition.data_matching === "cross" ? "cartesian"
+    : definition.data_matching === "shortest" ? "zip-shortest"
+      : definition.data_matching === "longest" ? "zip-longest" : "single";
+  return {
+    id: definition.id,
+    label: definition.name,
+    category: definition.palette_category,
+    description: definition.description,
+    inputs: definition.inputs.map(cadPort),
+    outputs: definition.outputs.map(cadPort),
+    execution: "unspecified",
+    mapping: {
+      mode: mapped ? "map" : "scalar",
+      preserveNesting: true,
+      alignment: mapped ? alignment : "single",
+    },
+    nativeOperation: definition.id,
+  };
 }

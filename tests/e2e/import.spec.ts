@@ -103,6 +103,27 @@ test("browser imports and evaluates build123d Python", async ({ page }) => {
   await expect(page.locator("#python-source-input")).toBeEnabled({ timeout: 5 * 60 * 1000 });
   await expect(page.locator(".viewport-status")).toContainText("Ready");
 
+  // Exercise the graph evaluator and Python importer directly in the same
+  // Pyodide runtime used by the UI. This suite includes the Location(VectorLike)
+  // constructor and native Location * Box operator regression.
+  const graphWorkflowResults = await page.evaluate(async () => {
+    const hook = (window as any).__build123dFlowTest;
+    if (!hook?.runGraphWorkflowTests) {
+      throw new Error("Graph workflow test hook was not installed in the browser build");
+    }
+    return await hook.runGraphWorkflowTests();
+  });
+  const graphWorkflowNames = graphWorkflowResults.map(
+    (result: { name: string }) => result.name
+  );
+  expect(graphWorkflowNames).toContain("annotation resolution");
+  expect(graphWorkflowNames).toContain("Box + Cylinder → Union");
+  expect(graphWorkflowNames).toContain("Python export");
+  await test.info().attach("graph-workflow-results.json", {
+    body: JSON.stringify(graphWorkflowResults, null, 2),
+    contentType: "application/json"
+  });
+
   const log = page.locator(".viewport-log-panel");
   const toggleLog = async () => {
     if (!(await log.isVisible())) {

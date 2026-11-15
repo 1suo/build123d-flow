@@ -7,9 +7,9 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
-  workers: 1,
+  workers: 2,
   reporter: process.env.CI ? "github" : "list",
-  timeout: 20 * 60 * 1000,
+  timeout: 15 * 60 * 1000,
   expect: { timeout: 1_000 },
   use: {
     baseURL: "http://127.0.0.1:4173/build123d-flow/",

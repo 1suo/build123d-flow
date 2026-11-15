@@ -1,5 +1,6 @@
 import type { GraphDocument, GraphNode, NodeDefinition, SocketDefinition } from "../types";
 import { isGeometrySocket, isGeometryType } from "./socketPresentation";
+import { adaptRuntimeOperation, validateCadOperation } from "./cadKernel";
 
 export function createGraphNode(
   definition: NodeDefinition,
@@ -15,7 +16,7 @@ export function createGraphNode(
     type: "api" as const,
     position,
     data: {
-      definition,
+      definition: definition.cadOperation ? definition : { ...definition, cadOperation: adaptRuntimeOperation(definition) },
       params,
       visible: definition.outputs.some(isGeometrySocket),
     },
@@ -111,6 +112,12 @@ export function canConnect(
 export function validateGraph(graph: GraphDocument): string[] {
   const errors: string[] = [];
   const ids = new Set(graph.nodes.map((node) => node.id));
+
+  for (const node of graph.nodes) {
+    const operation = node.data.definition.cadOperation;
+    if (!operation) errors.push(`Node ${node.id}: missing kernel-neutral CAD operation contract`);
+    else errors.push(...validateCadOperation(operation).map((error) => `Node ${node.id}: ${error}`));
+  }
 
   for (const edge of graph.edges) {
     if (!ids.has(edge.source)) errors.push(`Edge ${edge.id}: missing source node`);

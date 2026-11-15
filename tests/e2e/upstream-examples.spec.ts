@@ -186,7 +186,7 @@ for (const shard of SHARDS) {
     expect(shard.examples.length + shard.smoke.length).toBeGreaterThan(0);
     expect(SHARDS.reduce((total, item) => total + item.examples.length, 0)).toBe(EXAMPLES.length);
     expect(SHARDS.reduce((total, item) => total + item.smoke.length, 0)).toBe(SMOKE_CASES.length);
-    test.setTimeout(15 * 60 * 1000);
+    test.setTimeout(7 * 60 * 1000);
 
     const pageErrors: string[] = [];
     page.on("pageerror", error => pageErrors.push(error.message));

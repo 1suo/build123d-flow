@@ -12,12 +12,13 @@ class DependencyClosureTests(unittest.TestCase):
             setup = Path(directory) / "setup.py"
             setup.write_text(
                 'import micropip\n'
-                'micropip.add_mock_package("lib3mf", "2.4.1")\n'
+                'micropip.add_mock_package("threejs-materials", "1.2.5")\n'
+                'LOCAL_PYODIDE_PACKAGES = ("lib3mf==2.4.1",)\n'
                 'await micropip.install(["build123d==0.13.0"])\n'
             )
             roots, mocks = MODULE["setup_roots"](setup)
         self.assertEqual({r.name for r in roots}, {"micropip", "build123d"})
-        self.assertEqual(mocks, {"lib3mf"})
+        self.assertEqual(mocks, {"threejs-materials", "lib3mf"})
 
     def test_transitive_pypi_dependency_stages_pyodide_package(self):
         class FixtureResolver(MODULE["Resolver"]):

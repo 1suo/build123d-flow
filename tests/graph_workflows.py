@@ -561,7 +561,7 @@ def run_python_loop_lowering_tests():
     )
     multiply_nodes = [
         node for node in native_operator["nodes"]
-        if node["data"]["definition"]["id"] == "core.python.binary.__mul__"
+        if node["data"]["definition"]["id"].startswith("core.python.binary.__mul__.")
     ]
     if len(multiply_nodes) != 1:
         raise AssertionError("A Python multiplication expression must remain one operator node")
@@ -596,12 +596,12 @@ def run_python_loop_lowering_tests():
         )
 
     native_shape_add = runtime.import_python_code(
-        "from build123d import Box, Cylinder\\n"
+        "from build123d import Box, Cylinder\n"
         "combined = Box(4, 4, 4) + Cylinder(1, 4)\n"
     )
     add_nodes = [
         node for node in native_shape_add["nodes"]
-        if node["data"]["definition"]["id"] == "core.python.binary.__add__"
+        if node["data"]["definition"]["id"].startswith("core.python.binary.__add__.")
     ]
     if len(add_nodes) != 1:
         raise AssertionError("Box + Cylinder must lower to one native Python addition node")

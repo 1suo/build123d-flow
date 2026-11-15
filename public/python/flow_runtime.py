@@ -254,7 +254,16 @@ def _annotation_metadata(annotation):
     # collection ABCs. Classify the origin structurally so loop mapping works
     # for both parameterized and bare custom iterable return types.
     collection_class = origin if origin is not None else annotation
-    if inspect.isclass(collection_class) and collection_class not in mapping_origins:
+    # Many build123d geometry/value objects are iterable for topology,
+    # coordinates, or serialization, but they are atomic CAD values in the
+    # graph. Treat only actual collection types (e.g. ShapeList) as streams.
+    atomic_iterable_types = {
+        "Shape", "Solid", "Compound", "Face", "Edge", "Vertex", "Wire", "Shell",
+        "Part", "Sketch", "Curve", "Surface", "Vector2", "Vector3", "Rotation",
+        "Plane", "Location", "Axis", "Color", "Matrix",
+    }
+    is_atomic_value = inspect.isclass(collection_class) and _type_name(collection_class) in atomic_iterable_types
+    if inspect.isclass(collection_class) and collection_class not in mapping_origins and not is_atomic_value:
         try:
             if issubclass(collection_class, collections.abc.Iterable):
                 if issubclass(collection_class, (set, frozenset, collections.abc.Set)):

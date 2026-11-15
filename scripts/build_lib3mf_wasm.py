@@ -190,7 +190,7 @@ def main() -> None:
         patch_nested_libzip_configure(source)
         shared_support = root / "enable_lib3mf_side_module.cmake"
         shared_support.write_text(
-            "set_property(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)\\n",
+            "set_property(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)\n",
             encoding="utf-8",
         )
         common_flags = "-O2 -fwasm-exceptions -sSUPPORT_LONGJMP=wasm"

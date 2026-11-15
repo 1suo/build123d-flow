@@ -3299,13 +3299,19 @@ def import_python_code(source):
                 # restoring serialized CAD value operands.
                 left_port_type = left_type
                 argument_type_name = argument_socket.get("type", "Any") if argument_socket else "Any"
-                right_port_type = argument_type_name if argument_type_name != "Any" else right_type
+                right_port_type = (
+                    argument_type_name if argument_type_name != "Any"
+                    else (right_item_type if right_structure else right_type)
+                )
             else:
                 right_access = access_for(receiver_socket)
                 left_access = access_for(argument_socket)
                 right_port_type = right_type
                 argument_type_name = argument_socket.get("type", "Any") if argument_socket else "Any"
-                left_port_type = argument_type_name if argument_type_name != "Any" else left_type
+                left_port_type = (
+                    argument_type_name if argument_type_name != "Any"
+                    else (left_item_type if left_structure else left_type)
+                )
             if output_socket:
                 result_output["type"] = output_socket.get("type", "Any")
                 for key in ("data_structure", "item_type", "variants", "semantic_type"):
@@ -3316,14 +3322,27 @@ def import_python_code(source):
                 # build123d declares _ShapeT only under TYPE_CHECKING, leaving
                 # it as Any at runtime. The native call still returns the moved
                 # object itself for a single Shape/Plane/Location operand.
-                specialization_type = right_type if receiver_side == "left" else left_type
+                argument_structure = right_structure if receiver_side == "left" else left_structure
+                argument_item_type = right_item_type if receiver_side == "left" else left_item_type
+                possible_structures = output_socket.get("possible_data_structures", [])
                 if (
-                    result_output.get("type") == "Any"
-                    and "Any" in result_output.get("variants", [])
-                    and specialization_type in (_GEOMETRY_INPUT_TYPES | _OBJECT_INPUT_TYPES)
+                    argument_structure is not None
+                    and possible_structures
+                    and output_socket.get("type", "Any") == "Any"
                 ):
-                    result_output["type"] = specialization_type
-                    result_output.pop("variants", None)
+                    result_output["data_structure"] = possible_structures[0]
+                    if argument_item_type:
+                        result_output["type"] = argument_item_type
+                        result_output["item_type"] = argument_item_type
+                else:
+                    specialization_type = right_type if receiver_side == "left" else left_type
+                    if (
+                        result_output.get("type") == "Any"
+                        and "Any" in result_output.get("variants", [])
+                        and specialization_type in (_GEOMETRY_INPUT_TYPES | _OBJECT_INPUT_TYPES)
+                    ):
+                        result_output["type"] = specialization_type
+                        result_output.pop("variants", None)
         elif method == "__add__" and left_type == right_type == "String":
             result_output["type"] = "String"
         elif left_type in {"Number", "Integer", "Float"} and right_type in {"Number", "Integer", "Float"}:
@@ -3363,8 +3382,19 @@ def import_python_code(source):
             # Apply the native operand socket contracts before invoking Python's
             # operator protocol (e.g. [x, y] -> Vector and nested Location
             # coordinates -> Location). Geometry objects remain untouched.
-            left = _coerce_graph_receiver(left, {"type": left_port_type})
-            right = _coerce_graph_receiver(right, {"type": right_port_type})
+            def coerce_operand(value, port_type, structure, item_type):
+                if structure in {"list", "tuple", "set"} and item_type and isinstance(value, (list, tuple, set)):
+                    def coerce_items(items):
+                        return [
+                            coerce_items(item) if isinstance(item, (list, tuple))
+                            else _coerce_graph_receiver(item, {"type": item_type})
+                            for item in items
+                        ]
+                    return coerce_items(value)
+                return _coerce_graph_receiver(value, {"type": port_type})
+
+            left = coerce_operand(left, left_port_type, left_structure, left_item_type)
+            right = coerce_operand(right, right_port_type, right_structure, right_item_type)
             try:
                 return operation(left, right)
             except Exception as exc:

@@ -890,7 +890,23 @@ def run_python_import_tests():
     endpoint_x = endpoint_attributes.get("X", {}).get("value")
     endpoint_y = endpoint_attributes.get("Y", {}).get("value")
     if endpoint_x is None or endpoint_y is None or abs(endpoint_x - 15.13) > 1e-6 or abs(endpoint_y - 4.54) > 1e-6:
-        raise AssertionError("Bezier @ 1 returned the wrong endpoint: " + repr(endpoint_value))
+        receiver_edges = [
+            edge for edge in endpoint_graph["edges"]
+            if edge["target"] == endpoint_node["id"] and edge["targetHandle"] == "self"
+        ]
+        receiver_sources = [
+            {
+                "edge": edge,
+                "node": next((node for node in endpoint_graph["nodes"] if node["id"] == edge["source"]), None),
+                "value": endpoint_result["socket_values"].get(edge["source"]),
+            }
+            for edge in receiver_edges
+        ]
+        raise AssertionError(
+            "Bezier @ 1 returned the wrong endpoint: {}; operator node: {}; receiver sources: {}".format(
+                repr(endpoint_value), repr(endpoint_node), repr(receiver_sources)
+            )
+        )
 
     public_catalog = json.loads(runtime.catalog_json())
     if any(item["id"] in runtime._INTERNAL_NODE_IDS for item in public_catalog):

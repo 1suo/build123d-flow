@@ -913,7 +913,7 @@ def run_python_import_tests():
         ]
         direct_nodes = [
             node for node in endpoint_graph["nodes"]
-            if node["data"]["definition"].get("name", "").endswith("end_point")
+            if node["data"].get("params", {}).get("name") == "end_point"
         ]
         direct_value = (
             endpoint_result["socket_values"].get(direct_nodes[0]["id"])

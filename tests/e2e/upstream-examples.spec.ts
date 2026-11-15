@@ -134,9 +134,12 @@ async function importExample(page: Page, source: string, throughEditor: boolean)
       await page.getByRole("button", { name: "Show activity log" }).click();
     }
     const sourceInput = page.locator("#python-source-input");
-    if (!(await sourceInput.isVisible())) {
-      await page.getByRole("button", { name: "Settings" }).click();
-    }
+    // isVisible() can observe the outgoing popover DOM during its close
+    // transition. Wait for the previous import to finish closing before
+    // opening a fresh editor for this smoke case.
+    await expect(sourceInput).toBeHidden({ timeout: 2_000 });
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(sourceInput).toBeVisible({ timeout: 2_000 });
     // Exercise the actual paste-and-import UI for the smoke cases.
     await sourceInput.fill(source);
     await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
@@ -164,6 +167,9 @@ async function importExample(page: Page, source: string, throughEditor: boolean)
 
   await expect(page.locator(".viewport-status-count")).toHaveText(/[1-9][0-9]* visible/, { timeout: 500 });
   await expect(page.locator(".geometry-viewport canvas")).toBeVisible({ timeout: 500 });
+  if (throughEditor) {
+    await expect(page.locator("#python-source-input")).toBeHidden({ timeout: 2_000 });
+  }
 }
 
 test.describe.configure({ mode: "parallel" });
@@ -228,7 +234,6 @@ for (const shard of SHARDS) {
       });
     }
 
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
     const upstreamSources = await sourcesPromise;
     const allSources = [
       ...shard.smoke.map((source, index) => ({ filename: `smoke-${shard.name}-${index + 1}.py`, source, throughEditor: true })),

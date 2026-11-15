@@ -911,15 +911,27 @@ def run_python_import_tests():
             edge for edge in endpoint_graph["edges"]
             if edge["target"] == constructor_node["id"]
         ]
-        direct_node = next(
+        direct_nodes = [
             node for node in endpoint_graph["nodes"]
             if node["data"]["definition"].get("name", "").endswith("end_point")
+        ]
+        direct_value = (
+            endpoint_result["socket_values"].get(direct_nodes[0]["id"])
+            if direct_nodes else None
         )
-        direct_value = endpoint_result["socket_values"].get(direct_node["id"])
+        graph_nodes = [
+            {
+                "id": node["id"],
+                "name": node["data"]["definition"].get("name"),
+                "definition_id": node["data"]["definition"].get("id"),
+                "params": node["data"].get("params"),
+            }
+            for node in endpoint_graph["nodes"]
+        ]
         raise AssertionError(
-            "Bezier endpoint mismatch: @1 {}; direct end_point {}; constructor inputs {}; constructor node {}; operator node {}; receiver sources {}".format(
+            "Bezier endpoint mismatch: @1 {}; direct end_point {}; constructor inputs {}; constructor node {}; operator node {}; receiver sources {}; graph nodes {}".format(
                 repr(endpoint_value), repr(direct_value), repr(constructor_edges),
-                repr(constructor_node), repr(endpoint_node), repr(receiver_sources)
+                repr(constructor_node), repr(endpoint_node), repr(receiver_sources), repr(graph_nodes)
             )
         )
 

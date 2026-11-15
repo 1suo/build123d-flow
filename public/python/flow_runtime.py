@@ -2677,9 +2677,12 @@ def _coerce_annotation(value, annotation):
         if value is None and type(None) in args:
             return None
         candidates = [candidate for candidate in args if candidate is not type(None)]
-        # If a union accepts both a domain object and its fixed tuple
-        # representation, try the object constructor generically before
-        # falling back to the tuple alternative.
+        # A fixed tuple may be an alternate literal representation of a
+        # domain value (for example VectorLike). Prefer that domain object's
+        # constructor only for this representation case. For genuine
+        # collection unions such as Edge | Iterable[Edge], leave the iterable
+        # branch to the normal candidate resolver: constructing Edge(list)
+        # would wrap the collection itself as one geometry object.
         if isinstance(value, (list, tuple)) and any(
             typing.get_origin(candidate) is tuple for candidate in candidates
         ):

@@ -313,6 +313,18 @@ def _annotation_metadata(annotation):
         # a collection. Keep that collection intact for the native operator.
         if collection_args:
             metadata["data_access"] = "structure"
+            collection_kinds = {
+                "set" if typing.get_origin(collection) in (
+                    set, frozenset, collections.abc.Set, collections.abc.MutableSet
+                ) else "list"
+                for collection in collection_args
+                if typing.get_origin(collection) in collection_origins
+            }
+            # Union returns may be scalar-or-collection. Record possible
+            # structures, then specialize against the concrete operand instead
+            # of falsely marking every result as a list.
+            if len(collection_kinds) == 1:
+                metadata["possible_data_structures"] = [collection_kinds.pop()]
             item_types = {
                 _type_name(typing.get_args(collection)[0])
                 for collection in collection_args if typing.get_args(collection)
@@ -3147,6 +3159,30 @@ def import_python_code(source):
             # catalog contract uses the semantic socket name Vector3.
             return "Vector3" if type_name == "Vector" else type_name
 
+        def operand_structure(operand):
+            if operand[0] == "ref":
+                output = reference_output(operand)
+                structure = output.get("data_structure") if output else None
+                item_type = output.get("item_type") if output else None
+                return structure, canonical_operand_type(item_type)
+            value = operand[1]
+            if isinstance(value, (list, tuple, set, frozenset)):
+                first = next(iter(value), None)
+                if isinstance(first, dict) and isinstance(first.get("__flow_object__"), str):
+                    item_type = canonical_operand_type(first["__flow_object__"])
+                elif first is not None:
+                    try:
+                        item_type = canonical_operand_type(_type_name(type(materialize_literal(first))))
+                    except Exception:
+                        item_type = None
+                else:
+                    item_type = None
+                structure = "set" if isinstance(value, (set, frozenset)) else (
+                    "tuple" if isinstance(value, tuple) else "list"
+                )
+                return structure, item_type
+            return None, None
+
         def operand_type(operand):
             if operand[0] == "ref":
                 return canonical_operand_type(reference_type(operand))
@@ -3163,6 +3199,8 @@ def import_python_code(source):
                 return None
 
         left_type, right_type = operand_type(left), operand_type(right)
+        left_structure, left_item_type = operand_structure(left)
+        right_structure, right_item_type = operand_structure(right)
 
         def runtime_type_class(type_name):
             if not isinstance(type_name, str):

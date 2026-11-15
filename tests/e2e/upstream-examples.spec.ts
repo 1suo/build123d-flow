@@ -247,7 +247,7 @@ test("imports and evaluates every pinned upstream build123d example", async ({ p
         } catch {
           // Preserve the original importer failure if the browser has closed.
         }
-        throw error;
+        // Continue through the corpus; the final assertion still fails unless every case passes.
       }
     });
   }

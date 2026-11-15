@@ -3142,18 +3142,23 @@ def import_python_code(source):
         operation = operations.get(method)
         if operation is None:
             raise ValueError("Unsupported Python scalar operator {} at line {}".format(method, line))
+        def canonical_operand_type(type_name):
+            # build123d exposes Vector as the runtime class name while the
+            # catalog contract uses the semantic socket name Vector3.
+            return "Vector3" if type_name == "Vector" else type_name
+
         def operand_type(operand):
             if operand[0] == "ref":
-                return reference_type(operand)
+                return canonical_operand_type(reference_type(operand))
             value = operand[1]
             # Value constructors remain typed Python values even when their
             # arguments are compile-time literals. Preserve that native type
             # through operator dispatch instead of treating the encoded object
             # as an untyped dictionary.
             if isinstance(value, dict) and isinstance(value.get("__flow_object__"), str):
-                return value["__flow_object__"]
+                return canonical_operand_type(value["__flow_object__"])
             try:
-                return _type_name(type(materialize_literal(value)))
+                return canonical_operand_type(_type_name(type(materialize_literal(value))))
             except Exception:
                 return None
 

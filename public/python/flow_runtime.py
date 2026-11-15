@@ -322,21 +322,15 @@ def _annotation_metadata(annotation):
             _type_name(arg) in atomic_value_alternatives for arg in scalar_args
         )
 
-        structural_collections = [
-            collection for collection in collection_args
-            if typing.get_origin(collection) is not tuple
-        ]
-        tuple_alternatives = [
-            collection for collection in collection_args
-            if typing.get_origin(collection) is tuple
-        ]
         value_representation_only = (
             has_atomic_value_alternative
-            and not structural_collections
-            or has_atomic_value_alternative
             and all(
-                all(_type_name(item) in {"Number", "Any"} for item in typing.get_args(collection) if item is not Ellipsis)
-                for collection in tuple_alternatives
+                all(
+                    _type_name(item) in {"Number", "Any"}
+                    for item in typing.get_args(collection)
+                    if item is not Ellipsis
+                )
+                for collection in collection_args
             )
         )
         if collection_args and not value_representation_only:

@@ -107,6 +107,13 @@ def _resolve_catalog_member(definitions, member_name, receiver_type, property_on
 def _type_name(annotation):
     if annotation is inspect.Signature.empty or annotation is typing.Any:
         return "Any"
+    if hasattr(annotation, "__bound__") and hasattr(annotation, "__constraints__"):
+        if annotation.__bound__ is not None:
+            return _type_name(annotation.__bound__)
+        if annotation.__constraints__:
+            names = {_type_name(item) for item in annotation.__constraints__}
+            return names.pop() if len(names) == 1 else "Any"
+        return "Any"
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
@@ -309,6 +316,12 @@ def _resolve_self_annotation(annotation, owner):
 
 def _annotation_metadata(annotation):
     """Return structured socket metadata for Python generic annotations."""
+    if hasattr(annotation, "__bound__") and hasattr(annotation, "__constraints__"):
+        if annotation.__bound__ is not None:
+            return _annotation_metadata(annotation.__bound__)
+        if annotation.__constraints__:
+            return _annotation_metadata(_union_annotations(annotation.__constraints__))
+        return {}
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
     metadata = {}
@@ -445,6 +458,119 @@ def _annotation_metadata(annotation):
             if len(item_types) == 1:
                 metadata["item_type"] = item_types.pop()
     return metadata
+
+
+def _operator_annotation_score(annotation, actual_type, actual_structure):
+    """Score one overload annotation against the concrete operand contract."""
+    if hasattr(annotation, "__bound__") and hasattr(annotation, "__constraints__"):
+        if annotation.__bound__ is not None:
+            return _operator_annotation_score(annotation.__bound__, actual_type, actual_structure)
+        if annotation.__constraints__:
+            return max(
+                _operator_annotation_score(item, actual_type, actual_structure)
+                for item in annotation.__constraints__
+            )
+        return 0
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin in (typing.Union, types.UnionType):
+        return max(
+            _operator_annotation_score(item, actual_type, actual_structure)
+            for item in args
+        )
+    if origin is typing.Annotated:
+        return _operator_annotation_score(args[0], actual_type, actual_structure) if args else 0
+    collection_origins = {
+        list, set, frozenset, tuple, dict, typing.Dict,
+        collections.abc.Sequence, collections.abc.MutableSequence,
+        collections.abc.Iterable, collections.abc.Collection,
+        collections.abc.Set, collections.abc.MutableSet,
+        collections.abc.Mapping, collections.abc.MutableMapping,
+    }
+    if origin in collection_origins or annotation in collection_origins:
+        return 100 if actual_structure in {"list", "tuple", "set", "dict", "tree"} else -100
+    if annotation is type(None):
+        return 100 if actual_type in {"NoneType", "None"} else -100
+    if annotation is typing.Any or annotation is inspect.Signature.empty:
+        return 0
+    if inspect.isclass(annotation):
+        if actual_type == _type_name(annotation):
+            return 100
+        actual_class = _discovered_class(actual_type)
+        distance = _class_mro_distance(actual_class, annotation)
+        return 100 - distance if distance is not None else -100
+    return 0
+
+
+def _best_operator_annotation(annotation, actual_type, actual_structure):
+    """Choose the matching scalar or collection branch of a union annotation."""
+    origin = typing.get_origin(annotation)
+    if origin not in (typing.Union, types.UnionType):
+        return annotation
+    ranked = [
+        (_operator_annotation_score(item, actual_type, actual_structure), item)
+        for item in typing.get_args(annotation)
+    ]
+    best_score = max((score for score, _ in ranked), default=-100)
+    winners = [item for score, item in ranked if score == best_score]
+    return winners[0] if best_score >= 0 and len(winners) == 1 else annotation
+
+
+def _operator_overload_sockets(callable_obj, owner, actual_type, actual_structure):
+    """Resolve an overloaded operator to the argument and return contracts."""
+    overloads = typing.get_overloads(callable_obj)
+    if not overloads:
+        return None
+    candidates = []
+    for overload in overloads:
+        signature = inspect.signature(overload)
+        parameters = [
+            parameter for parameter in signature.parameters.values()
+            if parameter.name not in {"self", "cls"}
+        ]
+        if not parameters:
+            continue
+        parameter = parameters[0]
+        hints = _resolve_hints(overload)
+        annotation = hints.get(parameter.name, parameter.annotation)
+        selected_annotation = _best_operator_annotation(
+            annotation, actual_type, actual_structure
+        )
+        score = _operator_annotation_score(
+            selected_annotation, actual_type, actual_structure
+        )
+        if score >= 0:
+            candidates.append((score, parameter, selected_annotation, hints, signature))
+    if not candidates:
+        return None
+    best_score = max(candidate[0] for candidate in candidates)
+    winners = [candidate for candidate in candidates if candidate[0] == best_score]
+    if len(winners) != 1:
+        return None
+    _, parameter, argument_annotation, hints, signature = winners[0]
+    argument_annotation = _resolve_self_annotation(argument_annotation, owner)
+    argument_socket = {
+        "name": parameter.name,
+        "type": _type_name(argument_annotation),
+        "required": parameter.default is inspect.Signature.empty,
+    }
+    if parameter.default is not inspect.Signature.empty:
+        default, _, _, has_default = _safe_default(parameter.default)
+        if has_default:
+            argument_socket["default"] = default
+    argument_socket.update(_annotation_metadata(argument_annotation))
+    argument_socket.setdefault(
+        "data_access",
+        "structure" if _socket_data_structure(argument_socket) != "item" else "item",
+    )
+    return_annotation = hints.get("return", signature.return_annotation)
+    return_annotation = _resolve_self_annotation(return_annotation, owner)
+    output_socket = {
+        "name": "result",
+        "type": _type_name(return_annotation),
+    }
+    output_socket.update(_annotation_metadata(return_annotation))
+    return argument_socket, output_socket
 
 
 def _safe_default(value):
@@ -3275,7 +3401,28 @@ def import_python_code(source):
 
         left_type, right_type = operand_type(left), operand_type(right)
 
-        def operator_contract(receiver_type, member_name):
+        def operand_structure(operand):
+            if operand[0] == "literal":
+                try:
+                    value = materialize_literal(operand[1])
+                except Exception:
+                    return "item"
+                if isinstance(value, list):
+                    return "list"
+                if isinstance(value, tuple):
+                    return "tuple"
+                if isinstance(value, (set, frozenset)):
+                    return "set"
+                if isinstance(value, dict):
+                    return "dict"
+                return "item"
+            output = reference_output(operand)
+            return output.get("data_structure", "item") if output else "item"
+
+        left_structure = operand_structure(left)
+        right_structure = operand_structure(right)
+
+        def operator_contract(receiver_type, member_name, argument_type, argument_structure):
             definition_id, winners = resolve_member(member_name, receiver_type)
             if not definition_id:
                 return None
@@ -3296,15 +3443,27 @@ def import_python_code(source):
                 if socket.get("name") not in {"self", "cls"}
             ), None)
             output = next(iter(definition.get("outputs", [])), None)
+            callable_obj = _CATALOG_CALLABLES.get(definition_id)
+            owner = _discovered_class(receiver.get("type", receiver_type))
+            if callable_obj is not None and owner is not None and argument is not None:
+                overload_sockets = _operator_overload_sockets(
+                    callable_obj, owner, argument_type, argument_structure
+                )
+                if overload_sockets is not None:
+                    argument, output = overload_sockets
             return definition, receiver, argument, output
 
-        contract = operator_contract(left_type, method)
+        contract = operator_contract(left_type, method, right_type, right_structure)
         receiver_side = "left"
         if contract is None and method in inplace_fallbacks:
-            contract = operator_contract(left_type, inplace_fallbacks[method])
+            contract = operator_contract(
+                left_type, inplace_fallbacks[method], right_type, right_structure
+            )
         if contract is None:
             reverse_method = reverse_methods.get(inplace_fallbacks.get(method, method))
-            contract = operator_contract(right_type, reverse_method)
+            contract = operator_contract(
+                right_type, reverse_method, left_type, left_structure
+            )
             receiver_side = "right" if contract is not None else "left"
 
         def access_for(socket):

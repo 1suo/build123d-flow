@@ -30,6 +30,78 @@ _PREVIEW_CACHE = {}
 _CACHE_LIMIT = 128
 # Optional curated presentation/eligibility overrides keyed by canonical node id.
 _NODE_METADATA_OVERRIDES = {}
+# Runtime classes discovered from the installed provider API. A simple type name
+# is resolved to its exported class when possible; ambiguous private names remain
+# unresolved rather than selecting an arbitrary class.
+_DISCOVERED_CLASSES = {}
+
+
+def _discovered_class(type_name):
+    public = getattr(b3d, type_name, None)
+    if inspect.isclass(public) and getattr(public, "__module__", "").split(".")[0] == "build123d":
+        return public
+    candidates = _DISCOVERED_CLASSES.get(type_name, ())
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _class_mro_distance(actual_class, expected_class):
+    """Return the exact Python MRO distance, or None when types are unrelated."""
+    if not inspect.isclass(actual_class) or not inspect.isclass(expected_class):
+        return None
+    try:
+        return actual_class.__mro__.index(expected_class)
+    except ValueError:
+        return None
+
+
+def _receiver_type_distance(receiver_type, accepted_types):
+    """Rank a receiver against its declared types using Python's actual MRO."""
+    if receiver_type in accepted_types:
+        return 0
+    actual_class = _discovered_class(receiver_type)
+    distances = [
+        distance
+        for accepted_type in accepted_types
+        if (expected_class := _discovered_class(accepted_type)) is not None
+        for distance in [_class_mro_distance(actual_class, expected_class)]
+        if distance is not None
+    ]
+    if distances:
+        return min(distances)
+    return 1_000_000 if "Any" in accepted_types else None
+
+
+def _resolve_catalog_member(definitions, member_name, receiver_type, property_only=False):
+    """Resolve the closest declared owner in the receiver's Python MRO."""
+    candidates = []
+    for candidate_id, candidate in definitions.items():
+        is_property = ".property." + member_name in candidate_id or ".field." + member_name in candidate_id
+        if property_only:
+            if not is_property:
+                continue
+        elif candidate_id.rsplit(".", 1)[-1] != member_name:
+            continue
+        receiver = next((item for item in candidate.get("inputs", [])
+                         if item.get("name") in {"self", "cls"}), None)
+        if receiver is None:
+            continue
+        accepted = receiver.get("variants") or [receiver.get("type", "Any")]
+        distance = _receiver_type_distance(receiver_type, accepted)
+        if distance is not None:
+            candidates.append((-distance, candidate_id))
+    # Incomplete type inference may still leave a uniquely named method. The
+    # evaluator binds it to the real receiver and Python performs final lookup.
+    if not candidates:
+        for candidate_id, candidate in definitions.items():
+            if candidate_id.rsplit(".", 1)[-1] == member_name and any(
+                item.get("name") in {"self", "cls"} for item in candidate.get("inputs", [])
+            ):
+                candidates.append((-2_000_000, candidate_id))
+    if not candidates:
+        return None, ()
+    best_score = max(score for score, _ in candidates)
+    winners = tuple(sorted(candidate_id for score, candidate_id in candidates if score == best_score))
+    return (winners[0], winners) if len(winners) == 1 else (None, winners)
 
 
 def _type_name(annotation):
@@ -1154,7 +1226,7 @@ def _register_python_nodes(found, callables):
 
 
 def discover(include_full=True):
-    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
+    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE, _DISCOVERED_CLASSES
     found = {}
     callables = {}
     signatures = {}
@@ -1554,6 +1626,13 @@ def discover(include_full=True):
     _CATALOG_CALLABLES = callables
     _CATALOG_SIGNATURES = signatures
     _CATALOG_HINT_TARGETS = hint_targets
+    classes_by_name = {}
+    for cls in api_classes:
+        classes_by_name.setdefault(cls.__name__, []).append(cls)
+    _DISCOVERED_CLASSES = {
+        name: tuple(sorted(classes, key=lambda cls: cls.__module__))
+        for name, classes in classes_by_name.items()
+    }
     return list(found.values())
 
 
@@ -2812,62 +2891,8 @@ def import_python_code(source):
         discover(include_full=True)
     definitions = _CATALOG
     def resolve_member(member_name, receiver_type, property_only=False):
-        """Resolve one catalog method/property using its receiver socket contract."""
-        candidates = []
-        for candidate_id, candidate in definitions.items():
-            is_property = ".property." + member_name in candidate_id or ".field." + member_name in candidate_id
-            if property_only:
-                if not is_property:
-                    continue
-            elif candidate_id.rsplit(".", 1)[-1] != member_name:
-                continue
-            receiver = next((item for item in candidate.get("inputs", [])
-                             if item.get("name") in {"self", "cls"}), None)
-            if receiver is None:
-                continue
-            accepted = receiver.get("variants") or [receiver.get("type", "Any")]
-            if receiver_type in accepted:
-                score = 3
-            else:
-                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
-                compatible = False
-                if inspect.isclass(actual_class):
-                    for accepted_type in accepted:
-                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
-                        if inspect.isclass(expected_class):
-                            try:
-                                if issubclass(actual_class, expected_class):
-                                    compatible = True
-                                    break
-                            except TypeError:
-                                pass
-                if compatible:
-                    score = 2
-                elif "Any" in accepted:
-                    score = 1
-                else:
-                    continue
-            candidates.append((score, candidate_id))
-        # Type inference is necessarily incomplete for chained collection
-        # expressions and generic return annotations. If no receiver-compatible
-        # method was found, permit a uniquely named discovered method. The graph
-        # evaluator binds it to the actual receiver at runtime, so Python's own
-        # attribute lookup remains the final compatibility check. Multiple
-        # implementations remain ambiguous and are rejected.
-        if not candidates:
-            for candidate_id, candidate in definitions.items():
-                if candidate_id.rsplit(".", 1)[-1] != member_name:
-                    continue
-                if any(item.get("name") in {"self", "cls"}
-                       for item in candidate.get("inputs", [])):
-                    candidates.append((0, candidate_id))
-        if not candidates:
-            return None, ()
-        best_score = max(score for score, _ in candidates)
-        winners = tuple(sorted(
-            candidate_id for score, candidate_id in candidates if score == best_score
-        ))
-        return (winners[0], winners) if len(winners) == 1 else (None, winners)
+        return _resolve_catalog_member(definitions, member_name, receiver_type, property_only)
+
 
     # Python's subscription protocol is a language-level operation, not a
     # build123d API member. Register it as a reusable graph primitive so
@@ -3246,21 +3271,8 @@ def import_python_code(source):
             if receiver is None:
                 return None
             accepted = receiver.get("variants") or [receiver.get("type", "Any")]
-            if receiver_type not in accepted:
-                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
-                compatible = False
-                if inspect.isclass(actual_class):
-                    for accepted_type in accepted:
-                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
-                        if inspect.isclass(expected_class):
-                            try:
-                                if issubclass(actual_class, expected_class):
-                                    compatible = True
-                                    break
-                            except TypeError:
-                                pass
-                if not compatible:
-                    return None
+            if _receiver_type_distance(receiver_type, accepted) is None:
+                return None
             argument = next((
                 socket for socket in definition.get("inputs", [])
                 if socket.get("name") not in {"self", "cls"}

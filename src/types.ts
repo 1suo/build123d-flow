@@ -24,6 +24,8 @@ export interface SocketDefinition {
 }
 
 export interface NodeDefinition {
+  /** Kernel-neutral operation contract attached by the active provider adapter. */
+  cadOperation?: import("./runtime/cadKernel").CadOperationDefinition;
   id: string;
   kind: "geometry" | "operation" | "value" | "enum";
   name: string;

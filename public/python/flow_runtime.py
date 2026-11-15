@@ -2251,6 +2251,26 @@ def evaluate_graph_json(payload):
                         signature=bound_signature,
                         hint_target=hint_target,
                     )
+            elif definition.get("name") == "Mixin1D @":
+                def invoke(mapped):
+                    receiver_value = mapped.get("self")
+                    position = mapped.get("position")
+                    # Endpoint positions are defined by the topological
+                    # vertices, not by OCCT's arc-length inversion. Using
+                    # them directly avoids the zero-vector endpoint result
+                    # seen for Bezier edges in the browser runtime.
+                    if callable(getattr(receiver_value, "start_point", None)):
+                        if position == 0:
+                            return receiver_value.start_point()
+                        if position == 1:
+                            return receiver_value.end_point()
+                    return _call_with_coercion(
+                        callable_obj,
+                        {name: value for name, value in mapped.items()
+                         if not name.startswith("__flow_iteration_")},
+                        signature=signature,
+                        hint_target=hint_target,
+                    )
             else:
                 invoke = lambda mapped: _call_with_coercion(
                     callable_obj,

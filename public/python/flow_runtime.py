@@ -2801,7 +2801,11 @@ def import_python_code(source):
     _PYTHON_SUBSCRIPT_ID = "core.python.subscript"
     _PYTHON_SLICE_ID = "core.python.slice"
     _PYTHON_ATTRIBUTE_ID = "core.python.attribute"
-    _INTERNAL_NODE_IDS.update({_PYTHON_SUBSCRIPT_ID, _PYTHON_SLICE_ID, _PYTHON_ATTRIBUTE_ID})
+    _PYTHON_ATTRIBUTE_STRUCTURE_ID = "core.python.attribute.structure"
+    _INTERNAL_NODE_IDS.update({
+        _PYTHON_SUBSCRIPT_ID, _PYTHON_SLICE_ID,
+        _PYTHON_ATTRIBUTE_ID, _PYTHON_ATTRIBUTE_STRUCTURE_ID,
+    })
     definitions[_PYTHON_SUBSCRIPT_ID] = {
         "id": _PYTHON_SUBSCRIPT_ID, "name": "Python Subscript",
         "source": "python", "kind": "operation", "category": "Internal",
@@ -2828,7 +2832,17 @@ def import_python_code(source):
         "source": "python", "kind": "operation", "category": "Internal",
         "palette_category": "Internal", "palette_section": "Graph lowering",
         "inputs": [
-            {"name": "value", "type": "Any", "required": True},
+            {"name": "value", "type": "Any", "required": True, "data_access": "item"},
+            {"name": "name", "type": "String", "required": True},
+        ],
+        "outputs": [{"name": "result", "type": "Any"}],
+    }
+    definitions[_PYTHON_ATTRIBUTE_STRUCTURE_ID] = {
+        "id": _PYTHON_ATTRIBUTE_STRUCTURE_ID, "name": "Python Collection Attribute",
+        "source": "python", "kind": "operation", "category": "Internal",
+        "palette_category": "Internal", "palette_section": "Graph lowering",
+        "inputs": [
+            {"name": "value", "type": "Any", "required": True, "data_access": "structure"},
             {"name": "name", "type": "String", "required": True},
         ],
         "outputs": [{"name": "result", "type": "Any"}],
@@ -2847,8 +2861,11 @@ def import_python_code(source):
     ])
     _CATALOG_HINT_TARGETS[_PYTHON_SLICE_ID] = False
     _CATALOG_CALLABLES[_PYTHON_ATTRIBUTE_ID] = _python_getattr
+    _CATALOG_CALLABLES[_PYTHON_ATTRIBUTE_STRUCTURE_ID] = _python_getattr
     _CATALOG_SIGNATURES[_PYTHON_ATTRIBUTE_ID] = inspect.signature(_python_getattr)
+    _CATALOG_SIGNATURES[_PYTHON_ATTRIBUTE_STRUCTURE_ID] = inspect.signature(_python_getattr)
     _CATALOG_HINT_TARGETS[_PYTHON_ATTRIBUTE_ID] = False
+    _CATALOG_HINT_TARGETS[_PYTHON_ATTRIBUTE_STRUCTURE_ID] = False
     by_name = {}
     for definition_id, definition in definitions.items():
         by_name.setdefault(definition.get("name"), definition_id)
@@ -2980,7 +2997,14 @@ def import_python_code(source):
                     socket for socket in source["data"]["definition"].get("outputs", [])
                     if socket.get("name") == output_name
                 ), None) if source else None
-                if output is not None and _socket_data_structure(output) == "item":
+                is_active_loop_item = any(
+                    str(frame.get("node_id")) == str(value)
+                    and str(frame.get("output_name", "result")) == str(output_name)
+                    for frame in active_loop_frames
+                )
+                if is_active_loop_item or (
+                    output is not None and _socket_data_structure(output) == "item"
+                ):
                     access = "item"
             input_sockets.append({
                 "name": "item_{}".format(index), "type": "Any",
@@ -3674,8 +3698,27 @@ def import_python_code(source):
                         "radius", "height", "width", "depth",
                     }:
                         property_type = "Number"
+                    property_receiver = next((
+                        item for item in property_definition.get("inputs", [])
+                        if item.get("name") in {"self", "cls"}
+                    ), None)
+                    receiver_access = (
+                        property_receiver.get("data_access")
+                        if property_receiver else "item"
+                    )
+                    if receiver_access is None and property_receiver is not None:
+                        receiver_access = (
+                            "structure"
+                            if _socket_data_structure(property_receiver) != "item"
+                            else "item"
+                        )
+                    attribute_id = (
+                        _PYTHON_ATTRIBUTE_STRUCTURE_ID
+                        if receiver_access == "structure"
+                        else _PYTHON_ATTRIBUTE_ID
+                    )
                     created = add_node(
-                        _PYTHON_ATTRIBUTE_ID, {"name": node.attr},
+                        attribute_id, {"name": node.attr},
                         [("value", receiver[1], receiver[2])], node.lineno,
                     )
                     return ("ref", created, "result", property_type)

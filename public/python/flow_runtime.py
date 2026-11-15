@@ -3130,24 +3130,104 @@ def import_python_code(source):
             "__or__": operator.or_, "__xor__": operator.xor,
             "__lshift__": operator.lshift, "__rshift__": operator.rshift,
         }
+        reverse_methods = {
+            "__add__": "__radd__", "__sub__": "__rsub__",
+            "__mul__": "__rmul__", "__truediv__": "__rtruediv__",
+            "__floordiv__": "__rfloordiv__", "__mod__": "__rmod__",
+            "__pow__": "__rpow__", "__and__": "__rand__",
+            "__or__": "__ror__", "__xor__": "__rxor__",
+            "__lshift__": "__rlshift__", "__rshift__": "__rrshift__",
+        }
         operation = operations.get(method)
         if operation is None:
             raise ValueError("Unsupported Python scalar operator {} at line {}".format(method, line))
         left_type, right_type = reference_type(left), reference_type(right)
-        result_type = (
-            "String" if method == "__add__" and left_type == right_type == "String"
-            else "Number"
-        )
+
+        def operator_contract(receiver_type, member_name):
+            definition_id, winners = resolve_member(member_name, receiver_type)
+            if not definition_id:
+                return None
+            definition = definitions.get(definition_id)
+            if not definition:
+                return None
+            receiver = next((
+                socket for socket in definition.get("inputs", [])
+                if socket.get("name") in {"self", "cls"}
+            ), None)
+            if receiver is None:
+                return None
+            accepted = receiver.get("variants") or [receiver.get("type", "Any")]
+            if receiver_type not in accepted:
+                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
+                compatible = False
+                if inspect.isclass(actual_class):
+                    for accepted_type in accepted:
+                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
+                        if inspect.isclass(expected_class):
+                            try:
+                                if issubclass(actual_class, expected_class):
+                                    compatible = True
+                                    break
+                            except TypeError:
+                                pass
+                if not compatible:
+                    return None
+            argument = next((
+                socket for socket in definition.get("inputs", [])
+                if socket.get("name") not in {"self", "cls"}
+            ), None)
+            output = next(iter(definition.get("outputs", [])), None)
+            return definition, receiver, argument, output
+
+        contract = operator_contract(left_type, method)
+        receiver_side = "left"
+        if contract is None:
+            contract = operator_contract(right_type, reverse_methods.get(method))
+            receiver_side = "right" if contract is not None else "left"
+
+        def access_for(socket):
+            if socket is None:
+                return "item"
+            access = socket.get("data_access")
+            if access is not None:
+                return access
+            return "structure" if _socket_data_structure(socket) != "item" else "item"
+
+        left_access = right_access = "item"
+        left_port_type = right_port_type = "Any"
+        result_output = {"name": "result", "type": "Any"}
+        if contract is not None:
+            definition, receiver_socket, argument_socket, output_socket = contract
+            if receiver_side == "left":
+                left_access = access_for(receiver_socket)
+                right_access = access_for(argument_socket)
+                left_port_type = receiver_socket.get("type", "Any")
+                right_port_type = argument_socket.get("type", "Any") if argument_socket else "Any"
+            else:
+                right_access = access_for(receiver_socket)
+                left_access = access_for(argument_socket)
+                right_port_type = receiver_socket.get("type", "Any")
+                left_port_type = argument_socket.get("type", "Any") if argument_socket else "Any"
+            if output_socket:
+                result_output["type"] = output_socket.get("type", "Any")
+                for key in ("data_structure", "item_type", "variants", "semantic_type"):
+                    if key in output_socket:
+                        result_output[key] = output_socket[key]
+        elif method == "__add__" and left_type == right_type == "String":
+            result_output["type"] = "String"
+        elif left_type in {"Number", "Integer", "Float"} and right_type in {"Number", "Integer", "Float"}:
+            result_output["type"] = "Number"
+
         definition_id = "core.python.binary." + method
         definition = {
             "id": definition_id, "name": "Python " + method,
             "source": "python", "kind": "operation", "category": "Internal",
             "palette_category": "Internal", "palette_section": "Graph lowering",
             "inputs": [
-                {"name": "left", "type": "Any", "required": True, "data_access": "item"},
-                {"name": "right", "type": "Any", "required": True, "data_access": "item"},
+                {"name": "left", "type": left_port_type, "required": True, "data_access": left_access},
+                {"name": "right", "type": right_port_type, "required": True, "data_access": right_access},
             ],
-            "outputs": [{"name": "result", "type": result_type}],
+            "outputs": [result_output],
         }
         definitions[definition_id] = definition
         _INTERNAL_NODE_IDS.add(definition_id)
@@ -3166,7 +3246,7 @@ def import_python_code(source):
             else:
                 links.append((name, operand[1], operand[2]))
         created = add_node(definition_id, params, links, line)
-        return ("ref", created, "result", result_type)
+        return ("ref", created, "result", result_output["type"])
 
     def resolve_callable(node, call_node=None):
         symbol_name = None

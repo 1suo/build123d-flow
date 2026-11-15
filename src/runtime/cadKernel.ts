@@ -37,6 +37,7 @@ export interface CadPortDefinition {
   readonly defaultValue?: unknown;
   readonly description?: string;
   readonly enumValues?: readonly string[];
+  readonly variants?: readonly CadValueType[];
 }
 
 export interface CadOperationDefinition {
@@ -177,6 +178,7 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
     ...(socket.default !== undefined ? { defaultValue: socket.default } : {}),
     ...(socket.annotation ? { description: socket.annotation } : {}),
     ...(socket.options ? { enumValues: socket.options } : {}),
+    ...(socket.variants?.length ? { variants: socket.variants.map((type) => RUNTIME_TYPE_MAP[type] ?? "any") } : {}),
   };
 }
 

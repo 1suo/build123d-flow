@@ -580,8 +580,8 @@ def run_python_loop_lowering_tests():
     if operator_result["errors"]:
         raise AssertionError("Native Location multiplication failed: " + json.dumps(operator_result["errors"]))
     moved_value = operator_result["socket_values"][multiply_nodes[0]["id"]]["result"]
-    if moved_value.get("type") != box_type:
-        raise AssertionError("Location * Shape must return one moved object: " + repr(moved_value))
+    if moved_value.get("type") != "Box":
+        raise AssertionError("Location * Box must preserve the concrete Box runtime type: " + repr(moved_value))
 
     value_operand_graph = runtime.import_python_code(
         "from build123d import Location, Sphere, Vector\\n"

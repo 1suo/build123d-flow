@@ -4434,9 +4434,7 @@ def import_python_code(source):
             if receiver_type in {
                 "Number", "Integer", "Float", "String", "Boolean",
                 "Location", "Vector", "Vector2", "Vector3", "Rotation",
-                "Plane", "Axis", "Color", "Matrix", "Shape", "Solid",
-                "Compound", "Part", "Sketch", "Face", "Edge", "Wire",
-                "Shell", "Vertex",
+                "Plane", "Axis", "Color", "Matrix",
             }:
                 return add_python_binary_node(method, left, right, node.lineno)
             receiver_class = None

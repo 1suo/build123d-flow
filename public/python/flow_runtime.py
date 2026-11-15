@@ -3562,6 +3562,13 @@ def import_python_code(source):
         )
         if constructor_type not in _OBJECT_INPUT_TYPES:
             return None
+        # An overloaded public constructor is a first-class catalog operation.
+        # Do not consume it as an embedded literal: doing so bypasses the
+        # discovered overload contract and prevents the importer from creating
+        # the corresponding constructor node.
+        overload_prefix = constructor.__module__ + "." + constructor.__name__ + ".overload-"
+        if any(definition_id.startswith(overload_prefix) for definition_id in definitions):
+            return None
         geometry_types = {"Face", "Edge", "Vertex", "Wire", "Shell", "Solid", "Compound"}
         # Geometry classes are real build123d operations when used as source
         # expressions (Box(...), Face(...), Solid(...)). Treat them as literal

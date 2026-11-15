@@ -3158,7 +3158,33 @@ def import_python_code(source):
 
         left_type, right_type = operand_type(left), operand_type(right)
 
-        def operator_contract(receiver_type, member_name):
+        def runtime_type_class(type_name):
+            if not isinstance(type_name, str):
+                return None
+            aliases = {"Vector3": "Vector", "Integer": "int", "Number": "float"}
+            candidate = getattr(b3d, aliases.get(type_name, type_name), None)
+            return candidate if inspect.isclass(candidate) else None
+
+        def socket_accepts_type(socket, actual_type):
+            if socket is None or actual_type in (None, "Any", "List", "Tuple", "Set", "Dict"):
+                return True
+            accepted = socket.get("variants") or [socket.get("type", "Any")]
+            if "Any" in accepted or actual_type in accepted:
+                return True
+            actual_class = runtime_type_class(actual_type)
+            if actual_class is None:
+                return False
+            for accepted_type in accepted:
+                expected_class = runtime_type_class(accepted_type)
+                if expected_class is not None:
+                    try:
+                        if issubclass(actual_class, expected_class):
+                            return True
+                    except TypeError:
+                        pass
+            return False
+
+        def operator_contract(receiver_type, member_name, argument_type):
             definition_id, winners = resolve_member(member_name, receiver_type)
             if not definition_id:
                 return None
@@ -3169,36 +3195,43 @@ def import_python_code(source):
                 socket for socket in definition.get("inputs", [])
                 if socket.get("name") in {"self", "cls"}
             ), None)
-            if receiver is None:
+            if receiver is None or not socket_accepts_type(receiver, receiver_type):
                 return None
-            accepted = receiver.get("variants") or [receiver.get("type", "Any")]
-            if receiver_type not in accepted:
-                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
-                compatible = False
-                if inspect.isclass(actual_class):
-                    for accepted_type in accepted:
-                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
-                        if inspect.isclass(expected_class):
-                            try:
-                                if issubclass(actual_class, expected_class):
-                                    compatible = True
-                                    break
-                            except TypeError:
-                                pass
-                if not compatible:
-                    return None
             argument = next((
                 socket for socket in definition.get("inputs", [])
                 if socket.get("name") not in {"self", "cls"}
             ), None)
+            # A method being present on the left operand's MRO does not mean
+            # Python will call it for this right operand. Respect the declared
+            # parameter contract before choosing it; otherwise resolve the
+            # reflected method on the right operand (e.g. Shape.__rmul__ for
+            # Location * Box). The actual operator callable still performs
+            # Python's native dispatch at evaluation time.
+            if not socket_accepts_type(argument, argument_type):
+                return None
             output = next(iter(definition.get("outputs", [])), None)
             return definition, receiver, argument, output
 
-        contract = operator_contract(left_type, method)
-        receiver_side = "left"
-        if contract is None:
-            contract = operator_contract(right_type, reverse_methods.get(method))
+        left_class = runtime_type_class(left_type)
+        right_class = runtime_type_class(right_type)
+        right_has_priority = False
+        if left_class is not None and right_class is not None and left_class is not right_class:
+            try:
+                right_has_priority = issubclass(right_class, left_class)
+            except TypeError:
+                pass
+
+        if right_has_priority:
+            contract = operator_contract(right_type, reverse_methods.get(method), left_type)
             receiver_side = "right" if contract is not None else "left"
+            if contract is None:
+                contract = operator_contract(left_type, method, right_type)
+        else:
+            contract = operator_contract(left_type, method, right_type)
+            receiver_side = "left"
+            if contract is None:
+                contract = operator_contract(right_type, reverse_methods.get(method), left_type)
+                receiver_side = "right" if contract is not None else "left"
 
         def access_for(socket):
             if socket is None:

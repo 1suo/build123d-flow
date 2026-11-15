@@ -163,6 +163,8 @@ def run_annotation_resolution_tests():
     # must preserve an existing collection. Trying Edge(list) first silently
     # wraps the collection as one Edge and fails later inside the kernel.
     edge = runtime.b3d.Edge.make_line((0, 0, 0), (1, 0, 0))
+    if runtime._coerce_annotation(edge, runtime.b3d.Edge) is not edge:
+        raise AssertionError("Coercing an existing geometry object must preserve its identity")
     edge_union = runtime.b3d.Edge | collections.abc.Iterable[runtime.b3d.Edge]
     coerced_edges = runtime._coerce_annotation([edge], edge_union)
     if not isinstance(coerced_edges, list) or coerced_edges != [edge]:
@@ -426,7 +428,7 @@ def run_python_loop_lowering_tests():
     if accumulated_result["errors"]:
         raise AssertionError("Loop-carried augmented assignment failed: " + json.dumps(accumulated_result["errors"]))
     accumulated_count = accumulated_result["socket_values"][accumulated_counts[0]["id"]]["result"]
-    if accumulated_count.get("value") != 3:
+    if accumulated_count.get("value") != 11:
         raise AssertionError(
             "Augmented assignment must carry the updated Sketch through each loop iteration: "
             + repr(accumulated_count)

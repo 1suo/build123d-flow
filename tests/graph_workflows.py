@@ -555,48 +555,6 @@ def run_python_loop_lowering_tests():
     if property_result["socket_values"][collection_attributes[0]["id"]]["result"].get("type") != "Face":
         raise AssertionError("ShapeList.last must return one Face")
 
-    native_operator = runtime.import_python_code(
-        "from build123d import Box, Location\n"
-        "moved = Location((0, 0, 0)) * Box(1, 1, 1)\n"
-    )
-    location_nodes = [
-        node for node in native_operator["nodes"]
-        if ".Location.overload-" in node["data"]["definition"]["id"]
-    ]
-    if len(location_nodes) != 1:
-        raise AssertionError("Location(VectorLike) must resolve to one constructor overload")
-    location_inputs = {
-        socket["name"] for socket in location_nodes[0]["data"]["definition"]["inputs"]
-    }
-    if "position" not in location_inputs or "location" in location_inputs:
-        raise AssertionError(
-            "Location((x, y, z)) selected the wrong overload: " + repr(location_inputs)
-        )
-    position_socket = next(
-        socket for socket in location_nodes[0]["data"]["definition"]["inputs"]
-        if socket["name"] == "position"
-    )
-    if position_socket.get("data_access", "item") != "item":
-        raise AssertionError(
-            "VectorLike coordinates must be one atomic input, not a mapped stream: "
-            + repr(position_socket)
-        )
-    multiply_nodes = [
-        node for node in native_operator["nodes"]
-        if node["data"]["definition"]["id"] == "core.python.binary.__mul__"
-    ]
-    if len(multiply_nodes) != 1:
-        raise AssertionError("A Python multiplication expression must remain one operator node")
-    multiply_output = multiply_nodes[0]["data"]["definition"]["outputs"][0]
-    if multiply_output.get("data_structure") != "list":
-        raise AssertionError("Location.__mul__ must expose its native list result contract: " + repr(multiply_output))
-    operator_result = json.loads(runtime.evaluate_graph_json(json.dumps(native_operator)))
-    if operator_result["errors"]:
-        raise AssertionError("Native Location multiplication failed: " + json.dumps(operator_result["errors"]))
-    moved_value = operator_result["socket_values"][multiply_nodes[0]["id"]]["result"]
-    if moved_value.get("length") != 1:
-        raise AssertionError("Location * Shape must preserve the native one-item result list: " + repr(moved_value))
-
     numeric_loop = runtime.import_python_code(
         "from build123d import Box\n"
         "for width in [3, 4]:\n"

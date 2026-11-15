@@ -14,7 +14,7 @@ import Splitter from "primevue/splitter";
 import SplitterPanel from "primevue/splitterpanel";
 import { PythonRuntime } from "./runtime/pythonRuntime";
 import { canConnect, createGraphNode, validateGraph } from "./runtime/graph";
-import { Build123dKernelProvider, toCadProceduralGraph } from "./runtime/cadKernel";
+import { adaptRuntimeOperation, Build123dKernelProvider, toCadProceduralGraph } from "./runtime/cadKernel";
 import type { GraphDocument, NodeDefinition, MeshPreview } from "./types";
 
 const runtime = new PythonRuntime();

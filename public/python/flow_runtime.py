@@ -2449,6 +2449,12 @@ def _coerce_annotation(value, annotation):
         if name == "matrix" and isinstance(value, (list, tuple)):
             # A 4×3 affine row list is the JSON shape of a Matrix.
             return b3d.Matrix(value if any(isinstance(row, (list, tuple)) for row in value) else [list(value)])
+        if (
+            inspect.isclass(getattr(b3d, "Shape", None))
+            and issubclass(annotation, b3d.Shape)
+            and isinstance(value, (list, tuple))
+        ):
+            return annotation(*value)
         if annotation is bool:
             return bool(value)
         if annotation is int:
@@ -2473,7 +2479,16 @@ def _coerce_graph_receiver(value, socket):
         "Color": b3d.Color,
         "Matrix": b3d.Matrix,
     }
-    annotation = value_types.get(socket.get("type"))
+    socket_type = socket.get("type")
+    annotation = value_types.get(socket_type)
+    if annotation is None and isinstance(socket_type, str):
+        candidate = getattr(b3d, socket_type, None)
+        if (
+            inspect.isclass(candidate)
+            and inspect.isclass(getattr(b3d, "Shape", None))
+            and issubclass(candidate, b3d.Shape)
+        ):
+            annotation = candidate
     return _coerce_annotation(value, annotation) if annotation is not None else value
 
 

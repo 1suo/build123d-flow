@@ -200,7 +200,7 @@ def main() -> None:
             f"-DCMAKE_CXX_FLAGS=-std=c++17 {common_flags}",
             f"-DCMAKE_SHARED_LINKER_FLAGS=-sSIDE_MODULE=1 {common_flags}",
         ])
-        run(["cmake", "--build", str(build), "--parallel", "2"])
+        run(["cmake", "--build", str(build), "--parallel", "4"])
         candidates = list(build.rglob("lib3mf.so"))
         if not candidates:
             candidates = list(build.rglob("lib3mf.so.*"))

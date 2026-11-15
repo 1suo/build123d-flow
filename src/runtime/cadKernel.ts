@@ -348,17 +348,17 @@ export class Build123dKernelProvider implements CadKernelProvider {
 
   async exportProgram(graph: CadProceduralGraph, format: string): Promise<string | Uint8Array> {
     if (format === "step") {
-      const nativeGraph = this.toNativeGraph(graph);
+      const nativeGraph = this.toGraphDocument(graph);
       await this.runtime.evaluate(nativeGraph);
       const bytes = await this.runtime.exportStep();
       if (!bytes) throw new Error("The graph produced no STEP-exportable geometry");
       return bytes;
     }
     if (format !== "python") throw new Error(`Unsupported build123d export format: ${format}`);
-    return this.runtime.exportPython(this.toNativeGraph(graph));
+    return this.runtime.exportPython(this.toGraphDocument(graph));
   }
 
-  private toNativeGraph(graph: CadProceduralGraph): GraphDocument {
+  toGraphDocument(graph: CadProceduralGraph): GraphDocument {
     return {
       nodes: graph.nodes.map((node) => {
         const providerData = node.providerData as { definition?: NodeDefinition; data?: Record<string, unknown> } | undefined;

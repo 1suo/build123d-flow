@@ -1,92 +1,98 @@
-import type { GraphDocument, GraphNode, NodeDefinition, SocketDefinition } from "../types";
-import { isGeometrySocket, isGeometryType } from "./socketPresentation";
-import { adaptRuntimeOperation, validateCadOperation } from "./cadKernel";
+import type { GraphDocument, GraphNode, NodeDefinition } from "../types";
+import type { CadPortDefinition, CadCollectionShape } from "./cadKernel";
+import { adaptRuntimeOperation, isCadGeometryPort, validateCadOperation } from "./cadKernel";
 
 export function createGraphNode(
   definition: NodeDefinition,
   id: string,
   position: { x: number; y: number },
 ): GraphNode {
+  const portableDefinition = definition.cadOperation
+    ? definition
+    : { ...definition, cadOperation: adaptRuntimeOperation(definition) };
   const params: Record<string, unknown> = {};
-  for (const input of definition.inputs) {
-    if (input.default !== undefined) params[input.name] = input.default;
+  for (const input of portableDefinition.cadOperation!.inputs) {
+    if (input.defaultValue !== undefined) params[input.id] = input.defaultValue;
   }
   return {
     id,
     type: "api" as const,
     position,
     data: {
-      definition: definition.cadOperation ? definition : { ...definition, cadOperation: adaptRuntimeOperation(definition) },
+      definition: portableDefinition,
       params,
-      visible: definition.outputs.some(isGeometrySocket),
+      visible: portableDefinition.cadOperation!.outputs.some(isCadGeometryPort),
     },
   };
 }
 
+const GEOMETRY_TYPES = new Set([
+  "geometry", "solid", "shell", "face", "wire", "edge", "vertex", "curve", "surface", "mesh",
+]);
+
 function compatibleTypes(source: string, target: string): boolean {
-  if (target === "Any" || source === "Any" || source === target) return true;
-  if (target === "Shape" && isGeometryType(source)) return true;
-  return false;
+  if (target === "any" || source === "any" || source === target) return true;
+  return target === "geometry" && GEOMETRY_TYPES.has(source);
 }
 
-function structureOf(socket: SocketDefinition): NonNullable<SocketDefinition["data_structure"]> {
-  if (socket.data_structure) return socket.data_structure;
-  if (["List", "Tuple", "Set", "Dict"].includes(socket.type)) {
-    return socket.type.toLowerCase() as "list" | "tuple" | "set" | "dict";
-  }
-  return "item";
+function structureOf(port: CadPortDefinition): CadCollectionShape {
+  return port.collection;
 }
 
-function accessOf(socket: SocketDefinition): NonNullable<SocketDefinition["data_access"]> {
-  return socket.data_access ?? (
-    ["List", "Tuple", "Set", "Dict"].includes(socket.type) ? "structure" : "item"
-  );
+function accessOf(port: CadPortDefinition): "item" | "collection" | "tree" {
+  return port.access ?? (port.collection === "item" ? "item" : "collection");
+}
+
+function itemType(port: CadPortDefinition): string {
+  return port.itemType ?? port.valueType;
 }
 
 function effectiveOutput(
   graph: GraphDocument,
   node: GraphNode,
-  output: SocketDefinition,
+  output: CadPortDefinition,
   visited = new Set<string>(),
-): SocketDefinition {
+): CadPortDefinition {
   if (structureOf(output) !== "item" || visited.has(node.id)) return output;
   const nextVisited = new Set(visited).add(node.id);
   let inferred: "list" | "tree" | undefined;
   for (const edge of graph.edges.filter((item) => item.target === node.id)) {
-    const input = node.data.definition.inputs.find((item) => item.name === edge.targetHandle);
+    const input = node.data.definition.cadOperation?.inputs.find((item) => item.id === edge.targetHandle);
     if (!input || accessOf(input) !== "item") continue;
     const upstream = graph.nodes.find((item) => item.id === edge.source);
-    const upstreamOutput = upstream?.data.definition.outputs.find((item) => item.name === edge.sourceHandle);
+    const upstreamOutput = upstream?.data.definition.cadOperation?.outputs.find((item) => item.id === edge.sourceHandle);
     if (!upstream || !upstreamOutput) continue;
     const resolved = effectiveOutput(graph, upstream, upstreamOutput, nextVisited);
     const structure = structureOf(resolved);
     if (structure === "tree") inferred = "tree";
     else if (["list", "tuple"].includes(structure) && inferred !== "tree") inferred = "list";
   }
-  return inferred ? { ...output, data_structure: inferred, item_type: output.type } : output;
+  return inferred ? { ...output, collection: inferred, itemType: output.valueType } : output;
 }
 
-function compatible(source: SocketDefinition, target: SocketDefinition): boolean {
+function compatible(source: CadPortDefinition, target: CadPortDefinition): boolean {
   const sourceStructure = structureOf(source);
   const targetAccess = accessOf(target);
   if (sourceStructure !== "item" && targetAccess === "item") {
-    if (sourceStructure === "set" || sourceStructure === "dict") return false;
-    const sourceItemType = source.item_type ?? (["List", "Tuple", "Set", "Dict"].includes(source.type) ? "Any" : source.type);
-    const targetTypes = target.variants?.length ? target.variants : [target.type];
-    return targetTypes.some((targetType) => compatibleTypes(sourceItemType, targetType));
+    if (sourceStructure === "set" || sourceStructure === "map") return false;
+    return compatibleTypes(itemType(source), target.valueType);
   }
   if (sourceStructure !== "item" && targetAccess !== "item") {
     const targetStructure = structureOf(target);
     if (targetStructure !== "item" && targetStructure !== sourceStructure &&
         !(targetStructure === "tree" && sourceStructure === "list")) return false;
-    const sourceItemType = source.item_type ?? (["List", "Tuple", "Set", "Dict"].includes(source.type) ? "Any" : source.type);
-    const targetItemType = target.item_type ?? target.type;
-    return compatibleTypes(sourceItemType, targetItemType);
+    return compatibleTypes(itemType(source), itemType(target));
   }
   if (sourceStructure === "item" && targetAccess !== "item") return false;
-  const sourceTypes = source.variants?.length ? source.variants : [source.type];
-  const targetTypes = target.variants?.length ? target.variants : [target.type];
-  return sourceTypes.some((sourceType) => targetTypes.some((targetType) => compatibleTypes(sourceType, targetType)));
+  return compatibleTypes(source.valueType, target.valueType);
+}
+
+function nodeInput(node: GraphNode, portId: string | null | undefined): CadPortDefinition | undefined {
+  return node.data.definition.cadOperation?.inputs.find((port) => port.id === portId);
+}
+
+function nodeOutput(node: GraphNode, portId: string | null | undefined): CadPortDefinition | undefined {
+  return node.data.definition.cadOperation?.outputs.find((port) => port.id === portId);
 }
 
 export function canConnect(
@@ -104,8 +110,8 @@ export function canConnect(
       edge.target === target.id && edge.sourceHandle === connection.sourceHandle &&
       edge.targetHandle === connection.targetHandle)) return false;
 
-  const output = source.data.definition.outputs.find((socket) => socket.name === connection.sourceHandle);
-  const input = target.data.definition.inputs.find((socket) => socket.name === connection.targetHandle);
+  const output = nodeOutput(source, connection.sourceHandle);
+  const input = nodeInput(target, connection.targetHandle);
   return Boolean(output && input && compatible(effectiveOutput(graph, source, output), input));
 }
 
@@ -128,11 +134,11 @@ export function validateGraph(graph: GraphDocument): string[] {
     }
     const source = graph.nodes.find((node) => node.id === edge.source);
     const target = graph.nodes.find((node) => node.id === edge.target);
-    const output = source?.data.definition.outputs.find((socket) => socket.name === edge.sourceHandle);
-    const input = target?.data.definition.inputs.find((socket) => socket.name === edge.targetHandle);
+    const output = source && nodeOutput(source, edge.sourceHandle);
+    const input = target && nodeInput(target, edge.targetHandle);
     if (!output || !input) errors.push(`Edge ${edge.id}: unknown socket`);
-    else if (!edge.pythonImported && !compatible(effectiveOutput(graph, source!, output), input)) {
-      errors.push(`Edge ${edge.id}: incompatible ${output.type} → ${input.type}`);
+    else if (!edge.pythonImported && source && !compatible(effectiveOutput(graph, source, output), input)) {
+      errors.push(`Edge ${edge.id}: incompatible ${output.valueType} → ${input.valueType}`);
     }
   }
 

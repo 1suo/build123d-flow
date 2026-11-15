@@ -2,8 +2,10 @@
 """Build the upstream Lib3MF Python binding and Emscripten side module wheel.
 
 The generated Python binding and C++ library remain upstream Lib3MF 2.4.1.
-Two narrow vendor patches adapt the platform suffix and forward the Emscripten
-toolchain/emulator into upstream's nested bundled-libzip CMake configure.
+The vendor patches adapt the Python platform suffix and forward the Emscripten
+toolchain/emulator into upstream's nested bundled-libzip CMake configure. A
+project-scoped CMake include enables shared-library support for the Lib3MF
+target only, allowing Emscripten to emit the ctypes-loaded SIDE_MODULE.
 """
 from __future__ import annotations
 
@@ -186,11 +188,16 @@ def main() -> None:
             "https://github.com/3MFConsortium/lib3mf.git", str(source),
         ])
         patch_nested_libzip_configure(source)
+        shared_support = root / "enable_lib3mf_side_module.cmake"
+        shared_support.write_text(
+            "set_property(GLOBAL PROPERTY TARGET_SUPPORTS_SHARED_LIBS TRUE)\\n",
+            encoding="utf-8",
+        )
         common_flags = "-O2 -fwasm-exceptions -sSUPPORT_LONGJMP=wasm"
         run([
             "emcmake", "cmake", "-S", str(source), "-B", str(build), "-G", "Ninja",
+            f"-DCMAKE_PROJECT_lib3mf_INCLUDE={shared_support}",
             "-DCMAKE_BUILD_TYPE=Release",
-            "-DBUILD_SHARED_LIBS=ON",
             "-DLIB3MF_TESTS=OFF",
             "-DSTRIP_BINARIES=OFF",
             "-DUSE_INCLUDED_ZLIB=ON",

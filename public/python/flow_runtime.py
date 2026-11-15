@@ -3319,9 +3319,14 @@ def import_python_code(source):
         ])
         _CATALOG_HINT_TARGETS[definition_id] = False
         params, links = {}, []
-        for name, operand in (("left", left), ("right", right)):
+        for name, operand, socket_type in (
+            ("left", left, left_port_type),
+            ("right", right, right_port_type),
+        ):
             if operand[0] == "literal":
-                params[name] = literal_json_value(operand[1])
+                params[name] = literal_json_value(
+                    operand[1], preserve_objects=socket_type == "Any"
+                )
             else:
                 links.append((name, operand[1], operand[2]))
         created = add_node(definition_id, params, links, line)
@@ -3496,7 +3501,7 @@ def import_python_code(source):
                 return None
         return value
 
-    def literal_json_value(value):
+    def literal_json_value(value, preserve_objects=False):
         if isinstance(value, enum.Enum):
             return value.name
         if isinstance(value, b3d.Axis):
@@ -3510,9 +3515,19 @@ def import_python_code(source):
             return list(value)
         if isinstance(value, dict):
             if "__flow_object__" in value:
-                args = [literal_json_value(item) for item in value.get("args", [])]
-                kwargs = {key: literal_json_value(item)
+                args = [literal_json_value(item, preserve_objects) for item in value.get("args", [])]
+                kwargs = {key: literal_json_value(item, preserve_objects)
                           for key, item in value.get("kwargs", {}).items()}
+                # An Any-typed operator input has no annotation from which to
+                # reconstruct a value object. Preserve its type tag (including
+                # inside literal lists) so the evaluator restores the native
+                # object before applying Python's operator protocol.
+                if preserve_objects:
+                    return {
+                        "__flow_object__": value["__flow_object__"],
+                        "args": args,
+                        "kwargs": kwargs,
+                    }
                 if kwargs and value["__flow_object__"] in {"Plane", "Location"}:
                     return kwargs
                 # Matrix accepts its row-major storage as one positional
@@ -3527,9 +3542,9 @@ def import_python_code(source):
                 if not args and not kwargs:
                     return {"__flow_object__": value["__flow_object__"], "args": [], "kwargs": {}}
                 return args if args else kwargs
-            return {key: literal_json_value(item) for key, item in value.items()}
+            return {key: literal_json_value(item, preserve_objects) for key, item in value.items()}
         if isinstance(value, (list, tuple)):
-            return [literal_json_value(item) for item in value]
+            return [literal_json_value(item, preserve_objects) for item in value]
         return value
 
     def materialize_literal(value):
@@ -3577,13 +3592,6 @@ def import_python_code(source):
             else _type_name(constructor)
         )
         if constructor_type not in _OBJECT_INPUT_TYPES:
-            return None
-        # An overloaded public constructor is a first-class catalog operation.
-        # Do not consume it as an embedded literal: doing so bypasses the
-        # discovered overload contract and prevents the importer from creating
-        # the corresponding constructor node.
-        overload_prefix = constructor.__module__ + "." + constructor.__name__ + ".overload-"
-        if any(definition_id.startswith(overload_prefix) for definition_id in definitions):
             return None
         geometry_types = {"Face", "Edge", "Vertex", "Wire", "Shell", "Solid", "Compound"}
         # Geometry classes are real build123d operations when used as source

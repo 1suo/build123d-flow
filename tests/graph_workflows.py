@@ -584,7 +584,7 @@ def run_python_loop_lowering_tests():
         raise AssertionError("Location * Box must preserve the concrete Box runtime type: " + repr(moved_value))
 
     value_operand_graph = runtime.import_python_code(
-        "from build123d import Location, Sphere, Vector, Box, Cylinder\\n"
+        "from build123d import Location, Sphere, Vector, Box, Cylinder, MM\\n"
         "moved_sphere = Location((0, -3 * MM, 47 * MM), (90, 0, 0)) * Sphere(40 * MM)\\n"
         "scaled_vector = Vector(1, 2, 3) * 2\\n"
         "shifted_vector = Vector(1, 2, 3) + Vector(0, 5)\\n"

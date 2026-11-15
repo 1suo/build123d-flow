@@ -30,7 +30,7 @@ jobs:
           path: |
             public/pyodide/v314.0.7/full
             public/python/wheels
-          key: pyodide-staged-314.0.7-${{ hashFiles('scripts/prepare-pyodide.py', 'scripts/build_lib3mf_wasm.py', 'public/python/setup.py', '.github/workflows/ci.yml') }}
+          key: pyodide-staged-314.0.7-${{ hashFiles('scripts/prepare-pyodide.py', 'public/python/setup.py') }}
       - name: Cache Pyodide source archive
         id: pyodide-archive-cache
         if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'
@@ -47,20 +47,6 @@ jobs:
         run: |
           echo "192b5864e6e6d30ab074861af800cb8b4acb0998ef0f9342c3367448aeb86645  /tmp/pyodide-314.0.7.tar.bz2" | sha256sum --check
           python scripts/prepare-pyodide.py /tmp/pyodide-314.0.7.tar.bz2 public/pyodide/v314.0.7/full public/python/setup.py public/python/wheels
-      - name: Install CMake compatible with upstream Lib3MF
-        if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'
-        run: |
-          python -m venv /tmp/cmake-env
-          /tmp/cmake-env/bin/pip install cmake==3.31.8
-          echo "/tmp/cmake-env/bin" >> "$GITHUB_PATH"
-      - name: Set up Emscripten for the Pyodide ABI
-        if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'
-        uses: mymindstorm/setup-emsdk@v14
-        with:
-          version: 5.0.3
-      - name: Build upstream Lib3MF WASM side module
-        if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'
-        run: python scripts/build_lib3mf_wasm.py public/python/wheels
       - name: Save staged Pyodide runtime
         if: steps.pyodide-staged-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -69,6 +55,31 @@ jobs:
             public/pyodide/v314.0.7/full
             public/python/wheels
           key: ${{ steps.pyodide-staged-cache.outputs.cache-primary-key }}
+      - name: Restore upstream Lib3MF WASM wheel
+        id: lib3mf-wasm-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: public/python/wheels/lib3mf-2.4.1-cp314-cp314-pyemscripten_2026_0_wasm32.whl
+          key: lib3mf-wasm-pyodide-314.0.7-2.4.1-emscripten-5.0.3-cmake-3.31.10-${{ hashFiles('scripts/build_lib3mf_wasm.py') }}
+      - name: Install CMake compatible with upstream Lib3MF
+        if: steps.lib3mf-wasm-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv /tmp/cmake-env
+          /tmp/cmake-env/bin/pip install cmake==3.31.10
+          echo "/tmp/cmake-env/bin" >> "$GITHUB_PATH"
+      - name: Set up Emscripten for the Pyodide ABI
+        if: steps.lib3mf-wasm-cache.outputs.cache-hit != 'true'
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 5.0.3
+      - name: Build or register upstream Lib3MF WASM side module
+        run: python scripts/build_lib3mf_wasm.py public/python/wheels
+      - name: Save upstream Lib3MF WASM wheel
+        if: steps.lib3mf-wasm-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: public/python/wheels/lib3mf-2.4.1-cp314-cp314-pyemscripten_2026_0_wasm32.whl
+          key: ${{ steps.lib3mf-wasm-cache.outputs.cache-primary-key }}
       - run: npm install
       - name: Build production bundle
         run: npm run build

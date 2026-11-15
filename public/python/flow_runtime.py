@@ -5489,6 +5489,14 @@ def import_python_code(source):
                         method, current, left_expr, statement.lineno,
                         loop_carried=bool(active_loop_frames),
                     )
+                # Augmented assignment writes the target just like a normal
+                # assignment. Register it in every enclosing loop so the
+                # post-loop binding is carried forward instead of reverting
+                # to the value from before the loop.
+                for frame_index, frame in enumerate(active_loop_frames):
+                    frame["written_names"].add(statement.target.id)
+                    if frame_index < len(active_loop_frames) - 1:
+                        frame.setdefault("nested_written_names", set()).add(statement.target.id)
                 continue
             if isinstance(statement, ast.If):
                 condition = expression(statement.test)

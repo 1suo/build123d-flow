@@ -1358,8 +1358,45 @@ def run_operator_overload_tests():
     return {"name": "operator overload selection", "scalar_shape_overload": True}
 
 
+def run_constructor_overload_tests():
+    graph = runtime.import_python_code(
+        "from build123d import Curve, Line, Wire\\n"
+        "profile = Curve() + (\\n"
+        "    Line((0, 0), (10, 0)),\\n"
+        "    Line((10, 0), (10, 10)),\\n"
+        ")\\n"
+        "wire = Wire(profile.edges())\\n"
+        "result = len(wire.edges())\\n"
+    )
+    wire_nodes = [
+        node for node in graph["nodes"]
+        if node["data"]["definition"]["id"].startswith(
+            "build123d.topology.one_d.Wire.overload-"
+        )
+    ]
+    if len(wire_nodes) != 1:
+        raise AssertionError("Wire(profile.edges()) must resolve to one constructor overload")
+    selected = wire_nodes[0]["data"]["definition"]["id"]
+    if not selected.endswith(".overload-5"):
+        raise AssertionError(
+            "A ShapeList[Edge] argument must select Wire(Iterable[Edge]), not "
+            + selected
+        )
+    evaluated = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
+    if evaluated["errors"]:
+        raise AssertionError("Wire iterable constructor evaluation failed: " + json.dumps(evaluated["errors"]))
+    count_node = next(
+        node for node in graph["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.builtin.len"
+    )
+    count = evaluated["socket_values"][count_node["id"]]["result"]
+    if count.get("value") != 2:
+        raise AssertionError("Wire(profile.edges()) must retain both edges: " + repr(count))
+    return {"name": "constructor overload selection", "wire_iterable_edges": True}
+
+
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_operator_overload_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_operator_overload_tests(), run_constructor_overload_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

@@ -565,18 +565,35 @@ def run_python_loop_lowering_tests():
     ]
     if len(multiply_nodes) != 1:
         raise AssertionError("A Python multiplication expression must remain one operator node")
+    box_node = next(
+        node for node in native_operator["nodes"]
+        if node["data"]["definition"]["id"].endswith(".Box")
+    )
+    box_type = box_node["data"]["definition"]["outputs"][0]["type"]
     multiply_output = multiply_nodes[0]["data"]["definition"]["outputs"][0]
-    if multiply_output.get("type") != "Solid" or multiply_output.get("data_structure") is not None:
+    if multiply_output.get("type") != box_type or multiply_output.get("data_structure") is not None:
         raise AssertionError(
-            "Location * one Shape must retain build123d's scalar Shape return contract: "
-            + repr(multiply_output)
+            "Location * one Shape must retain build123d's scalar moved-object return contract: "
+            + repr((box_type, multiply_output))
         )
     operator_result = json.loads(runtime.evaluate_graph_json(json.dumps(native_operator)))
     if operator_result["errors"]:
         raise AssertionError("Native Location multiplication failed: " + json.dumps(operator_result["errors"]))
     moved_value = operator_result["socket_values"][multiply_nodes[0]["id"]]["result"]
-    if moved_value.get("type") != "Solid":
-        raise AssertionError("Location * Shape must return one moved Solid: " + repr(moved_value))
+    if moved_value.get("type") != box_type:
+        raise AssertionError("Location * Shape must return one moved object: " + repr(moved_value))
+
+    value_operand_graph = runtime.import_python_code(
+        "from build123d import Location, Sphere, Vector\\n"
+        "moved_sphere = Location((0, 0, 0)) * Sphere(2)\\n"
+        "shifted_vector = Vector(1, 2, 3) + Vector(0, 5)\\n"
+    )
+    value_operand_result = json.loads(runtime.evaluate_graph_json(json.dumps(value_operand_graph)))
+    if value_operand_result["errors"]:
+        raise AssertionError(
+            "Native operators must restore typed Location/Vector operands: "
+            + json.dumps(value_operand_result["errors"])
+        )
 
     native_shape_add = runtime.import_python_code(
         "from build123d import Box, Cylinder\\n"

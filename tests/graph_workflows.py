@@ -913,7 +913,7 @@ def run_python_import_tests():
         ]
         direct_node = next(
             node for node in endpoint_graph["nodes"]
-            if node["data"]["definition"].get("name") == "end_point"
+            if node["data"]["definition"].get("name", "").endswith("end_point")
         )
         direct_value = endpoint_result["socket_values"].get(direct_node["id"])
         raise AssertionError(

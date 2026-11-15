@@ -2452,6 +2452,7 @@ def _coerce_annotation(value, annotation):
         if (
             inspect.isclass(getattr(b3d, "Shape", None))
             and issubclass(annotation, b3d.Shape)
+            and not inspect.isabstract(annotation)
             and isinstance(value, (list, tuple))
         ):
             return annotation(*value)
@@ -2487,6 +2488,7 @@ def _coerce_graph_receiver(value, socket):
             inspect.isclass(candidate)
             and inspect.isclass(getattr(b3d, "Shape", None))
             and issubclass(candidate, b3d.Shape)
+            and not inspect.isabstract(candidate)
         ):
             annotation = candidate
     return _coerce_annotation(value, annotation) if annotation is not None else value

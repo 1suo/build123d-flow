@@ -33,6 +33,7 @@ class Lib3MFWasmPackagingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "Lib3MF.py"
             destination = Path(directory) / "package" / "Lib3MF.py"
+            destination.parent.mkdir(parents=True)
             source.write_text(
                 "\t\telif platform.system() == 'Darwin':\n"
                 "\t\t\tending = 'dylib'\n"

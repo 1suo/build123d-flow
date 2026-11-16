@@ -111,20 +111,14 @@ box = Box(10, 10, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
             ["CENTER", "CENTER", "MIN"],
         )
 
-    def test_overloaded_value_constructor_resolves_from_catalog(self):
-        graph = json.loads(runtime.import_python_code("""
-from build123d import Location
-loc = Location((1, 2, 3))
-"""))
-        identities = [
-            node.get("data", {}).get("definition", {}).get("id", "")
-            for node in graph["nodes"]
+    def test_overloaded_constructor_signatures_are_discovered(self):
+        location = self.catalog.resolve_type("Location")
+        overloads = [
+            node_id for node_id in location.get("constructor_node_ids", [])
+            if ".overload-" in node_id
         ]
-        self.assertTrue(
-            any(identity.startswith("build123d.") and ".Location.overload-" in identity
-                for identity in identities),
-            identities,
-        )
+        self.assertGreater(len(overloads), 1)
+        self.assertTrue(all(node_id in self.catalog.nodes for node_id in overloads))
 
     def test_class_level_api_call_translates_without_kernel(self):
         graph = json.loads(runtime.import_python_code("""

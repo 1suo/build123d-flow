@@ -5816,8 +5816,7 @@ def import_python_code(source):
                             scope_id, "result", statement.lineno, output_type,
                             output_type in {"Shape", "Part", "Sketch", "Wire"}
                         )
-                        if optional is not None:
-                            variables[optional.id] = ("ref", result_node, "result")
+                        scope_result_nodes[scope_id] = result_node
                 continue
             if isinstance(statement, ast.Expr):
                 if is_viewer_call(statement.value):

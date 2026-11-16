@@ -3204,6 +3204,11 @@ def import_python_code(source):
         statement.name: statement for statement in tree.body
         if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
     }
+    user_classes = {
+        statement.name: statement for statement in tree.body
+        if isinstance(statement, ast.ClassDef)
+    }
+    class_stack = []
     stream_variables = set()
     mapping_matching = "longest"
     active_loop_frames = []
@@ -4193,6 +4198,9 @@ def import_python_code(source):
                 return ("literal", build123d_value)
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
+            stored_attribute = variables.get(ast.unparse(node))
+            if stored_attribute is not None:
+                return stored_attribute
             standard_value = resolve_safe_stdlib_attribute(node)
             if standard_value is not None and not callable(standard_value):
                 return ("literal", standard_value)
@@ -4341,6 +4349,25 @@ def import_python_code(source):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in user_classes:
+                return inline_user_class(user_classes[node.func.id], node)
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "__init__"
+                and isinstance(node.func.value, ast.Call)
+                and isinstance(node.func.value.func, ast.Name)
+                and node.func.value.func.id == "super"
+                and class_stack
+            ):
+                base_name = class_stack[-1]
+                synthetic = ast.Call(
+                    func=ast.Name(id=base_name, ctx=ast.Load()),
+                    args=node.args, keywords=node.keywords,
+                )
+                ast.copy_location(synthetic, node)
+                base_result = expression(synthetic)
+                variables["self"] = base_result
+                return base_result
             if (
                 isinstance(node.func, ast.Name) and node.func.id == "filter"
                 and len(node.args) == 2 and isinstance(node.args[0], ast.Lambda)
@@ -5444,6 +5471,9 @@ def import_python_code(source):
                     if frame_index < len(active_loop_frames) - 1:
                         frame.setdefault("nested_written_names", set()).add(target.id)
                 return
+            if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self":
+                variables[ast.unparse(target)] = assigned
+                return
             if isinstance(target, (ast.Tuple, ast.List)):
                 if assigned[0] == "literal" and isinstance(assigned[1], (list, tuple)):
                     values = [("literal", item) for item in assigned[1]]
@@ -5744,7 +5774,7 @@ def import_python_code(source):
                 ast.copy_location(combined, statement)
                 variables[statement.target.id] = expression(combined)
                 continue
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 continue
             if isinstance(statement, ast.Return):
                 raise _FunctionReturn(
@@ -5804,7 +5834,7 @@ def import_python_code(source):
         def __init__(self, value):
             self.value = value
 
-    def inline_user_function(function_node, call_node):
+    def inline_user_function(function_node, call_node, keep_names=()):
         arguments = function_node.args
         positional_parameters = list(arguments.posonlyargs) + list(arguments.args)
         defaults = list(arguments.defaults)
@@ -5874,10 +5904,60 @@ def import_python_code(source):
                 return returned.value
             return ("literal", None)
         finally:
+            kept = {name: variables[name] for name in keep_names if name in variables}
             variables.clear()
             variables.update(saved)
+            variables.update(kept)
             stream_variables.clear()
             stream_variables.update(saved_stream)
+
+    def inline_user_class(class_node, call_node):
+        init_method = next(
+            (item for item in class_node.body
+             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+             and item.name == "__init__"),
+            None,
+        )
+        if init_method is None:
+            raise ValueError("Custom class {} must define __init__ (line {})".format(
+                class_node.name, class_node.lineno))
+        if not class_node.bases:
+            raise ValueError("Custom class {} must inherit a discovered build123d type".format(class_node.name))
+        base_expression = class_node.bases[0]
+        base_name = (
+            base_expression.id if isinstance(base_expression, ast.Name)
+            else ast.unparse(base_expression).split(".")[-1]
+        )
+        try:
+            type_catalog.resolve_symbol(imported.get(base_name, base_name))
+        except CatalogError as exc:
+            raise ValueError("Custom class {} has an unknown base {}".format(
+                class_node.name, base_name)) from exc
+        method = copy.copy(init_method)
+        method.args = copy.copy(init_method.args)
+        if method.args.posonlyargs:
+            method.args.posonlyargs = list(method.args.posonlyargs[1:])
+        elif method.args.args:
+            method.args.args = list(method.args.args[1:])
+        else:
+            raise ValueError("Custom class {} __init__ has no self parameter".format(class_node.name))
+        class_stack.append(imported.get(base_name, base_name))
+        variables["self"] = ("literal", {"__flow_custom_self__": class_node.name})
+        try:
+            inline_user_function(method, call_node, keep_names=("self",))
+            result = variables.get("self")
+            if result is None or (
+                result[0] == "literal"
+                and isinstance(result[1], dict)
+                and "__flow_custom_self__" in result[1]
+            ):
+                raise ValueError("Custom class {} did not initialize its base object".format(class_node.name))
+            return result
+        finally:
+            class_stack.pop()
+            variables.pop("self", None)
+            for name in [name for name in variables if name.startswith("self.")]:
+                variables.pop(name, None)
 
     process_statements(tree.body)
     if not graph_nodes:

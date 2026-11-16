@@ -22,6 +22,69 @@ def _qualified_name(value: type) -> str:
     return "{}.{}".format(value.__module__, value.__name__)
 
 
+def _serialize_discovered_value(value, depth=0):
+    """Serialize safe public value objects by their observable data contract."""
+    if depth > 5:
+        return None
+    if isinstance(value, enum.Enum):
+        return {
+            "__flow_enum__": [
+                value.__class__.__module__,
+                value.__class__.__name__,
+                value.name,
+            ]
+        }
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        items = [_serialize_discovered_value(item, depth + 1) for item in value]
+        if any(item is None and original is not None for item, original in zip(items, value)):
+            return None
+        return items
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            serialized = _serialize_discovered_value(item, depth + 1)
+            if serialized is None and item is not None:
+                return None
+            result[str(key)] = serialized
+        return result
+    cls = type(value)
+    if getattr(cls, "__module__", "").split(".")[0] != "build123d":
+        return None
+    type_name = getattr(cls, "__name__", "")
+    try:
+        if all(hasattr(value, name) for name in ("origin", "x_dir", "z_dir")):
+            return {
+                "__flow_object__": type_name,
+                "origin": _serialize_discovered_value(value.origin, depth + 1),
+                "x_dir": _serialize_discovered_value(value.x_dir, depth + 1),
+                "z_dir": _serialize_discovered_value(value.z_dir, depth + 1),
+            }
+        if all(hasattr(value, name) for name in ("position", "direction")):
+            return {
+                "__flow_object__": type_name,
+                "args": [
+                    _serialize_discovered_value(value.position, depth + 1),
+                    _serialize_discovered_value(value.direction, depth + 1),
+                ],
+                "kwargs": {},
+            }
+        to_tuple = getattr(value, "to_tuple", None)
+        if callable(to_tuple):
+            return {
+                "__flow_object__": type_name,
+                "value": _serialize_discovered_value(list(to_tuple()), depth + 1),
+            }
+        iterator = iter(value)
+        items = [_serialize_discovered_value(item, depth + 1) for item in iterator]
+        if items and all(item is not None for item in items):
+            return {"__flow_object__": type_name, "value": items}
+    except Exception:
+        return None
+    return None
+
+
 def build_type_registry(classes, nodes):
     """Serialize every discovered public build123d class, independently of node eligibility."""
     registry = {}
@@ -52,6 +115,16 @@ def build_type_registry(classes, nodes):
                     enum_members[member_name] = value
                 else:
                     enum_members[member_name] = repr(value)
+        class_values = {}
+        if not is_enum:
+            for member_name, raw_value in vars(cls).items():
+                if member_name.startswith("_") or isinstance(
+                    raw_value, (property, staticmethod, classmethod)
+                ) or callable(raw_value):
+                    continue
+                serialized = _serialize_discovered_value(raw_value)
+                if serialized is not None:
+                    class_values[member_name] = serialized
         member_prefix = identity + "."
         constructor_ids = [
             node_id for node_id in node_ids
@@ -77,6 +150,7 @@ def build_type_registry(classes, nodes):
             "supports_context_manager": supports_context_manager,
             "is_enum": is_enum,
             "enum_members": enum_members,
+            "class_values": class_values,
             "annotations": {
                 key: str(value)
                 for key, value in vars(cls).get("__annotations__", {}).items()
@@ -174,6 +248,16 @@ class TypeCatalog:
         return {
             "__flow_enum__": [record["module"], record["name"], member_name]
         }
+
+    def resolve_class_value(self, type_name: str, member_name: str) -> Any:
+        """Return a serialized public class-level value discovered from the kernel."""
+        record = self.resolve_type(type_name)
+        values = record.get("class_values", {})
+        if member_name not in values:
+            raise CatalogError(
+                "Unknown discovered class value {}.{}".format(record["id"], member_name)
+            )
+        return values[member_name]
 
     def resolve_operator(self, receiver_type: str, method: str) -> str:
         """Resolve a dunder node in the receiver's actual discovered MRO order."""

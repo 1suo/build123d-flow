@@ -4688,34 +4688,19 @@ def import_python_code(source):
                         else:
                             return ("literal", class_value)
                 if root in user_classes and len(path) == 1:
-                    for class_statement in user_classes[root].body:
-                        targets = (
-                            class_statement.targets if isinstance(class_statement, ast.Assign)
-                            else [class_statement.target] if isinstance(class_statement, ast.AnnAssign)
-                            else []
-                        )
-                        if any(isinstance(target, ast.Name) and target.id == path[0] for target in targets):
-                            class_value_node = class_statement.value
-                            if class_value_node is not None:
-                                return expression(class_value_node)
-                if root in user_classes and len(path) == 1:
                     return resolve_user_class_attribute(user_classes[root], path[0])
                 if len(path) == 1:
                     owner_name = imported.get(root, root)
                     try:
                         owner_symbol = type_catalog.resolve_symbol(owner_name)
-                        owner_record = (
-                            type_catalog.resolve_type(owner_symbol["type_id"])
-                            if owner_symbol.get("kind") == "type" else None
-                        )
                     except CatalogError:
-                        owner_record = None
-                    if owner_record and any(
-                        ".property." + path[0] in member_id
-                        or ".field." + path[0] in member_id
-                        for member_id in owner_record.get("member_node_ids", [])
-                    ):
-                        return ("literal", {"__flow_attrgetter__": path[0]})
+                        owner_symbol = None
+                    if owner_symbol and owner_symbol.get("kind") == "type":
+                        property_id, property_candidates = resolve_member(
+                            path[0], owner_name, property_only=True
+                        )
+                        if property_id or property_candidates:
+                            return ("literal", {"__flow_attrgetter__": path[0]})
                 if root in aliases and aliases[root] == "b3d" and len(path) == 1:
                     try:
                         symbol = type_catalog.resolve_symbol(path[0])
@@ -4742,6 +4727,30 @@ def import_python_code(source):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute):
+                literal_receiver = expression(node.func.value)
+                if literal_receiver[0] == "literal":
+                    bound_method = getattr(
+                        materialize_literal(literal_receiver[1]), node.func.attr, None
+                    )
+                    if callable(bound_method):
+                        bound_args = [expression(item) for item in node.args]
+                        bound_kwargs = {
+                            item.arg: expression(item.value) for item in node.keywords
+                            if item.arg is not None
+                        }
+                        if any(item.arg is None for item in node.keywords):
+                            raise ValueError("Expanded bound-method keywords are unsupported (line {})".format(node.lineno))
+                        if all(item[0] == "literal" for item in bound_args) and all(
+                            item[0] == "literal" for item in bound_kwargs.values()
+                        ):
+                            try:
+                                return ("literal", bound_method(
+                                    *[materialize_literal(item[1]) for item in bound_args],
+                                    **{name: materialize_literal(item[1]) for name, item in bound_kwargs.items()}
+                                ))
+                            except Exception as exc:
+                                raise ValueError("Literal method call failed at line {}: {}".format(node.lineno, exc))
             if isinstance(node.func, ast.Subscript):
                 selected_callable = expression(node.func)
                 if (

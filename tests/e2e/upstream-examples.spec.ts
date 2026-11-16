@@ -119,6 +119,20 @@ with Locations((0, -offset.Y, 0)):
 `
 ];
 
+async function withTimeout<T>(promise: Promise<T>, milliseconds: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} exceeded ${milliseconds}ms`)), milliseconds);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function importExample(page: Page, source: string) {
   if (source.includes("Mesher()")) {
     const hook = await page.evaluateHandle(() => (window as any).__build123dFlowTest);
@@ -212,11 +226,15 @@ for (const shard of SHARDS) {
     { timeout: 15_000, intervals: [100, 200, 500] }).toBe(true);
 
     if (shard.runGraphWorkflowTests) {
-      const graphWorkflowResults = await page.evaluate(async () => {
-        const hook = (window as any).__build123dFlowTest;
-        if (!hook) throw new Error("Graph workflow test hook was not installed in CI build");
-        return await hook.runGraphWorkflowTests();
-      });
+      const graphWorkflowResults = await withTimeout(
+        page.evaluate(async () => {
+          const hook = (window as any).__build123dFlowTest;
+          if (!hook) throw new Error("Graph workflow test hook was not installed in CI build");
+          return await hook.runGraphWorkflowTests();
+        }),
+        120_000,
+        "graph workflow regression suite",
+      );
       expect(graphWorkflowResults.length).toBeGreaterThan(10);
       await test.info().attach("graph-workflow-results.json", {
         body: JSON.stringify(graphWorkflowResults, null, 2),
@@ -234,8 +252,8 @@ for (const shard of SHARDS) {
     for (const { filename, source } of allSources) {
       await test.step(filename, async () => {
         try {
-          await importExample(page, source);
-          const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
+          await withTimeout(importExample(page, source), 45_000, `upstream example ${filename}`);
+          const graph = await withTimeout(page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph()), 5_000, "graph diagnostics");
           expect(
             graph.nodes.every((node: any) => node.data.definition.cadOperation?.mapping?.preserveNesting === true),
             "every imported node must carry a validated kernel-neutral operation contract",
@@ -250,7 +268,7 @@ for (const shard of SHARDS) {
               body: JSON.stringify(graph, null, 2), contentType: "application/json"
             });
             try {
-              const evaluation = await page.evaluate(() => (window as any).__build123dFlowTest.evaluateCurrentGraph());
+              const evaluation = await withTimeout(page.evaluate(() => (window as any).__build123dFlowTest.evaluateCurrentGraph()), 5_000, "evaluation diagnostics");
               await test.info().attach(safeName + "-evaluation.json", {
                 body: JSON.stringify(evaluation, null, 2), contentType: "application/json"
               });
@@ -263,7 +281,7 @@ for (const shard of SHARDS) {
           await test.info().attach(safeName + ".py", { body: source });
           await test.info().attach(safeName + "-failure.txt", { body: message });
           try {
-            const entries = await page.locator(".viewport-log-entry").allTextContents();
+            const entries = await withTimeout(page.locator(".viewport-log-entry").allTextContents(), 5_000, "activity log diagnostics");
             await test.info().attach(safeName + "-activity-log.txt", { body: entries.join("\n") });
           } catch {
             // Preserve the original importer failure if the browser has closed.

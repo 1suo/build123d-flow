@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import enum
 import inspect
+import math
 from typing import Any, Mapping
 
 
@@ -34,8 +35,10 @@ def _serialize_discovered_value(value, depth=0):
                 value.name,
             ]
         }
-    if value is None or isinstance(value, (bool, int, float, str)):
+    if value is None or isinstance(value, (bool, int, str)):
         return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
     if isinstance(value, (list, tuple)):
         items = [_serialize_discovered_value(item, depth + 1) for item in value]
         if any(item is None and original is not None for item, original in zip(items, value)):

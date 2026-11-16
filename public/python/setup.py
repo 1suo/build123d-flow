@@ -12,6 +12,8 @@ restored_environment = os.environ.get('BUILD123D_FLOW_ENV_RESTORED') == '1'
 
 micropip.set_index_urls([])
 OCP_VERSION = "8.0.1.1.post202609241841"
+# The PyEmscripten build provides the upstream "lib3mf" import package.
+PROVIDED_IMPORTS = {"lib3mf": "lib3mf-OCP.wasm==2.5.0.post202609241713"}
 
 print("Preparing browser-compatible dependencies…")
 
@@ -56,33 +58,40 @@ micropip.add_mock_package("threejs-materials", "1.2.5", modules={
 
 # build123d imports Mesher at package import time; 3MF is unused here, so
 # register the same import-only stub each session and install it only once.
-micropip.add_mock_package("lib3mf", "2.4.1", modules={
-    "lib3mf": (
-        "from enum import Enum\n"
-        "class _ModelUnit(Enum):\n"
-        "    MicroMeter = 0\n    MilliMeter = 1\n    CentiMeter = 2\n"
-        "    Inch = 3\n    Foot = 4\n    Meter = 5\n"
-        "class _ObjectType(Enum):\n"
-        "    Other = 0\n    Model = 1\n    Support = 2\n    SolidSupport = 3\n"
-        "class _Unavailable: pass\n"
-        "class Lib3MF:\n"
-        "    __file__ = '/lib3mf/__init__.py'\n"
-        "    ModelUnit = _ModelUnit\n    ObjectType = _ObjectType\n"
-        "    Wrapper = _Unavailable\n    MeshObject = _Unavailable\n"
-        "    MeshObjectIterator = _Unavailable\n    ComponentsObject = _Unavailable\n"
-        "    Position = _Unavailable\n    Triangle = _Unavailable\n    Color = _Unavailable\n"
-    ),
-})
-
+manifest_path = Path("/python/wheels/manifest.json")
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+wheel_paths = [f"emfs:/python/wheels/{item['filename']}" for item in manifest]
 if not restored_environment:
-    manifest_path = Path("/python/wheels/manifest.json")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    wheel_paths = [f"emfs:/python/wheels/{item['filename']}" for item in manifest]
     print(f"Installing {len(wheel_paths)} pre-staged PyPI wheels…")
     await micropip.install(wheel_paths, deps=False)
     print("Installed pre-staged PyPI wheels")
 else:
     print("Restored Python environment; verifying required packages…")
+
+# Restored browser environments may predate the real Lib3MF wheel. Ensure the
+# ABI-matched upstream binding is present instead of falling back to a stub.
+lib3mf_requirement = PROVIDED_IMPORTS["lib3mf"]
+lib3mf_version = lib3mf_requirement.split("==", 1)[1]
+try:
+    installed_lib3mf_version = importlib.metadata.version("lib3mf-OCP.wasm")
+except importlib.metadata.PackageNotFoundError:
+    installed_lib3mf_version = None
+if installed_lib3mf_version != lib3mf_version:
+    lib3mf_wheel = next(
+        (item for item in manifest if item["name"].lower() == "lib3mf-ocp.wasm"),
+        None,
+    )
+    if lib3mf_wheel is None:
+        raise RuntimeError("The staged environment is missing the required Lib3MF WebAssembly wheel")
+    await micropip.install(
+        f"emfs:/python/wheels/{lib3mf_wheel['filename']}",
+        deps=False,
+    )
+    installed_lib3mf_version = importlib.metadata.version("lib3mf-OCP.wasm")
+if installed_lib3mf_version != lib3mf_version:
+    raise RuntimeError(
+        f"Expected Lib3MF {lib3mf_version}, found {installed_lib3mf_version}"
+    )
 
 print("Importing build123d…")
 
@@ -93,96 +102,6 @@ print("Importing build123d…")
 import build123d
 import build123d.exporters
 
-# Lib3MF is a native dependency that is not available in Pyodide. Preserve the
-# useful STL-reading subset of Mesher through OCP's native STL reader; 3MF
-# operations remain explicitly unsupported in the browser runtime.
-class _BrowserMesher:
-    def __init__(self, unit=build123d.Unit.MM):
-        # Graph enum sockets cross the JS/Python boundary as option strings
-        # (for example 'MM'), while build123d.import_stl expects a Unit member.
-        if isinstance(unit, str):
-            unit_name = unit.rsplit('.', 1)[-1]
-            try:
-                unit = build123d.Unit[unit_name]
-            except KeyError:
-                unit = build123d.Unit(unit)
-        self.unit = unit
-
-    def read(self, file_name):
-        import math
-        import os
-        from OCP.BRepBuilderAPI import (
-            BRepBuilderAPI_MakeFace,
-            BRepBuilderAPI_MakePolygon,
-            BRepBuilderAPI_MakeSolid,
-            BRepBuilderAPI_Sewing,
-        )
-        from OCP.BRepGProp import BRepGProp
-        from OCP.GProp import GProp_GProps
-        from OCP.RWStl import RWStl
-        from OCP.TopAbs import TopAbs_ShapeEnum
-        from OCP.TopExp import TopExp_Explorer
-        from OCP.TopoDS import TopoDS, TopoDS_Compound
-        from build123d.topology.shape_core import downcast
-        from build123d.topology.three_d import Solid
-        from build123d.topology.two_d import Shell
-
-        if not str(file_name).lower().endswith(".stl"):
-            raise NotImplementedError("3MF import is not available in build123d-flow")
-        stl_path = os.path.abspath(os.fspath(file_name))
-        if not os.path.isfile(stl_path):
-            raise FileNotFoundError(
-                "STL file not found in browser filesystem: {} (cwd: {})".format(
-                    stl_path, os.getcwd()
-                )
-            )
-
-        # Match build123d.Mesher.read: return one editable Shape per mesh.
-        # import_stl() only creates a triangulated reference Face, which has no
-        # topological vertices/edges and cannot support the example's editing ops.
-        triangulation = RWStl.ReadFile_s(stl_path)
-        points = [triangulation.Node(i) for i in range(1, triangulation.NbNodes() + 1)]
-        sewing = BRepBuilderAPI_Sewing()
-        for index in range(1, triangulation.NbTriangles() + 1):
-            triangle = triangulation.Triangle(index)
-            vertices = [points[triangle.Value(i) - 1] for i in (1, 2, 3)]
-            polygon = BRepBuilderAPI_MakePolygon(
-                vertices[0], vertices[1], vertices[2], Close=True
-            )
-            face = BRepBuilderAPI_MakeFace(polygon.Wire()).Face()
-            properties = GProp_GProps()
-            BRepGProp.SurfaceProperties_s(face, properties)
-            if properties.Mass() != 0:
-                sewing.Add(face)
-        sewing.Perform()
-        sewed = downcast(sewing.SewedShape())
-        if isinstance(sewed, TopoDS_Compound):
-            shells = []
-            explorer = TopExp_Explorer(sewed, TopAbs_ShapeEnum.TopAbs_SHELL)
-            while explorer.More():
-                shells.append(Shell(TopoDS.Shell(explorer.Current())))
-                explorer.Next()
-        else:
-            shells = [Shell(sewed)]
-        if not shells:
-            raise ValueError("STL file contains no usable triangular faces: {}".format(stl_path))
-        outer_shell = max(shells, key=lambda shell: math.prod(shell.bounding_box().size))
-        inner_shells = [shell for shell in shells if shell is not outer_shell]
-        if not outer_shell.is_manifold:
-            shape = outer_shell
-        else:
-            solid_builder = BRepBuilderAPI_MakeSolid(outer_shell.wrapped)
-            for inner_shell in inner_shells:
-                solid_builder.Add(inner_shell.wrapped)
-            shape = Solid(solid_builder.Solid())
-        return [shape]
-
-# API discovery walks canonical module namespaces, not only the package
-# re-exports. Replace the class in both locations so discovered Mesher nodes
-# invoke the browser implementation instead of the Lib3MF-backed native class.
-import build123d.mesher as build123d_mesher
-_BrowserMesher.__module__ = build123d_mesher.__name__
-_BrowserMesher.__name__ = "Mesher"
-build123d_mesher.Mesher = _BrowserMesher
-build123d.Mesher = _BrowserMesher
+# Use build123d's unmodified upstream Mesher backed by the real Lib3MF WASM binding.
+import build123d.mesher
 print("Imported build123d and exporters")

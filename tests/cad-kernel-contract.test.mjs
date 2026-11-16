@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   adaptRuntimeOperation,
+  Build123dKernelProvider,
   cadPortTypeLabel,
   isCadGeometryPort,
   toCadProceduralGraph,
@@ -349,4 +350,26 @@ test("provider-neutral fixture covers discovery, binding, operator dispatch, map
   const encoded = await provider.exportProgram(graph, "fixture-json");
   const decoded = await provider.importProgram(encoded, "fixture-json");
   assert.deepEqual(decoded, graph);
+});
+
+test("build123d provider publishes only validated operation catalogs", async () => {
+  const provider = new Build123dKernelProvider({});
+  provider.setDefinitions([runtimeDefinition()]);
+  const discovered = await provider.discoverOperations();
+  assert.equal(discovered.length, 1);
+  assert.equal(discovered[0].id, "fixture.geometry.translate");
+
+  const invalid = runtimeDefinition({
+    inputs: [
+      { name: "shape", type: "Shape", required: true },
+      { name: "shape", type: "Shape", required: true },
+    ],
+  });
+  assert.throws(
+    () => provider.setDefinitions([invalid]),
+    /duplicate\/empty input id/,
+  );
+
+  // A rejected catalog must not partially replace the last valid catalog.
+  assert.equal((await provider.discoverOperations()).length, 1);
 });

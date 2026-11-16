@@ -168,3 +168,185 @@ test("opaque geometry handles identify their provider without exposing native ge
   assert.equal("wrapped" in handle, false);
   assert.equal("topology" in handle, false);
 });
+
+
+function fixtureProvider() {
+  const literal = adaptRuntimeOperation(runtimeDefinition({
+    id: "fixture.python.literal",
+    name: "Literal",
+    inputs: [],
+    outputs: [{ name: "result", type: "Number", required: true }],
+    data_matching: undefined,
+  }));
+  const add = adaptRuntimeOperation(runtimeDefinition({
+    id: "fixture.number.operator.__add__",
+    name: "Display label deliberately differs from dispatch identity",
+    inputs: [
+      { name: "left", type: "Number", required: true },
+      { name: "right", type: "Number", required: true },
+    ],
+    outputs: [{ name: "result", type: "Number", required: true }],
+    data_matching: undefined,
+  }));
+  const double = adaptRuntimeOperation(runtimeDefinition({
+    id: "fixture.collection.double",
+    name: "Double each value",
+    inputs: [{
+      name: "items", type: "List", item_type: "Number",
+      data_structure: "list", data_access: "item", required: true,
+    }],
+    outputs: [{
+      name: "result", type: "List", data_structure: "tree",
+      item_type: "Number", required: true,
+    }],
+    data_matching: "longest",
+  }));
+  const operations = new Map([literal, add, double].map((operation) => [operation.id, operation]));
+  const implementations = new Map([
+    [literal.nativeOperation, ({ parameters }) => parameters.value],
+    [add.nativeOperation, ({ arguments: args }) => args.left + args.right],
+    [double.nativeOperation, ({ arguments: args }) => {
+      const mapNested = (value) => Array.isArray(value)
+        ? value.map(mapNested)
+        : value * 2;
+      return mapNested(args.items);
+    }],
+  ]);
+
+  return {
+    id: "fixture-kernel",
+    label: "Fixture kernel",
+    version: "1",
+    capabilities: {
+      geometryKinds: ["geometry", "solid"],
+      importFormats: ["fixture-json"],
+      exportFormats: ["fixture-json"],
+      supportsExactBrep: false,
+    },
+    async discoverOperations() {
+      return [...operations.values()];
+    },
+    async importProgram(source, format) {
+      if (format !== "fixture-json") throw new Error("unsupported fixture import format");
+      return JSON.parse(source);
+    },
+    async exportProgram(graph, format) {
+      if (format !== "fixture-json") throw new Error("unsupported fixture export format");
+      return JSON.stringify(graph);
+    },
+    async evaluate({ graph }) {
+      const values = {};
+      const errors = {};
+      const scopes = new Set((graph.providerData?.execution_scopes ?? []).map((scope) => scope.id));
+      const incoming = new Map();
+      for (const connection of graph.connections) {
+        const ports = incoming.get(connection.targetNode) ?? new Map();
+        if (ports.has(connection.targetPort)) {
+          errors[connection.targetNode] = "duplicate input binding: " + connection.targetPort;
+        }
+        ports.set(connection.targetPort, {
+          node: connection.sourceNode,
+          port: connection.sourcePort,
+        });
+        incoming.set(connection.targetNode, ports);
+      }
+
+      for (const node of graph.nodes) {
+        const operation = operations.get(node.operationId);
+        if (!operation) {
+          errors[node.id] = "unknown provider operation: " + node.operationId;
+          continue;
+        }
+        const path = node.providerData?.execution_scope_path ?? [];
+        if (path.some((scopeId) => !scopes.has(scopeId))) {
+          errors[node.id] = "unknown lexical execution scope";
+          continue;
+        }
+        const argumentsByName = {};
+        let bindingFailed = false;
+        for (const input of operation.inputs) {
+          const edge = incoming.get(node.id)?.get(input.id);
+          if (edge) {
+            const upstream = values[edge.node]?.[edge.port];
+            if (upstream === undefined) {
+              errors[node.id] = "unavailable upstream value for " + input.id;
+              bindingFailed = true;
+              break;
+            }
+            argumentsByName[input.id] = upstream;
+          } else if (Object.hasOwn(node.parameters, input.id)) {
+            argumentsByName[input.id] = node.parameters[input.id];
+          } else if (input.defaultValue !== undefined) {
+            argumentsByName[input.id] = input.defaultValue;
+          } else if (input.required) {
+            errors[node.id] = "missing required input: " + input.id;
+            bindingFailed = true;
+            break;
+          }
+        }
+        if (bindingFailed) continue;
+        const invoke = implementations.get(operation.nativeOperation);
+        if (!invoke) {
+          errors[node.id] = "unbound native operation: " + operation.nativeOperation;
+          continue;
+        }
+        values[node.id] = {
+          result: invoke({ arguments: argumentsByName, parameters: node.parameters }),
+        };
+      }
+      return { values, geometry: {}, previews: {}, errors };
+    },
+  };
+}
+
+test("provider-neutral fixture covers discovery, binding, operator dispatch, mapping, scopes and interchange", async () => {
+  const provider = fixtureProvider();
+  const operations = await provider.discoverOperations();
+  assert.deepEqual(
+    operations.map((operation) => operation.id),
+    [
+      "fixture.python.literal",
+      "fixture.number.operator.__add__",
+      "fixture.collection.double",
+    ],
+  );
+
+  const graph = {
+    nodes: [
+      { id: "left", operationId: "fixture.python.literal", parameters: { value: 2 }, position: { x: 0, y: 0 } },
+      { id: "right", operationId: "fixture.python.literal", parameters: { value: 3 }, position: { x: 0, y: 100 } },
+      {
+        id: "sum",
+        operationId: "fixture.number.operator.__add__",
+        parameters: {},
+        position: { x: 300, y: 50 },
+        providerData: { execution_scope_path: ["scope-1"] },
+      },
+      {
+        id: "mapped",
+        operationId: "fixture.collection.double",
+        parameters: { items: [[1, 2], [3]] },
+        position: { x: 600, y: 50 },
+      },
+    ],
+    connections: [
+      { sourceNode: "left", sourcePort: "result", targetNode: "sum", targetPort: "left" },
+      { sourceNode: "right", sourcePort: "result", targetNode: "sum", targetPort: "right" },
+    ],
+    providerData: {
+      execution_scopes: [{
+        id: "scope-1", module: "fixture-kernel", name: "BuilderScope",
+        args: [], kwargs: {}, has_binding: true,
+      }],
+    },
+  };
+
+  const result = await provider.evaluate({ graph });
+  assert.deepEqual(result.errors, {});
+  assert.equal(result.values.sum.result, 5);
+  assert.deepEqual(result.values.mapped.result, [[2, 4], [6]]);
+
+  const encoded = await provider.exportProgram(graph, "fixture-json");
+  const decoded = await provider.importProgram(encoded, "fixture-json");
+  assert.deepEqual(decoded, graph);
+});

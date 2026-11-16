@@ -4806,6 +4806,60 @@ def import_python_code(source):
                     if keyword.arg is None:
                         raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
                     safe_kwargs[keyword.arg] = expression(keyword.value)
+                if getattr(safe_callable, "__module__", "") == "math" and (
+                    any(item[0] != "literal" for item in safe_args)
+                    or any(item[0] != "literal" for item in safe_kwargs.values())
+                ):
+                    try:
+                        signature = inspect.signature(safe_callable)
+                        placeholder_args = [None] * len(safe_args)
+                        placeholder_kwargs = {name: None for name in safe_kwargs}
+                        bound_arguments = signature.bind(*placeholder_args, **placeholder_kwargs)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("Invalid math function call at line {}: {}".format(node.lineno, exc))
+                    supplied = {}
+                    for name, value in zip(
+                        [parameter.name for parameter in signature.parameters.values()
+                         if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)],
+                        safe_args,
+                    ):
+                        supplied[name] = value
+                    supplied.update(safe_kwargs)
+                    definition_id = "core.python.stdlib.math." + safe_callable.__name__
+                    input_sockets = []
+                    params, links = {}, []
+                    for parameter in signature.parameters.values():
+                        value = supplied.get(parameter.name)
+                        default = parameter.default
+                        required = default is inspect.Signature.empty
+                        socket = {
+                            "name": parameter.name, "type": "Number",
+                            "required": required, "kind": parameter.kind.name.lower(),
+                        }
+                        if default is not inspect.Signature.empty:
+                            socket["default"] = default
+                        input_sockets.append(socket)
+                        if value is not None:
+                            if value[0] == "literal":
+                                params[parameter.name] = literal_json_value(value[1])
+                            else:
+                                links.append((parameter.name, value[1], value[2]))
+                    output_type = "Boolean" if safe_callable.__name__ in {
+                        "isclose", "isfinite", "isinf", "isnan",
+                    } else "Number"
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "math." + safe_callable.__name__,
+                        "source": "python", "kind": "operation", "category": "Python math",
+                        "palette_category": "API", "palette_section": "Standard library",
+                        "inputs": input_sockets,
+                        "outputs": [{"name": "result", "type": output_type}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = safe_callable
+                    _CATALOG_SIGNATURES[definition_id] = signature
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    created = add_node(definition_id, params, links, node.lineno)
+                    return ("ref", created, "result", output_type)
                 # Graph values are immutable between nodes, so copying a
                 # graph-backed value is an identity operation. Preserve the
                 # reference rather than trying to resolve copy.copy as a

@@ -1720,6 +1720,7 @@ def _type_catalog():
     return TypeCatalog({
         "schema_version": _CATALOG_SCHEMA_VERSION,
         "types": list(_TYPE_REGISTRY.values()),
+        "symbols": _SYMBOL_REGISTRY,
         "nodes": [
             definition for node_id, definition in _CATALOG.items()
             if node_id not in _INTERNAL_NODE_IDS
@@ -1790,6 +1791,7 @@ def load_catalog_bundle(payload):
     _CATALOG_SIGNATURES = signatures
     _CATALOG_HINT_TARGETS = hint_targets
     _TYPE_REGISTRY = dict(catalog.types)
+    _SYMBOL_REGISTRY = dict(catalog.symbols)
     _DISCOVERY_REPORT = {
         "include_full": True,
         "catalog_source": "generated",

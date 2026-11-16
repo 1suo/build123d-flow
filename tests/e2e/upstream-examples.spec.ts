@@ -268,16 +268,16 @@ for (const shard of SHARDS) {
           } catch {
             // Preserve the original importer failure if the browser has closed.
           }
-          await test.info().attach("upstream-example-results.txt", { body: results.join("\\n") });
-          await test.info().attach("browser-errors.txt", { body: pageErrors.join("\\n") });
+          await test.info().attach("upstream-example-results.txt", { body: results.join("\n") });
+          await test.info().attach("browser-errors.txt", { body: pageErrors.join("\n") });
           // Fail fast: later examples run on the next green iteration. Accumulating
           // dozens of slow failures obscures the first root cause and wastes CI time.
           throw error;
         }
       });
     }
-    await test.info().attach("upstream-example-results.txt", { body: results.join("\\n") });
-    await test.info().attach("browser-errors.txt", { body: pageErrors.join("\\n") });
+    await test.info().attach("upstream-example-results.txt", { body: results.join("\n") });
+    await test.info().attach("browser-errors.txt", { body: pageErrors.join("\n") });
     expect(pageErrors, "no uncaught browser errors").toEqual([]);
   });
 }

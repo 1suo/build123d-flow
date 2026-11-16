@@ -119,7 +119,7 @@ box = Box(10, 10, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
         )
         self.assertEqual(
             box_node["data"]["params"]["align"],
-            ["CENTER", "CENTER", "MIN"],
+            {"__flow_tuple__": ["CENTER", "CENTER", "MIN"]},
         )
 
     def test_overloaded_constructor_signatures_are_discovered(self):

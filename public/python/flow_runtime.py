@@ -6099,6 +6099,7 @@ def import_python_code(source):
                 ast.USub: ("__neg__", operator.neg),
                 ast.UAdd: ("__pos__", operator.pos),
                 ast.Invert: ("__invert__", operator.invert),
+                ast.Not: ("__not__", operator.not_),
             }
             operation = methods.get(type(node.op))
             if operation is None:
@@ -6198,18 +6199,3 @@ def import_python_code(source):
                 "Plane", "Axis", "Color", "Matrix", "Any", None,
             }:
                 return add_python_binary_node(method, left, right, node.lineno)
-            receiver_identity = None
-            if left[0] == "ref":
-                receiver_node = next(
-                    (item for item in graph_nodes if item["id"] == left[1]), None
-                )
-                if receiver_node:
-                    receiver_definition_id = (
-                        receiver_node.get("data", {}).get("definition", {}).get("id")
-                    )
-                    if isinstance(receiver_definition_id, str):
-                        candidate_identity = receiver_definition_id.split(
-                            ".overload-", 1
-                        )[0]
-                        if candidate_identity in type_catalog.types:
-                            receiver_identity = candidate_identity

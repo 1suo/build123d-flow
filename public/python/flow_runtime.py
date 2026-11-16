@@ -4932,9 +4932,76 @@ def import_python_code(source):
                         receiver_type = reference_type(receiver)
                     if not definition_id:
                         definition_id, candidates = resolve_member(node.func.attr, receiver_type)
-                        if candidates and definition_id is None:
-                            raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
-                                node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
+                        # If static typing cannot select one declared
+                        # implementation, defer to the receiver's native Python
+                        # attribute lookup through a generic method-call node.
+            if not definition_id and isinstance(node.func, ast.Attribute) and receiver is not None:
+                method_name = node.func.attr
+                supplied = []
+                starred_flags = []
+                for argument in node.args:
+                    if isinstance(argument, ast.Starred):
+                        expanded = expression(argument.value)
+                        if expanded[0] == "literal" and isinstance(expanded[1], (list, tuple)):
+                            for item in expanded[1]:
+                                supplied.append(("arg_{}".format(len(starred_flags)), ("literal", item)))
+                                starred_flags.append(False)
+                        else:
+                            supplied.append(("arg_{}".format(len(starred_flags)), expanded))
+                            starred_flags.append(True)
+                    else:
+                        supplied.append(("arg_{}".format(len(starred_flags)), expression(argument)))
+                        starred_flags.append(False)
+                for keyword in node.keywords:
+                    if keyword.arg is None:
+                        raise ValueError("Expanded dynamic method keywords are unsupported at line {}".format(node.lineno))
+                    supplied.append((keyword.arg, expression(keyword.value)))
+                names = [name for name, _ in supplied]
+                if len(names) != len(set(names)):
+                    raise ValueError("Duplicate dynamic method argument at line {}".format(node.lineno))
+                definition_id = "core.python.method." + hashlib.sha1(
+                    (method_name + ":" + ",".join(names)).encode("utf-8")
+                ).hexdigest()[:16]
+                positional_names = [name for name in names if name.startswith("arg_")]
+                def invoke_dynamic_method(self, **values):
+                    positional = []
+                    for name, starred in zip(positional_names, starred_flags):
+                        value = values.pop(name)
+                        if starred:
+                            positional.extend(value)
+                        else:
+                            positional.append(value)
+                    return getattr(self, method_name)(*positional, **values)
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "Python method " + method_name,
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Python", "palette_section": "Dynamic dispatch",
+                    "inputs": [
+                        {"name": "self", "type": "Any", "required": True},
+                        *[{"name": name, "type": "Any", "required": True, "kind": "keyword_only"}
+                          for name in names],
+                    ],
+                    "outputs": [{"name": "result", "type": "Any"}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+                _CATALOG_CALLABLES[definition_id] = invoke_dynamic_method
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    *[inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY) for name in names],
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {}, []
+                if receiver[0] == "literal":
+                    params["self"] = literal_json_value(receiver[1])
+                else:
+                    links.append(("self", receiver[1], receiver[2]))
+                for name, value in supplied:
+                    if value[0] == "literal":
+                        params[name] = literal_json_value(value[1])
+                    else:
+                        links.append((name, value[1], value[2]))
+                created = add_node(definition_id, params, links, node.lineno)
+                return ("ref", created, "result", "Any")
             if not definition_id:
                 raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
                     node.lineno, ast.unparse(node.func)))

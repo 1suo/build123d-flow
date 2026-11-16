@@ -116,9 +116,17 @@ def build_symbol_registry(module):
     return symbols
 
 
-def build_type_registry(classes, nodes):
+def build_type_registry(classes, nodes, geometry_base=None):
     """Serialize every discovered public build123d class, independently of node eligibility."""
     registry = {}
+    if geometry_base is None:
+        geometry_base = next(
+            (candidate for candidate in classes
+             if inspect.isclass(candidate)
+             and getattr(candidate, "__module__", "").split(".")[0] == "build123d"
+             and getattr(candidate, "__name__", "") == "Shape"),
+            None,
+        )
     node_ids = tuple(nodes)
     for cls in sorted(set(classes), key=_qualified_name):
         if not inspect.isclass(cls):
@@ -202,6 +210,15 @@ def build_type_registry(classes, nodes):
             "bases": bases,
             "mro": mro,
             "is_abstract": inspect.isabstract(cls),
+            "is_geometry": bool(
+                inspect.isclass(geometry_base)
+                and issubclass(cls, geometry_base)
+            ),
+            "socket_type": (
+                "Vector3" if name == "Vector"
+                else "Enum" if is_enum
+                else name
+            ),
             "supports_context_manager": supports_context_manager,
             "supports_iteration": callable(iterator),
             "iterable_item_type": iterable_item_type,

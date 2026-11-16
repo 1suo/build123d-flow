@@ -1067,6 +1067,34 @@ def run_python_import_tests():
     if class_dispatch_result["errors"]:
         raise AssertionError("Class-attribute constructor dispatch failed: " + json.dumps(class_dispatch_result["errors"]))
 
+    builder_subclass_graph = runtime.import_python_code(
+        "from build123d import BuildPart, BuildSketch, Rectangle, Solid, extrude\\n"
+        "class ProceduralSolid(Solid):\\n"
+        "    def __init__(self, length, width, height):\\n"
+        "        with BuildPart() as obj:\\n"
+        "            with BuildSketch():\\n"
+        "                Rectangle(length, width)\\n"
+        "            extrude(amount=height)\\n"
+        "        super().__init__(obj.part.wrapped)\\n"
+        "result = ProceduralSolid(10, 8, 3)\\n"
+    )
+    builder_subclass_result = json.loads(
+        runtime.evaluate_graph_json(json.dumps(builder_subclass_graph))
+    )
+    if builder_subclass_result["errors"]:
+        raise AssertionError(
+            "A build123d geometry subclass with builder-based __init__ failed: "
+            + json.dumps(builder_subclass_result["errors"])
+        )
+    subclass_value = builder_subclass_result["socket_values"][
+        builder_subclass_graph["nodes"][-1]["id"]
+    ]["result"]
+    if subclass_value.get("type") != "Solid":
+        raise AssertionError(
+            "A statically lowered geometry subclass did not preserve its native Solid result: "
+            + repr(subclass_value)
+        )
+
     # This is the important round-trip boundary: source -> native graph -> evaluator.
     source = (
         "from build123d import Box, Cylinder\n"

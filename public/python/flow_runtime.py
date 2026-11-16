@@ -21,7 +21,7 @@ except ModuleNotFoundError as exc:
         raise
     b3d = None
 from type_catalog import SCHEMA_VERSION as _CATALOG_SCHEMA_VERSION
-from type_catalog import CatalogError, TypeCatalog, build_type_registry
+from type_catalog import CatalogError, TypeCatalog, build_symbol_registry, build_type_registry
 
 _CATALOG = {}
 _CATALOG_CALLABLES = {}
@@ -34,6 +34,7 @@ _INTERNAL_NODE_IDS = set()
 _LAST_SHAPE = None
 _DISCOVERY_REPORT = {}
 _TYPE_REGISTRY = {}
+_SYMBOL_REGISTRY = {}
 _EVAL_CACHE = {}
 _PREVIEW_CACHE = {}
 _CACHE_LIMIT = 128
@@ -1157,7 +1158,7 @@ def _register_python_nodes(found, callables):
 
 
 def discover(include_full=True):
-    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
+    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE, _SYMBOL_REGISTRY
     if b3d is None:
         raise RuntimeError("build123d is required for API discovery; load a generated catalog instead")
     _register_kernel_discovery_overrides()
@@ -1632,6 +1633,8 @@ def discover(include_full=True):
         except TypeError:
             record["is_geometry"] = False
     report["type_count"] = len(type_registry)
+    symbol_registry = build_symbol_registry(b3d)
+    report["symbol_count"] = len(symbol_registry)
     report["type_ids"] = sorted(type_registry)
     report["node_count"] = len(found)
     report["kind_counts"] = {}
@@ -1650,9 +1653,10 @@ def discover(include_full=True):
         name: any(item["name"] == name for item in found.values())
         for name in ("Box", "Cylinder", "Rectangle", "Circle", "extrude", "revolve")
     }
-    global _DISCOVERY_REPORT, _TYPE_REGISTRY
+    global _DISCOVERY_REPORT, _TYPE_REGISTRY, _SYMBOL_REGISTRY
     _DISCOVERY_REPORT = report
     _TYPE_REGISTRY = type_registry
+    _SYMBOL_REGISTRY = symbol_registry
     # Catalog replacement can change a node callable or signature; discard old values.
     _EVAL_CACHE.clear()
     _PREVIEW_CACHE.clear()
@@ -1701,6 +1705,7 @@ def catalog_bundle_json():
         "schema_version": _CATALOG_SCHEMA_VERSION,
         "build123d_version": distribution_version,
         "types": list(_TYPE_REGISTRY.values()),
+        "symbols": _SYMBOL_REGISTRY,
         "nodes": [
             definition for node_id, definition in _CATALOG.items()
             if node_id not in _INTERNAL_NODE_IDS
@@ -1725,7 +1730,7 @@ def _type_catalog():
 def load_catalog_bundle(payload):
     """Load generated API metadata without importing or initializing build123d."""
     global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES
-    global _CATALOG_HINT_TARGETS, _TYPE_REGISTRY, _DISCOVERY_REPORT
+    global _CATALOG_HINT_TARGETS, _TYPE_REGISTRY, _DISCOVERY_REPORT, _SYMBOL_REGISTRY
     bundle = json.loads(payload) if isinstance(payload, str) else dict(payload)
     catalog = TypeCatalog(bundle)
     _INTERNAL_NODE_IDS.clear()

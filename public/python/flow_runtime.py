@@ -3015,7 +3015,10 @@ def import_python_code(source):
     stdlib_modules = {}
     stdlib_symbols = {}
     stdlib_star_modules = set()
-    safe_stdlib_modules = {"math", "copy", "functools", "itertools", "operator", "logging", "timeit", "random"}
+    safe_import_modules = {
+        "math", "copy", "functools", "itertools", "operator", "logging",
+        "timeit", "random", "typing", "scipy", "scipy.spatial",
+    }
     viewer_api = {"show", "show_object", "show_all", "reset_show", "set_defaults"}
     for statement in tree.body:
         if isinstance(statement, ast.Import):
@@ -3024,7 +3027,7 @@ def import_python_code(source):
                     aliases[item.asname or item.name] = "b3d"
                 elif item.name == "ocp_vscode":
                     viewer_modules[item.asname or item.name] = "ocp_vscode"
-                elif item.name in safe_stdlib_modules:
+                elif item.name in safe_import_modules:
                     stdlib_modules[item.asname or item.name] = item.name
                 else:
                     raise ValueError("Unsupported import at line {}: {}".format(
@@ -3043,7 +3046,7 @@ def import_python_code(source):
                     else:
                         raise ValueError("Unsupported ocp_vscode import at line {}: {}".format(
                             statement.lineno, item.name))
-            elif statement.module in safe_stdlib_modules:
+            elif statement.module in safe_import_modules:
                 module = importlib.import_module(statement.module)
                 for item in statement.names:
                     if item.name == "*":

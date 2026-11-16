@@ -901,6 +901,19 @@ def run_python_import_tests():
         if len(graph.get("nodes", [])) != 1 or graph.get("edges"):
             raise AssertionError("ocp_vscode display code changed the geometry graph: " + json.dumps(graph))
 
+    function_graph = runtime.import_python_code(
+        "from build123d import Box\n"
+        "def make_box(length, width=2):\n"
+        "    shape = Box(length, width, 3)\n"
+        "    return shape\n"
+        "result = make_box(4, width=5)\n"
+    )
+    function_result = json.loads(runtime.evaluate_graph_json(json.dumps(function_graph)))
+    if function_result["errors"]:
+        raise AssertionError("A local Python function did not lower to native graph operations: " + json.dumps(function_result["errors"]))
+    if function_graph["nodes"][-1]["id"] not in function_result["previews"]:
+        raise AssertionError("A returned geometry value from a local function was lost")
+
     # This is the important round-trip boundary: source -> native graph -> evaluator.
     source = (
         "from build123d import Box, Cylinder\n"

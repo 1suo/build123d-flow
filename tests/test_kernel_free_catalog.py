@@ -49,11 +49,11 @@ result = box + cylinder
             for node in graph.get("nodes", [])
         ]
         self.assertTrue(
-            any(identity and identity.endswith(".Box") for identity in definitions),
+            any(identity and identity.rsplit(".overload-", 1)[0].endswith(".Box") for identity in definitions),
             definitions,
         )
         self.assertTrue(
-            any(identity and identity.endswith(".Cylinder") for identity in definitions),
+            any(identity and identity.rsplit(".overload-", 1)[0].endswith(".Cylinder") for identity in definitions),
             definitions,
         )
         self.assertTrue(
@@ -104,7 +104,7 @@ box = Box(10, 10, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
 """)
         box_node = next(
             node for node in graph["nodes"]
-            if node.get("data", {}).get("definition", {}).get("id", "").endswith(".Box")
+            if node.get("data", {}).get("definition", {}).get("id", "").rsplit(".overload-", 1)[0].endswith(".Box")
         )
         self.assertEqual(
             box_node["data"]["params"]["align"],

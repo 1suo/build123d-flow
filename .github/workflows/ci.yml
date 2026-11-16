@@ -87,7 +87,7 @@ jobs:
       - name: Run kernel-free catalog unit tests
         run: python -m unittest discover -s tests -p 'test_type_catalog.py'
       - name: Gate 2 - execute Gate 1 graphs with native build123d kernel
-        run: python scripts/test_upstream_kernel.py "$RUNNER_TEMP/upstream-translator-results.json" "$RUNNER_TEMP/upstream-kernel-results.json"
+        run: python scripts/test_upstream_kernel.py "$RUNNER_TEMP/upstream-translator-results.json" "$RUNNER_TEMP/build123d_catalog.json" "$RUNNER_TEMP/upstream-kernel-results.json"
       - name: Run native graph workflow regression tests
         run: python -m unittest discover -s tests -p 'test_graph_workflows_native.py'
       - name: Install Playwright Chromium

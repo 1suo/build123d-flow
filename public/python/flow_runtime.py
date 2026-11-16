@@ -2934,6 +2934,23 @@ def _python_loop_last(sequence, fallback=None, has_fallback=False, preserve_dept
 def _resolve_callable(path):
     if path in _CATALOG_CALLABLES:
         return _CATALOG_CALLABLES[path]
+    # Resolve discovered class members from their owner type. A method node ID
+    # is not an importable module path (for example Plane.offset).
+    for type_id, record in _TYPE_REGISTRY.items():
+        prefix = type_id + "."
+        if not path.startswith(prefix):
+            continue
+        member_path = path[len(prefix):]
+        for marker in ("operator.", "property.", "field.", "static.", "classmethod."):
+            if member_path.startswith(marker):
+                member_path = member_path[len(marker):]
+                break
+        module = importlib.import_module(record["module"])
+        owner = getattr(module, record["name"])
+        member = getattr(owner, member_path)
+        if isinstance(member, property):
+            return member.fget
+        return member
     module_name, attr_name = path.rsplit(".", 1)
     module = importlib.import_module(module_name)
     return getattr(module, attr_name)
@@ -5275,7 +5292,10 @@ def import_python_code(source):
                         "outputs": [{"name": "result", "type": "Any"}],
                     }
                     _INTERNAL_NODE_IDS.add(definition_id)
-                    _CATALOG_CALLABLES[definition_id] = print
+                    def invoke_print(_names=tuple(name for name, _ in supplied if name.startswith("arg_")), **values):
+                        positional = [values.pop(name) for name in _names]
+                        return print(*positional, **values)
+                    _CATALOG_CALLABLES[definition_id] = invoke_print
                     _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
                         inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY) for name, _ in supplied
                     ])
@@ -5300,7 +5320,10 @@ def import_python_code(source):
                         "outputs": [{"name": "result", "type": "Any"}],
                     }
                     _INTERNAL_NODE_IDS.add(definition_id)
-                    _CATALOG_CALLABLES[definition_id] = print
+                    def invoke_print(_names=tuple(name for name, _ in supplied if name.startswith("arg_")), **values):
+                        positional = [values.pop(name) for name in _names]
+                        return print(*positional, **values)
+                    _CATALOG_CALLABLES[definition_id] = invoke_print
                     _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
                         inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY) for name, _ in supplied
                     ])
@@ -5346,7 +5369,12 @@ def import_python_code(source):
                         "outputs": [{"name": "result", "type": "Any"}],
                     }
                     _INTERNAL_NODE_IDS.add(definition_id)
-                    _CATALOG_CALLABLES[definition_id] = function
+                    def invoke_builtin(_function=function, _names=tuple(
+                        name for name, _ in supplied if name.startswith("arg_")
+                    ), **values):
+                        positional = [values.pop(name) for name in _names]
+                        return _function(*positional, **values)
+                    _CATALOG_CALLABLES[definition_id] = invoke_builtin
                     _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
                         inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY)
                         for name, _ in supplied
@@ -5547,7 +5575,26 @@ def import_python_code(source):
                             positional.append(value)
                     if constructor is None:
                         raise RuntimeError("CAD kernel is required to execute value constructor " + constructor_name)
-                    return constructor(*positional, **supplied_values)
+                    try:
+                        constructor_signature = _api_signature(constructor)
+                    except (TypeError, ValueError):
+                        constructor_signature = inspect.signature(constructor)
+                    constructor_parameters = list(constructor_signature.parameters.values())
+                    mapped_values = {}
+                    positional_index = 0
+                    for parameter in constructor_parameters:
+                        if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+                            mapped_values[parameter.name] = tuple(positional[positional_index:])
+                            positional_index = len(positional)
+                            break
+                        if positional_index >= len(positional):
+                            break
+                        mapped_values[parameter.name] = positional[positional_index]
+                        positional_index += 1
+                    if positional_index < len(positional):
+                        raise TypeError("Too many positional arguments for {}".format(constructor_name))
+                    mapped_values.update(supplied_values)
+                    return _call_with_coercion(constructor, mapped_values, signature=constructor_signature)
 
                 _CATALOG_CALLABLES[definition_id] = construct_value
                 _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
@@ -5947,7 +5994,10 @@ def import_python_code(source):
                     "outputs": [{"name": "result", "type": "Boolean"}],
                 }
                 _INTERNAL_NODE_IDS.add(definition_id)
-                _CATALOG_CALLABLES[definition_id] = operators[type(operation)]
+                compare_operation = operators[type(operation)]
+                def invoke_compare(left, right, _operation=compare_operation):
+                    return _operation(left, right)
+                _CATALOG_CALLABLES[definition_id] = invoke_compare
                 _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
                     inspect.Parameter("left", inspect.Parameter.POSITIONAL_OR_KEYWORD),
                     inspect.Parameter("right", inspect.Parameter.POSITIONAL_OR_KEYWORD),
@@ -6369,8 +6419,8 @@ def import_python_code(source):
                 if receiver[0] != "ref":
                     raise ValueError("Attribute assignment requires a graph-backed receiver (line {})".format(line))
                 definition_id = "core.python.setattr"
-                def set_attribute(value, name, assigned_value):
-                    setattr(value, name, assigned_value)
+                def set_attribute(value, name, assigned):
+                    setattr(value, name, assigned)
                     return value
                 definitions[definition_id] = {
                     "id": definition_id, "name": "Python Set Attribute",
@@ -6876,8 +6926,8 @@ def import_python_code(source):
                     else ("literal", None)
                 )
                 definition_id = "core.python.assert"
-                def assert_condition(value, message=None):
-                    if not value:
+                def assert_condition(condition, message=None):
+                    if not condition:
                         raise AssertionError(message)
                     return True
                 definitions[definition_id] = {

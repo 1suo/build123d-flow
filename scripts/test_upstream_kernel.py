@@ -23,7 +23,7 @@ def definition_ids(graph):
     )
 
 
-def kernel_worker(item_path: Path) -> int:
+def kernel_worker(item_path: Path, catalog_path: Path) -> int:
     """Run one example in a disposable process so a stuck native call is killable."""
     import flow_runtime as runtime
 
@@ -33,6 +33,24 @@ def kernel_worker(item_path: Path) -> int:
         if runtime.b3d is None:
             raise RuntimeError("Gate 2 requires the real build123d kernel")
         runtime.discover(include_full=True)
+        discovered_callables = dict(runtime._CATALOG_CALLABLES)
+        discovered_signatures = dict(runtime._CATALOG_SIGNATURES)
+        discovered_hints = dict(runtime._CATALOG_HINT_TARGETS)
+        runtime.load_catalog_bundle(catalog_path.read_text(encoding="utf-8"))
+        # Gate 1 and Gate 2 must use identical discovered metadata. Retain the
+        # real native callables/hints from this kernel process.
+        runtime._CATALOG_CALLABLES.update({
+            key: value for key, value in discovered_callables.items()
+            if key in runtime._CATALOG
+        })
+        runtime._CATALOG_SIGNATURES.update({
+            key: value for key, value in discovered_signatures.items()
+            if key in runtime._CATALOG
+        })
+        runtime._CATALOG_HINT_TARGETS.update({
+            key: value for key, value in discovered_hints.items()
+            if key in runtime._CATALOG
+        })
 
         # Register graph-lowering callables in this process, then evaluate the
         # exact graph produced by Gate 1.
@@ -104,14 +122,14 @@ def kernel_worker(item_path: Path) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) == 3 and sys.argv[1] == "--worker":
-        return kernel_worker(Path(sys.argv[2]))
-    if len(sys.argv) != 3:
+    if len(sys.argv) == 4 and sys.argv[1] == "--worker":
+        return kernel_worker(Path(sys.argv[2]), Path(sys.argv[3]))
+    if len(sys.argv) != 4:
         raise SystemExit(
-            "usage: test_upstream_kernel.py GATE1_RESULTS.json RESULTS.json"
+            "usage: test_upstream_kernel.py GATE1_RESULTS.json CATALOG.json RESULTS.json"
         )
 
-    gate1_path, results_path = map(Path, sys.argv[1:])
+    gate1_path, catalog_path, results_path = map(Path, sys.argv[1:])
     gate1 = json.loads(gate1_path.read_text(encoding="utf-8"))
     if gate1.get("failed") != 0 or gate1.get("passed") != gate1.get("example_count"):
         raise SystemExit("Gate 2 cannot start: Gate 1 results are not completely green")
@@ -126,7 +144,7 @@ def main() -> int:
             )
             try:
                 completed = subprocess.run(
-                    [sys.executable, str(Path(__file__).resolve()), "--worker", str(input_path)],
+                    [sys.executable, str(Path(__file__).resolve()), "--worker", str(input_path), str(catalog_path)],
                     cwd=str(ROOT),
                     text=True,
                     stdout=subprocess.PIPE,

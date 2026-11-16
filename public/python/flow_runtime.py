@@ -3095,6 +3095,12 @@ def import_python_code(source):
         user_classes[class_node.name] = {
             "node": class_node, "initializer": initializers[0],
             "base": base_node, "base_type": _type_name(base_class),
+            "class_attributes": [
+                item for item in class_node.body
+                if isinstance(item, (ast.Assign, ast.AnnAssign))
+            ],
+            "attributes": {},
+            "attributes_prepared": False,
         }
     active_user_classes = []
     user_functions = {
@@ -4323,12 +4329,53 @@ def import_python_code(source):
         if isinstance(node, ast.Dict):
             keys = [expression(item) for item in node.keys]
             values = [expression(item) for item in node.values]
-            if any(key[0] != "literal" for key in keys) or any(value[0] != "literal" for value in values):
-                raise ValueError("Connected dictionaries are not yet importable (line {})".format(node.lineno))
-            return ("literal", {key[1]: value[1] for key, value in zip(keys, values)})
+            if any(key[0] != "literal" for key in keys):
+                raise ValueError("Dictionary keys must be statically known (line {})".format(node.lineno))
+            if all(value[0] == "user_class" for value in values):
+                return ("class_map", {
+                    key[1]: value[1] for key, value in zip(keys, values)
+                })
+            if all(value[0] == "literal" for value in values):
+                return ("literal", {key[1]: value[1] for key, value in zip(keys, values)})
+            definition_id = "core.python.dict"
+            input_sockets, params, links = [], {}, []
+            for index, (key, value) in enumerate(zip(keys, values)):
+                key_name, value_name = "key_" + str(index), "value_" + str(index)
+                input_sockets.extend([
+                    {"name": key_name, "type": "Any", "required": True, "data_access": "structure"},
+                    {"name": value_name, "type": "Any", "required": True, "data_access": "structure"},
+                ])
+                params[key_name] = literal_json_value(key[1], preserve_objects=True)
+                if value[0] == "literal":
+                    params[value_name] = literal_json_value(value[1], preserve_objects=True)
+                else:
+                    links.append((value_name, value[1], value[2]))
+            definitions[definition_id] = {
+                "id": definition_id, "name": "Python dictionary",
+                "source": "python", "kind": "operation", "category": "Internal",
+                "palette_category": "Internal", "palette_section": "Graph lowering",
+                "inputs": input_sockets,
+                "outputs": [{"name": "result", "type": "Any"}],
+            }
+            _INTERNAL_NODE_IDS.add(definition_id)
+            def build_python_dict(**items):
+                return {
+                    items["key_" + str(index)]: items["value_" + str(index)]
+                    for index in range(len(items) // 2)
+                }
+            _CATALOG_CALLABLES[definition_id] = build_python_dict
+            _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                inspect.Parameter(socket["name"], inspect.Parameter.KEYWORD_ONLY)
+                for socket in input_sockets
+            ])
+            _CATALOG_HINT_TARGETS[definition_id] = False
+            created = add_node(definition_id, params, links, node.lineno)
+            return ("ref", created, "result", "Any")
         if isinstance(node, ast.Name):
             if node.id in variables:
                 return variables[node.id]
+            if node.id in user_classes:
+                return ("user_class", node.id)
             if node.id in {"True", "False", "None"}:
                 return ("literal", {"True": True, "False": False, "None": None}[node.id])
             standard_value = resolve_safe_stdlib_name(node.id)
@@ -4343,6 +4390,17 @@ def import_python_code(source):
             standard_value = resolve_safe_stdlib_attribute(node)
             if standard_value is not None and not callable(standard_value):
                 return ("literal", standard_value)
+            if isinstance(node.value, ast.Name):
+                if node.value.id in user_classes:
+                    class_info = user_classes[node.value.id]
+                    if class_info.get("attributes_prepared") and node.attr in class_info["attributes"]:
+                        return class_info["attributes"][node.attr]
+                owner = getattr(b3d, imported.get(node.value.id, node.value.id), None)
+                if inspect.isclass(owner) and hasattr(owner, node.attr):
+                    class_value = getattr(owner, node.attr)
+                    if isinstance(class_value, (int, float, str, bool, enum.Enum,
+                                               b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
+                        return ("literal", class_value)
             receiver_root = node.value
             while isinstance(receiver_root, ast.Attribute):
                 receiver_root = receiver_root.value
@@ -5407,6 +5465,11 @@ def import_python_code(source):
                 index = ("ref", index_node_id, "result")
             else:
                 index = expression(index_node)
+            if receiver[0] == "class_map" and index[0] == "literal":
+                key = materialize_literal(index[1])
+                if key not in receiver[1]:
+                    raise ValueError("Unknown class mapping key {!r} at line {}".format(key, node.lineno))
+                return ("user_class", receiver[1][key])
             if receiver[0] == "literal" and index[0] == "literal":
                 try:
                     return ("literal", operator.getitem(

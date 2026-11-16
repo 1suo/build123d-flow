@@ -4873,6 +4873,30 @@ def import_python_code(source):
                     keyword.arg: expression(keyword.value) for keyword in node.keywords
                     if keyword.arg is not None
                 }
+                if (
+                    node.func.id == "abs" and len(builtin_args) == 1
+                    and not builtin_kwargs and builtin_args[0][0] == "ref"
+                ):
+                    definition_id = "core.python.builtin.abs"
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "Python abs",
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Internal", "palette_section": "Graph lowering",
+                        "inputs": [{"name": "value", "type": "Number", "required": True, "data_access": "structure"}],
+                        "outputs": [{"name": "result", "type": "Number"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = abs
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter("value", inspect.Parameter.POSITIONAL_ONLY)
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    created = add_node(
+                        definition_id, {},
+                        [("value", builtin_args[0][1], builtin_args[0][2])],
+                        node.lineno,
+                    )
+                    return ("ref", created, "result", "Number")
                 if all(item[0] == "literal" for item in builtin_args) and all(item[0] == "literal" for item in builtin_kwargs.values()):
                     functions = {
                         "range": range, "enumerate": enumerate, "zip": zip, "len": len,
@@ -5294,26 +5318,65 @@ def import_python_code(source):
             return ("ref", created, "result", item_type, item_types)
         if isinstance(node, ast.Compare):
             operators = {
-                ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt,
-                ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge,
-                ast.In: lambda left, right: left in right,
-                ast.NotIn: lambda left, right: left not in right,
-                ast.Is: operator.is_, ast.IsNot: operator.is_not,
+                ast.Eq: ("eq", operator.eq), ast.NotEq: ("ne", operator.ne),
+                ast.Lt: ("lt", operator.lt), ast.LtE: ("le", operator.le),
+                ast.Gt: ("gt", operator.gt), ast.GtE: ("ge", operator.ge),
+                ast.In: ("in", lambda left, right: left in right),
+                ast.NotIn: ("not_in", lambda left, right: left not in right),
+                ast.Is: ("is", operator.is_), ast.IsNot: ("is_not", operator.is_not),
             }
             operands = [expression(node.left)] + [expression(item) for item in node.comparators]
-            if any(item[0] != "literal" for item in operands):
-                raise ValueError("Graph-dependent conditions are not yet importable (line {})".format(node.lineno))
-            values = [materialize_literal(item[1]) for item in operands]
-            result = True
-            for index, operation in enumerate(node.ops):
-                function = operators.get(type(operation))
-                if function is None:
-                    raise ValueError("Unsupported comparison at line {}".format(node.lineno))
+            if len(node.ops) != 1:
+                if any(item[0] != "literal" for item in operands):
+                    raise ValueError("Graph-dependent chained comparisons are not yet importable (line {})".format(node.lineno))
+                values = [materialize_literal(item[1]) for item in operands]
+                result = all(
+                    operators[type(operation)][1](values[index], values[index + 1])
+                    for index, operation in enumerate(node.ops)
+                )
+                return ("literal", result)
+            operation = operators.get(type(node.ops[0]))
+            if operation is None:
+                raise ValueError("Unsupported comparison at line {}".format(node.lineno))
+            if all(item[0] == "literal" for item in operands):
                 try:
-                    result = result and function(values[index], values[index + 1])
+                    return ("literal", operation[1](
+                        materialize_literal(operands[0][1]),
+                        materialize_literal(operands[1][1]),
+                    ))
                 except (TypeError, ValueError) as exc:
                     raise ValueError("Invalid comparison at line {}: {}".format(node.lineno, exc))
-            return ("literal", result)
+            definition_id = "core.python.compare"
+            definitions[definition_id] = {
+                "id": definition_id, "name": "Python comparison",
+                "source": "python", "kind": "operation", "category": "Internal",
+                "palette_category": "Internal", "palette_section": "Graph lowering",
+                "inputs": [
+                    {"name": "operation", "type": "String", "required": True},
+                    {"name": "left", "type": "Any", "required": True, "data_access": "structure"},
+                    {"name": "right", "type": "Any", "required": True, "data_access": "structure"},
+                ],
+                "outputs": [{"name": "result", "type": "Boolean"}],
+            }
+            _INTERNAL_NODE_IDS.add(definition_id)
+            comparison_functions = {name: function for name, function in operators.values()}
+            def compare_values(operation_name, left, right):
+                return comparison_functions[operation_name](left, right)
+            _CATALOG_CALLABLES[definition_id] = compare_values
+            _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                inspect.Parameter("operation", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                inspect.Parameter("left", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                inspect.Parameter("right", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            ])
+            _CATALOG_HINT_TARGETS[definition_id] = False
+            params, links = {"operation": operation[0]}, []
+            for name, value in zip(("left", "right"), operands):
+                if value[0] == "literal":
+                    params[name] = literal_json_value(value[1], preserve_objects=True)
+                else:
+                    links.append((name, value[1], value[2]))
+            created = add_node(definition_id, params, links, node.lineno)
+            return ("ref", created, "result", "Boolean")
         if isinstance(node, ast.BoolOp):
             values = [expression(item) for item in node.values]
             if any(item[0] != "literal" for item in values):
@@ -5754,6 +5817,42 @@ def import_python_code(source):
                     raise ValueError("Return is only supported inside an inlined function (line {})".format(statement.lineno))
                 function_return_stack[-1] = expression(statement.value) if statement.value is not None else ("literal", None)
                 break
+            if isinstance(statement, ast.Assert):
+                condition = expression(statement.test)
+                if condition[0] == "literal":
+                    if not bool(materialize_literal(condition[1])):
+                        raise AssertionError("Assertion failed at line {}".format(statement.lineno))
+                    continue
+                message = ast.unparse(statement.msg) if statement.msg is not None else "Assertion failed at line {}".format(statement.lineno)
+                definition_id = "core.python.assert"
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "Python assert",
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Internal", "palette_section": "Graph lowering",
+                    "inputs": [
+                        {"name": "condition", "type": "Boolean", "required": True, "data_access": "structure"},
+                        {"name": "message", "type": "String", "required": False, "default": "", "data_access": "structure"},
+                    ],
+                    "outputs": [{"name": "result", "type": "Any"}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+                def assert_condition(condition, message=""):
+                    if not condition:
+                        raise AssertionError(message or "Assertion failed")
+                    return None
+                _CATALOG_CALLABLES[definition_id] = assert_condition
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter("condition", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("message", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=""),
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {"message": message}, []
+                if condition[0] == "literal":
+                    params["condition"] = literal_json_value(condition[1])
+                else:
+                    links.append(("condition", condition[1], condition[2]))
+                add_node(definition_id, params, links, statement.lineno)
+                continue
             if isinstance(statement, ast.With):
                 entered_contexts = []
                 for item in statement.items:

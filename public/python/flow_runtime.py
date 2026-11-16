@@ -3448,6 +3448,25 @@ def import_python_code(source):
                 current = current.value
             if isinstance(current, ast.Name):
                 root = current.id
+                enum_type_name = None
+                enum_member_name = None
+                if root in aliases and aliases[root] == "b3d":
+                    enum_path = list(reversed(path))
+                    if len(enum_path) == 2:
+                        enum_type_name, enum_member_name = enum_path
+                elif len(path) == 1:
+                    enum_type_name = imported.get(root, root)
+                    enum_member_name = path[0]
+                if enum_type_name and enum_member_name:
+                    try:
+                        return (
+                            "literal",
+                            type_catalog.resolve_enum_member(
+                                enum_type_name, enum_member_name
+                            ),
+                        )
+                    except CatalogError:
+                        pass
                 if root in aliases and aliases[root] == "b3d":
                     symbol_name = path[0] if len(path) == 1 else None
                     definition_id = (
@@ -3605,6 +3624,8 @@ def import_python_code(source):
     def literal_json_value(value):
         if isinstance(value, enum.Enum):
             return value.name
+        if isinstance(value, dict) and "__flow_enum__" in value:
+            return value["__flow_enum__"][2]
         if b3d is not None and isinstance(value, b3d.Axis):
             return [list(value.position), list(value.direction)]
         if b3d is not None and isinstance(value, b3d.Plane):

@@ -246,6 +246,7 @@ onMounted(() => {
           errors: errors.value,
           geometryCount: Object.keys(previews.value).length,
         }),
+        getActivityLogs: () => activityLogs.value.map((entry) => ({ ...entry })),
         evaluateCurrentGraph: () => runtime.evaluate(graph.value),
       };
     }

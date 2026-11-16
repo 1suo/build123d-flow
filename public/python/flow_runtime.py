@@ -4815,6 +4815,51 @@ def import_python_code(source):
                     if keyword.arg is None:
                         raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
                     safe_kwargs[keyword.arg] = expression(keyword.value)
+                if getattr(safe_callable, "__module__", "").startswith("scipy."):
+                    try:
+                        signature = inspect.signature(safe_callable)
+                        signature.bind(*([None] * len(safe_args)), **{name: None for name in safe_kwargs})
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("Invalid SciPy call at line {}: {}".format(node.lineno, exc))
+                    positional_names = [
+                        parameter.name for parameter in signature.parameters.values()
+                        if parameter.kind in (
+                            inspect.Parameter.POSITIONAL_ONLY,
+                            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                        )
+                    ]
+                    supplied = dict(zip(positional_names, safe_args))
+                    supplied.update(safe_kwargs)
+                    definition_id = "core.python.external.scipy." + safe_callable.__name__
+                    input_sockets, params, links = [], {}, []
+                    for parameter in signature.parameters.values():
+                        value = supplied.get(parameter.name)
+                        socket = {
+                            "name": parameter.name, "type": "Any",
+                            "required": parameter.default is inspect.Signature.empty,
+                            "data_access": "item" if parameter.name == "points" else "structure",
+                        }
+                        if parameter.default is not inspect.Signature.empty:
+                            socket["default"] = parameter.default
+                        input_sockets.append(socket)
+                        if value is not None:
+                            if value[0] == "literal":
+                                params[parameter.name] = literal_json_value(value[1], preserve_objects=True)
+                            else:
+                                links.append((parameter.name, value[1], value[2]))
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "SciPy " + safe_callable.__name__,
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Internal", "palette_section": "Standard library",
+                        "inputs": input_sockets,
+                        "outputs": [{"name": "result", "type": "Any"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = safe_callable
+                    _CATALOG_SIGNATURES[definition_id] = signature
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    created = add_node(definition_id, params, links, node.lineno)
+                    return ("ref", created, "result", "Any")
                 if getattr(safe_callable, "__module__", "") == "math" and (
                     any(item[0] != "literal" for item in safe_args)
                     or any(item[0] != "literal" for item in safe_kwargs.values())

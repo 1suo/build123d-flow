@@ -16,7 +16,7 @@ class DependencyClosureTests(unittest.TestCase):
                 'await micropip.install(["build123d==0.13.0"])\n'
             )
             roots, mocks = MODULE["setup_roots"](setup)
-        self.assertEqual({r.name for r in roots}, {"micropip", "build123d"})
+        self.assertEqual({r.name for r in roots}, {"micropip", "build123d", "scipy"})
         self.assertEqual(mocks, {"lib3mf"})
 
     def test_transitive_pypi_dependency_stages_pyodide_package(self):

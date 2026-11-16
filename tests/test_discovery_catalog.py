@@ -48,6 +48,13 @@ class LiveDiscoveryCatalogTests(unittest.TestCase):
             ]
             self.assertEqual(record["mro"], expected, identity)
 
+    def test_class_level_methods_are_discovered_as_nodes(self):
+        class_level = [
+            node_id for node_id in self.catalog.nodes
+            if ".static." in node_id or ".classmethod." in node_id
+        ]
+        self.assertTrue(class_level, "No public static/class methods were discovered")
+
     def test_type_node_references_are_complete(self):
         node_ids = set(self.catalog.nodes)
         for identity, record in self.catalog.types.items():

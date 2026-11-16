@@ -1597,8 +1597,14 @@ def _type_catalog():
     """Create the pure-data resolver over the most recently discovered API."""
     if not _TYPE_REGISTRY or not _CATALOG:
         discover(include_full=True)
-    bundle = json.loads(catalog_bundle_json())
-    return TypeCatalog(bundle)
+    return TypeCatalog({
+        "schema_version": _CATALOG_SCHEMA_VERSION,
+        "types": list(_TYPE_REGISTRY.values()),
+        "nodes": [
+            definition for node_id, definition in _CATALOG.items()
+            if node_id not in _INTERNAL_NODE_IDS
+        ],
+    })
 
 
 def _iter_shapes(value):

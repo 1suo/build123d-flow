@@ -179,6 +179,8 @@ def build_type_registry(classes, nodes):
 class TypeCatalog:
     """Resolve types, inheritance, and native operator nodes from serialized metadata."""
 
+    SCHEMA_VERSION = SCHEMA_VERSION
+
     def __init__(self, bundle: Mapping[str, Any]):
         if not isinstance(bundle, Mapping):
             raise CatalogError("Catalog bundle must be an object")

@@ -964,6 +964,20 @@ def run_python_import_tests():
     if sequence_result["socket_values"][length_node["id"]]["result"]["value"] != 24:
         raise AssertionError("ShapeList concatenation did not preserve both source collections")
 
+    assertion_graph = runtime.import_python_code(
+        "from build123d import Box\n"
+        "shape = Box(2, 2, 2)\n"
+        "assert abs(shape.volume - 8.0) < 1e-6, 'volume mismatch'\n"
+    )
+    assertion_result = json.loads(runtime.evaluate_graph_json(json.dumps(assertion_graph)))
+    if assertion_result["errors"]:
+        raise AssertionError("Graph-dependent Python assertion failed: " + json.dumps(assertion_result["errors"]))
+    if not any(
+        node["data"]["definition"]["id"] == "core.python.assert"
+        for node in assertion_graph["nodes"]
+    ):
+        raise AssertionError("Graph-dependent assert was not represented in the procedural graph")
+
     # This is the important round-trip boundary: source -> native graph -> evaluator.
     source = (
         "from build123d import Box, Cylinder\n"

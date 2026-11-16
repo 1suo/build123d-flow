@@ -221,8 +221,12 @@ class TypeCatalog:
             )
         raw_types = bundle.get("types")
         raw_nodes = bundle.get("nodes")
+        raw_symbols = bundle.get("symbols", {})
         if not isinstance(raw_types, list) or not isinstance(raw_nodes, list):
             raise CatalogError("Catalog bundle must contain type and node arrays")
+        if not isinstance(raw_symbols, Mapping):
+            raise CatalogError("Catalog symbols must be an object")
+        self.symbols = dict(raw_symbols)
         self.types = {}
         self.nodes = {}
         self._short_names = {}

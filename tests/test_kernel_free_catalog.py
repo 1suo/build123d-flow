@@ -251,6 +251,37 @@ result = Location() * ShapeList([Box(10, 10, 10)])
             "reflected result",
         )
 
+    def test_kernel_timeout_escalates_from_terminate_to_kill(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        from test_upstream_kernel import stop_worker
+
+        class StubbornWorker:
+            def __init__(self):
+                self.alive = True
+                self.terminated = False
+                self.killed = False
+
+            def is_alive(self):
+                return self.alive
+
+            def terminate(self):
+                self.terminated = True
+
+            def join(self, timeout=None):
+                # Simulate a native call that ignores SIGTERM.
+                return None
+
+            def kill(self):
+                self.killed = True
+                self.alive = False
+
+        worker = StubbornWorker()
+        stop_worker(worker)
+        self.assertTrue(worker.terminated)
+        self.assertTrue(worker.killed)
+        self.assertFalse(worker.is_alive())
+
     def test_context_manager_translation_uses_catalog_metadata(self):
         manager = self.catalog.resolve_type("BuildPart")
         self.assertTrue(manager["supports_context_manager"])

@@ -2003,6 +2003,12 @@ def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None
             inferred = "list"
 
     visiting.remove(key)
+    # A node mapped over multiple independent Python loop sources returns a
+    # nested result tree even when its individual result socket is scalar.
+    # Without this, the next operation sees the whole inner list as one scalar
+    # and applies operators/methods to a list instead of each loop item.
+    if len(loop_sources) > 1 and inferred in ("list", "tree"):
+        inferred = "tree"
     if declared in ("list", "tuple") and inferred in ("list", "tree"):
         result = "tree"
     else:

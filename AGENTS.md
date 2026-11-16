@@ -108,6 +108,21 @@ Exported Python must be executable against the pinned build123d API. For support
 
 build123d builder/context-manager APIs have lifecycle and scope semantics. Do not expose them as ordinary one-shot nodes unless the graph model explicitly represents their enter/body/exit lifecycle and nesting. A construct that cannot be represented faithfully must be reported as unsupported, not approximated.
 
+### 4.6 Kernel-agnostic procedural node boundary
+
+The procedural graph and Python translator are kernel-independent. build123d is one provider, not the graph's ontology or execution model.
+
+- The graph IR describes operations, values, dependencies, collection structure, execution scopes, and effects. It must not require build123d class names, module paths, or OCP objects to define core graph semantics.
+- Kernel/provider adapters own discovery and binding of native constructors, functions, methods, properties, operators, type relationships, and runtime values. A provider maps its real Python API into the shared graph contracts; it does not rewrite that API.
+- Node identity is provider-qualified and stable. Display names and concrete class names are not dispatch rules. Calls resolve through provider metadata and Python's actual callable/MRO semantics, including overloads and argument kinds.
+- The importer is a language front end: parse Python AST, resolve Python names and protocols, then lower supported constructs into the shared IR. It must not contain a growing list of build123d-specific special cases in place of general Python semantics.
+- The evaluator executes IR operations through the selected provider. It preserves Python values and collection shape, and it distinguishes scalar values, collection structure, item mapping, and nested mapping.
+- Builder/context-manager lifecycles, loop scopes, class/function scopes, and side effects are explicit IR constructs when supported. They must never be approximated as stateless calls.
+- A provider-neutral test fixture must exercise discovery, call resolution, argument binding, operator dispatch, collection mapping, scopes, and import/export without importing build123d. build123d acceptance tests then validate the provider adapter against the real kernel.
+- Any feature not yet represented faithfully must fail with a source-located diagnostic. Do not special-case an upstream example to make it appear supported.
+
+This section is an architectural requirement, not a claim that the current implementation already satisfies it. Delivery status must identify any remaining build123d coupling in the importer, evaluator, or graph schema.
+
 ## 5. Testing contract
 
 The authoritative validation target is the real browser application using the pinned runtime and actual upstream build123d examples.

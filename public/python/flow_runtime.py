@@ -1717,6 +1717,7 @@ def load_catalog_bundle(payload):
     global _CATALOG_HINT_TARGETS, _TYPE_REGISTRY, _DISCOVERY_REPORT
     bundle = json.loads(payload) if isinstance(payload, str) else dict(payload)
     catalog = TypeCatalog(bundle)
+    _INTERNAL_NODE_IDS.clear()
     definitions = {item["id"]: dict(item) for item in bundle["nodes"]}
     callables = {}
     signatures = {}

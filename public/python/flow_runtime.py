@@ -3523,7 +3523,7 @@ def import_python_code(source):
             "__add__": operator.add, "__sub__": operator.sub,
             "__mul__": operator.mul, "__truediv__": operator.truediv,
             "__floordiv__": operator.floordiv, "__mod__": operator.mod,
-            "__pow__": operator.pow, "__and__": operator.and_,
+            "__pow__": operator.pow, "__matmul__": operator.matmul, "__and__": operator.and_,
             "__or__": operator.or_, "__xor__": operator.xor,
             "__lshift__": operator.lshift, "__rshift__": operator.rshift,
         }
@@ -3531,7 +3531,7 @@ def import_python_code(source):
             "__add__": "__radd__", "__sub__": "__rsub__",
             "__mul__": "__rmul__", "__truediv__": "__rtruediv__",
             "__floordiv__": "__rfloordiv__", "__mod__": "__rmod__",
-            "__pow__": "__rpow__", "__and__": "__rand__",
+            "__pow__": "__rpow__", "__matmul__": "__rmatmul__", "__and__": "__rand__",
             "__or__": "__ror__", "__xor__": "__rxor__",
             "__lshift__": "__rlshift__", "__rshift__": "__rrshift__",
         }
@@ -4192,7 +4192,7 @@ def import_python_code(source):
                         unpack_node = add_node(
                             unpack_id, {"index": element_index},
                             [("value", iterable[1], iterable[2])],
-                            generator.lineno,
+                            node.lineno,
                         )
                         variables[name] = ("ref", unpack_node, "result", element_type)
                 stream_variables.update(target_names)
@@ -4653,7 +4653,7 @@ def import_python_code(source):
                 created = add_node(definition_id, params, links, node.lineno)
                 return ("ref", created, "result", "Any")
             if isinstance(node.func, ast.Name) and node.func.id in {
-                "range", "enumerate", "zip", "len", "min", "max", "abs", "round",
+                "range", "enumerate", "zip", "len", "min", "max", "abs", "round", "print",
                 "str", "int", "float", "bool", "list", "tuple", "sorted", "reversed",
                 "all", "any", "sum", "divmod", "pow"
             }:
@@ -4662,6 +4662,31 @@ def import_python_code(source):
                     keyword.arg: expression(keyword.value) for keyword in node.keywords
                     if keyword.arg is not None
                 }
+                if node.func.id == "print":
+                    definition_id = "core.python.builtin.print"
+                    supplied = [("arg_{}".format(i), value) for i, value in enumerate(builtin_args)]
+                    supplied.extend(builtin_kwargs.items())
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "Python print", "source": "python",
+                        "kind": "operation", "category": "Internal", "palette_category": "Python",
+                        "palette_section": "Builtins",
+                        "inputs": [{"name": name, "type": "Any", "required": True} for name, _ in supplied],
+                        "outputs": [{"name": "result", "type": "Any"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = print
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY) for name, _ in supplied
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    params, links = {}, []
+                    for name, value in supplied:
+                        if value[0] == "literal":
+                            params[name] = literal_json_value(value[1])
+                        else:
+                            links.append((name, value[1], value[2]))
+                    created = add_node(definition_id, params, links, node.lineno)
+                    return ("ref", created, "result", "Any")
                 if all(item[0] == "literal" for item in builtin_args) and all(item[0] == "literal" for item in builtin_kwargs.values()):
                     functions = {
                         "range": range, "enumerate": enumerate, "zip": zip, "len": len,
@@ -5804,11 +5829,8 @@ def import_python_code(source):
                     receiver = expression(call.func.value)
                     value = expression(call.args[0])
                     if receiver[0] != "ref" or value[0] != "ref":
-                        raise ValueError(
-                            "List.{} requires graph-backed list inputs at line {}".format(
-                                call.func.attr, statement.lineno
-                            )
-                        )
+                        expression(statement.value)
+                        continue
                     definition_id = (
                         "core.list.append" if call.func.attr == "append"
                         else "core.list.extend"

@@ -88,28 +88,30 @@ def _serialize_discovered_value(value, depth=0):
     return None
 
 
-def build_symbol_registry(module):
-    """Discover root-package exports, including aliases and unit constants."""
+def build_symbol_registry(module, modules=()):
+    """Discover public package exports and module-level APIs without name allowlists."""
     symbols = {}
-    for exported_name, value in vars(module).items():
-        if exported_name.startswith("_"):
+    candidates = [module] + [item for item in modules if item is not module]
+    for candidate_module in candidates:
+        for exported_name, value in vars(candidate_module).items():
+            if exported_name.startswith("_"):
             continue
-        module_name = getattr(value, "__module__", "")
-        if inspect.isclass(value) and module_name.split(".")[0] == "build123d":
-            symbols[exported_name] = {
+            module_name = getattr(value, "__module__", "")
+            if inspect.isclass(value) and module_name.split(".")[0] == "build123d":
+                symbols.setdefault(exported_name = {
                 "kind": "type",
                 "type_id": _qualified_name(value),
             }
             continue
-        if callable(value) and module_name.split(".")[0] == "build123d":
-            symbols[exported_name] = {
+            if callable(value) and module_name.split(".")[0] == "build123d":
+                symbols.setdefault(exported_name = {
                 "kind": "callable",
                 "id": module_name + "." + getattr(value, "__name__", exported_name),
             }
             continue
-        serialized = _serialize_discovered_value(value)
-        if serialized is not None:
-            symbols[exported_name] = {
+            serialized = _serialize_discovered_value(value)
+            if serialized is not None:
+                symbols.setdefault(exported_name = {
                 "kind": "value",
                 "value": serialized,
             }

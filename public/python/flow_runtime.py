@@ -5939,6 +5939,34 @@ def import_python_code(source):
         node["data"]["visible"] = output_type in {"Shape", "Solid", "Compound", "Part", "Sketch"}
         return ("ref", node_id, "result")
 
+    def prepare_user_class_attributes(class_name):
+        class_info = user_classes.get(class_name)
+        if class_info is None or class_info.get("attributes_prepared"):
+            return
+        saved_variables = dict(variables)
+        class_values = {}
+        try:
+            for statement in class_info.get("class_attributes", []):
+                if isinstance(statement, ast.Assign):
+                    value_node = statement.value
+                    targets = statement.targets
+                else:
+                    value_node = statement.value
+                    targets = [statement.target]
+                if value_node is None:
+                    continue
+                value = expression(value_node)
+                for target in targets:
+                    if not isinstance(target, ast.Name):
+                        raise ValueError("Class attributes must use simple names (line {})".format(statement.lineno))
+                    variables[target.id] = value
+                    class_values[target.id] = value
+            class_info["attributes"] = class_values
+            class_info["attributes_prepared"] = True
+        finally:
+            variables.clear()
+            variables.update(saved_variables)
+
     def process_statements(statements):
         nonlocal scope_counter, mapping_matching
 
@@ -5988,6 +6016,10 @@ def import_python_code(source):
         for statement_index, statement in enumerate(statements):
             if function_return_stack and function_return_stack[-1] is not no_function_return:
                 break
+            if isinstance(statement, ast.ClassDef):
+                if statement.name in user_classes:
+                    prepare_user_class_attributes(statement.name)
+                continue
             if isinstance(statement, (ast.Import, ast.ImportFrom, ast.ClassDef, ast.FunctionDef)):
                 continue
             if isinstance(statement, ast.Return):

@@ -3220,6 +3220,7 @@ def import_python_code(source):
     active_loop_frames = []
     active_scope_ids = []
     execution_scopes = []
+    scope_result_nodes = {}
     scope_counter = 0
     counter = 0
 
@@ -4314,6 +4315,14 @@ def import_python_code(source):
                     descriptor = next((item for item in execution_scopes if item.get("id") == scope_id), {})
                     if node.attr == descriptor.get("result_attribute"):
                         return receiver
+                if receiver_node and receiver_node.get("data", {}).get("scope_binding"):
+                    scope_id = receiver_node["data"]["scope_binding"]
+                    descriptor = next((item for item in execution_scopes if item.get("id") == scope_id), {})
+                    result_node_id = scope_result_nodes.get(scope_id)
+                    if result_node_id and node.attr == descriptor.get("result_attribute"):
+                        result_node = next((item for item in graph_nodes if item["id"] == result_node_id), None)
+                        result_output = next(iter(result_node.get("data", {}).get("definition", {}).get("outputs", [])), {}) if result_node else {}
+                        return ("ref", result_node_id, "result", result_output.get("type", "Any"))
                 definition_id, candidates = resolve_member(
                     node.attr, receiver_type, property_only=True
                 )

@@ -72,9 +72,14 @@ def validate_graph(graph, filename):
         node_map[node_id] = node
         definition = node.get("data", {}).get("definition")
         definition_id = definition.get("id") if isinstance(definition, dict) else None
+        generated_scope_definitions = {
+            "core.python.scope.binding",
+            "core.python.scope.result",
+        }
         if not isinstance(definition_id, str) or (
             definition_id not in runtime._CATALOG
             and definition_id not in runtime._INTERNAL_NODE_IDS
+            and definition_id not in generated_scope_definitions
         ):
             raise ValueError(
                 "{}: node {} references an unregistered definition {}".format(

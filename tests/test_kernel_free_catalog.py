@@ -119,7 +119,7 @@ result = box + cylinder
 
         definition_id = next(
             identity for identity in runtime._CATALOG
-            if identity.startswith("core.python.collect")
+            if identity.split(".overload-", 1)[0].endswith(".Box")
         )
         definition = runtime._CATALOG[definition_id]
         embedded = dict(definition)

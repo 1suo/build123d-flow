@@ -15,7 +15,7 @@ import operator
 
 import build123d as b3d
 from type_catalog import SCHEMA_VERSION as _CATALOG_SCHEMA_VERSION
-from type_catalog import TypeCatalog, build_type_registry
+from type_catalog import CatalogError, TypeCatalog, build_type_registry
 
 _CATALOG = {}
 _CATALOG_CALLABLES = {}
@@ -2826,6 +2826,14 @@ def import_python_code(source):
     if not _DISCOVERY_REPORT.get("include_full"):
         discover(include_full=True)
     definitions = _CATALOG
+    type_catalog = _type_catalog()
+
+    def discovered_subtype(actual_type, expected_type):
+        try:
+            return type_catalog.is_subtype(actual_type, expected_type)
+        except CatalogError:
+            return False
+
     def resolve_member(member_name, receiver_type, property_only=False):
         """Resolve one catalog method/property using its receiver socket contract."""
         candidates = []
@@ -2844,18 +2852,10 @@ def import_python_code(source):
             if receiver_type in accepted:
                 score = 3
             else:
-                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
-                compatible = False
-                if inspect.isclass(actual_class):
-                    for accepted_type in accepted:
-                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
-                        if inspect.isclass(expected_class):
-                            try:
-                                if issubclass(actual_class, expected_class):
-                                    compatible = True
-                                    break
-                            except TypeError:
-                                pass
+                compatible = any(
+                    discovered_subtype(receiver_type, accepted_type)
+                    for accepted_type in accepted
+                )
                 if compatible:
                     score = 2
                 elif "Any" in accepted:
@@ -3261,21 +3261,11 @@ def import_python_code(source):
             if receiver is None:
                 return None
             accepted = receiver.get("variants") or [receiver.get("type", "Any")]
-            if receiver_type not in accepted:
-                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
-                compatible = False
-                if inspect.isclass(actual_class):
-                    for accepted_type in accepted:
-                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
-                        if inspect.isclass(expected_class):
-                            try:
-                                if issubclass(actual_class, expected_class):
-                                    compatible = True
-                                    break
-                            except TypeError:
-                                pass
-                if not compatible:
-                    return None
+            if receiver_type not in accepted and not any(
+                discovered_subtype(receiver_type, accepted_type)
+                for accepted_type in accepted
+            ):
+                return None
             argument = next((
                 socket for socket in definition.get("inputs", [])
                 if socket.get("name") not in {"self", "cls"}
@@ -4582,7 +4572,7 @@ def import_python_code(source):
                 "Plane", "Axis", "Color", "Matrix",
             }:
                 return add_python_binary_node(method, left, right, node.lineno)
-            receiver_class = None
+            receiver_identity = None
             if left[0] == "ref":
                 receiver_node = next(
                     (item for item in graph_nodes if item["id"] == left[1]), None
@@ -4591,34 +4581,27 @@ def import_python_code(source):
                     receiver_definition_id = (
                         receiver_node.get("data", {}).get("definition", {}).get("id")
                     )
-                    # Resolve the native constructor class directly. The general
-                    # callable resolver prefers catalog wrappers, which can hide
-                    # the Python class needed for native operator MRO dispatch.
-                    try:
-                        if not isinstance(receiver_definition_id, str) or "." not in receiver_definition_id:
-                            raise ValueError("Invalid receiver definition id")
-                        module_name, attr_name = receiver_definition_id.rsplit(".", 1)
-                        receiver_module = importlib.import_module(module_name)
-                        receiver_callable = getattr(receiver_module, attr_name)
-                    except (ImportError, AttributeError, ValueError):
-                        receiver_callable = None
-                    if inspect.isclass(receiver_callable):
-                        receiver_class = receiver_callable
-            if receiver_class is None and receiver_type:
-                receiver_class_name = {"Vector3": "Vector"}.get(receiver_type, receiver_type)
-                receiver_class = getattr(b3d, receiver_class_name, None)
+                    if isinstance(receiver_definition_id, str):
+                        candidate_identity = receiver_definition_id.split(
+                            ".overload-", 1
+                        )[0]
+                        if candidate_identity in type_catalog.types:
+                            receiver_identity = candidate_identity
+            if receiver_identity is None and receiver_type:
+                try:
+                    receiver_identity = type_catalog.resolve_type(receiver_type)["id"]
+                except CatalogError:
+                    receiver_identity = None
+
             definition_id = None
-            if inspect.isclass(receiver_class):
-                for owner in receiver_class.__mro__:
-                    candidate_id = (
-                        owner.__module__ + "." + owner.__name__ + ".operator." + method
-                    )
-                    if candidate_id in definitions:
-                        definition_id = candidate_id
-                        break
+            if receiver_identity is not None:
+                try:
+                    definition_id = type_catalog.resolve_operator(receiver_identity, method)
+                except CatalogError:
+                    definition_id = None
             if definition_id is None:
-                # Unknown/abstract receiver types may not map to an exported
-                # class. In that case only accept an unambiguous catalog entry.
+                # Unknown or non-build123d receiver types may use a native
+                # operator only when discovery leaves exactly one candidate.
                 candidates = [
                     key for key in definitions if key.endswith(".operator." + method)
                 ]

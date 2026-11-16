@@ -4117,6 +4117,74 @@ def import_python_code(source):
 
     def expression(node, expected_type=None):
         nonlocal mapping_matching
+        if isinstance(node, ast.JoinedStr):
+            template_parts, formatted_values = [], []
+            all_literal = True
+            for part in node.values:
+                if isinstance(part, ast.Constant):
+                    template_parts.append(str(part.value))
+                    continue
+                if not isinstance(part, ast.FormattedValue):
+                    raise ValueError("Unsupported f-string component at line {}".format(node.lineno))
+                value = expression(part.value)
+                conversion = {ord("r"): "!r", ord("s"): "!s", ord("a"): "!a"}.get(part.conversion, "")
+                format_spec = ""
+                if part.format_spec is not None:
+                    spec_value = expression(part.format_spec)
+                    if spec_value[0] != "literal":
+                        raise ValueError("Dynamic f-string format specifications are unsupported (line {})".format(node.lineno))
+                    format_spec = ":" + str(spec_value[1])
+                if value[0] == "literal":
+                    raw = materialize_literal(value[1])
+                    if part.conversion == ord("r"):
+                        raw = repr(raw)
+                    elif part.conversion == ord("a"):
+                        raw = ascii(raw)
+                    elif part.conversion == ord("s"):
+                        raw = str(raw)
+                    template_parts.append(format(raw, format_spec[1:]) if format_spec else str(raw))
+                else:
+                    all_literal = False
+                    placeholder = "{{{}}}".format(len(formatted_values))
+                    if conversion:
+                        placeholder = "{{{}{}{}}}".format(
+                            len(formatted_values), conversion, format_spec
+                        )
+                    elif format_spec:
+                        placeholder = "{{{}:{}}}".format(len(formatted_values), format_spec[1:])
+                    template_parts.append(placeholder)
+                    formatted_values.append(value)
+            template = "".join(template_parts)
+            if all_literal:
+                return ("literal", template)
+            definition_id = "core.python.format"
+            def format_python_string(template, **values):
+                ordered = [values["arg_{}".format(i)] for i in range(len(formatted_values))]
+                return template.format(*ordered)
+            supplied = [("template", ("literal", template))]
+            supplied.extend(("arg_{}".format(i), value) for i, value in enumerate(formatted_values))
+            definitions[definition_id] = {
+                "id": definition_id, "name": "Python f-string",
+                "source": "python", "kind": "operation", "category": "Internal",
+                "palette_category": "Python", "palette_section": "Expressions",
+                "inputs": [{"name": name, "type": "String" if name == "template" else "Any", "required": True}
+                           for name, _ in supplied],
+                "outputs": [{"name": "result", "type": "String"}],
+            }
+            _INTERNAL_NODE_IDS.add(definition_id)
+            _CATALOG_CALLABLES[definition_id] = format_python_string
+            _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY) for name, _ in supplied
+            ])
+            _CATALOG_HINT_TARGETS[definition_id] = False
+            params, links = {"template": template}, []
+            for name, value in supplied[1:]:
+                if value[0] == "literal":
+                    params[name] = literal_json_value(value[1])
+                else:
+                    links.append((name, value[1], value[2]))
+            created = add_node(definition_id, params, links, node.lineno)
+            return ("ref", created, "result", "String")
         if isinstance(node, ast.Constant):
             return ("literal", node.value)
         if isinstance(node, ast.Set):
@@ -5869,6 +5937,10 @@ def import_python_code(source):
                 continue
             if isinstance(statement, ast.Expr):
                 if is_viewer_call(statement.value):
+                    for argument in statement.value.args:
+                        expression(argument)
+                    for keyword in statement.value.keywords:
+                        expression(keyword.value)
                     continue
                 # Python list.extend mutates its receiver and returns None.
                 # Represent that mutation as a new list node and rebind the
@@ -6091,20 +6163,28 @@ def import_python_code(source):
                     process_statements(statement.orelse)
                 continue
             if isinstance(statement, ast.AugAssign):
-                if not isinstance(statement.target, ast.Name):
-                    raise ValueError("Only simple augmented assignments are supported (line {})".format(statement.lineno))
-                if statement.target.id not in variables:
+                if not isinstance(statement.target, (ast.Name, ast.Attribute)):
+                    raise ValueError("Augmented assignment requires a name or attribute target (line {})".format(statement.lineno))
+                if isinstance(statement.target, ast.Name) and statement.target.id not in variables:
                     raise ValueError("Unresolved augmented-assignment target '{}' at line {}".format(
                         statement.target.id, statement.lineno))
                 combined = ast.BinOp(
-                    left=ast.Name(id=statement.target.id, ctx=ast.Load()),
+                    left=statement.target,
                     op=statement.op,
                     right=statement.value,
                 )
                 ast.copy_location(combined, statement)
-                variables[statement.target.id] = expression(combined)
+                assigned = expression(combined)
+                if isinstance(statement.target, ast.Name):
+                    variables[statement.target.id] = assigned
+                else:
+                    assign_target(statement.target, assigned, statement.lineno)
                 continue
-            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                user_functions[statement.name] = statement
+                continue
+            if isinstance(statement, ast.ClassDef):
+                user_classes[statement.name] = statement
                 continue
             if isinstance(statement, ast.Return):
                 raise _FunctionReturn(

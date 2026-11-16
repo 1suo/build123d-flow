@@ -12,12 +12,16 @@ class DependencyClosureTests(unittest.TestCase):
             setup = Path(directory) / "setup.py"
             setup.write_text(
                 'import micropip\n'
-                'micropip.add_mock_package("lib3mf", "2.4.1")\n'
+                'PROVIDED_IMPORTS = {"lib3mf": "lib3mf-OCP.wasm==2.5.0.post202609241713"}\n'
+                'micropip.add_mock_package("pillow", "12.2.0")\n'
                 'await micropip.install(["build123d==0.13.0"])\n'
             )
-            roots, mocks = MODULE["setup_roots"](setup)
-        self.assertEqual({r.name for r in roots}, {"micropip", "build123d", "scipy"})
-        self.assertEqual(mocks, {"lib3mf"})
+            roots, provided = MODULE["setup_roots"](setup)
+        self.assertEqual(
+            {r.name for r in roots},
+            {"micropip", "build123d", "scipy", "lib3mf-OCP.wasm"},
+        )
+        self.assertEqual(provided, {"lib3mf", "pillow"})
 
     def test_transitive_pypi_dependency_stages_pyodide_package(self):
         class FixtureResolver(MODULE["Resolver"]):
@@ -42,7 +46,16 @@ class DependencyClosureTests(unittest.TestCase):
         resolver = FixtureResolver(lock, {"cadquery-ocp-novtk", "lib3mf"})
         resolver.add(Requirement("micropip"))
         resolver.add(Requirement("build123d==0.13.0"))
+        resolver.add(Requirement("lib3mf-OCP.wasm==2.5.0.post202609241713"))
         self.assertEqual(resolver.required, {"micropip", "svgwrite", "python-dateutil"})
+        self.assertIn("lib3mf-ocp-wasm", resolver.external)
+
+    def test_setup_uses_the_unmodified_upstream_mesher(self):
+        setup_source = (Path(__file__).parents[1] / "public" / "python" / "setup.py").read_text(encoding="utf-8")
+        self.assertIn('"lib3mf": "lib3mf-OCP.wasm==2.5.0.post202609241713"', setup_source)
+        self.assertNotIn("_BrowserMesher", setup_source)
+        self.assertNotIn("build123d_mesher.Mesher =", setup_source)
+        self.assertNotIn("build123d.Mesher =", setup_source)
 
 if __name__ == "__main__":
     unittest.main()

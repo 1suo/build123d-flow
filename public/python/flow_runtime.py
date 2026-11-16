@@ -12,6 +12,7 @@ import types
 import collections.abc
 import hashlib
 import operator
+import functools
 
 import build123d as b3d
 
@@ -4549,6 +4550,73 @@ def import_python_code(source):
                 candidate = resolve_safe_stdlib_attribute(node.func)
                 if candidate is not None and callable(candidate):
                     safe_callable = candidate
+            if safe_callable is functools.reduce:
+                if len(node.args) not in (2, 3) or node.keywords:
+                    raise ValueError("functools.reduce requires a reducer, iterable, and optional initial value (line {})".format(node.lineno))
+                reducer_node = node.args[0]
+                reducer = None
+                if isinstance(reducer_node, ast.Attribute):
+                    reducer = resolve_safe_stdlib_attribute(reducer_node)
+                elif isinstance(reducer_node, ast.Name):
+                    reducer = resolve_safe_stdlib_name(reducer_node.id)
+                if getattr(reducer, "__module__", None) != "operator":
+                    raise ValueError("Graph-backed functools.reduce currently requires a native operator function (line {})".format(node.lineno))
+                reducer_name = getattr(reducer, "__name__", "")
+                if reducer_name not in {
+                    "add", "sub", "mul", "truediv", "floordiv", "mod",
+                    "pow", "and_", "or_", "xor", "matmul",
+                }:
+                    raise ValueError("Unsupported reduce operator '{}' (line {})".format(reducer_name, node.lineno))
+                iterable = expression(node.args[1])
+                initial = expression(node.args[2]) if len(node.args) == 3 else None
+                if iterable[0] == "literal" and (initial is None or initial[0] == "literal"):
+                    values = materialize_literal(iterable[1])
+                    function = getattr(operator, reducer_name)
+                    return ("literal", functools.reduce(
+                        function, values,
+                        materialize_literal(initial[1]) if initial is not None else _MISSING,
+                    ) if initial is not None else functools.reduce(function, values))
+                definition_id = "core.python.reduce"
+                output_type = reference_type(initial) if initial is not None else iterable_item_metadata(iterable)[0]
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "Python reduce",
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Internal", "palette_section": "Graph lowering",
+                    "inputs": [
+                        {"name": "operation", "type": "String", "required": True},
+                        {"name": "iterable", "type": "Any", "required": True, "data_access": "structure"},
+                        {"name": "initial", "type": "Any", "required": False, "default": None, "data_access": "structure"},
+                        {"name": "has_initial", "type": "Boolean", "required": True},
+                    ],
+                    "outputs": [{"name": "result", "type": output_type}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+                def reduce_values(operation_name, values, initial_value=None, has_initial=False):
+                    operation = getattr(operator, operation_name)
+                    return functools.reduce(operation, values, initial_value) if has_initial else functools.reduce(operation, values)
+                _CATALOG_CALLABLES[definition_id] = reduce_values
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter("operation_name", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("values", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("initial_value", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
+                    inspect.Parameter("has_initial", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=False),
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {
+                    "operation": reducer_name,
+                    "has_initial": initial is not None,
+                }, []
+                if iterable[0] == "literal":
+                    params["iterable"] = literal_json_value(iterable[1])
+                else:
+                    links.append(("iterable", iterable[1], iterable[2]))
+                if initial is not None:
+                    if initial[0] == "literal":
+                        params["initial"] = literal_json_value(initial[1])
+                    else:
+                        links.append(("initial", initial[1], initial[2]))
+                created = add_node(definition_id, params, links, node.lineno)
+                return ("ref", created, "result", output_type)
             if safe_callable is not None:
                 safe_args = [expression(argument) for argument in node.args]
                 safe_kwargs = {}

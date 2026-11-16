@@ -207,7 +207,7 @@ def main() -> int:
     }
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\\n",
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
         encoding="utf-8",
     )
     print("Gate 2: {}/{} examples executed".format(passed, len(results)))

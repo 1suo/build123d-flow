@@ -5318,6 +5318,23 @@ def import_python_code(source):
             if class_callable is not None:
                 return add_build123d_class_call(*class_callable, node)
 
+            if isinstance(node.func, ast.Attribute):
+                literal_receiver = expression(node.func.value)
+                if literal_receiver[0] == "literal" and node.func.attr in {"index", "count"}:
+                    literal_args = [expression(argument) for argument in node.args]
+                    literal_kwargs = {
+                        keyword.arg: expression(keyword.value) for keyword in node.keywords
+                        if keyword.arg is not None
+                    }
+                    if all(item[0] == "literal" for item in literal_args) and all(
+                        item[0] == "literal" for item in literal_kwargs.values()
+                    ):
+                        receiver_value = materialize_literal(literal_receiver[1])
+                        method = getattr(receiver_value, node.func.attr)
+                        return ("literal", method(
+                            *[materialize_literal(item[1]) for item in literal_args],
+                            **{name: materialize_literal(item[1]) for name, item in literal_kwargs.items()},
+                        ))
             definition_id = resolve_callable(node.func, node)
             receiver = None
             receiver_type = None
@@ -5344,6 +5361,28 @@ def import_python_code(source):
                         if candidates and definition_id is None:
                             raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
                                 node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
+            if not definition_id and isinstance(node.func, ast.Attribute) and node.func.attr == "tolist":
+                if receiver is None:
+                    receiver = expression(node.func.value)
+                if receiver[0] == "ref":
+                    definition_id = "core.python.method.tolist"
+                    def call_python_tolist(receiver):
+                        return receiver.tolist()
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "Python array to list",
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Internal", "palette_section": "Graph lowering",
+                        "inputs": [{"name": "receiver", "type": "Any", "required": True, "data_access": "item"}],
+                        "outputs": [{"name": "result", "type": "List", "data_structure": "list", "item_type": "Any"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = call_python_tolist
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter("receiver", inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    created = add_node(definition_id, {}, [("receiver", receiver[1], receiver[2])], node.lineno)
+                    return ("ref", created, "result", "List")
             if not definition_id:
                 raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
                     node.lineno, ast.unparse(node.func)))

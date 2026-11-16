@@ -229,7 +229,6 @@ for (const shard of SHARDS) {
       ...shard.smoke.map((source, index) => ({ filename: `smoke-${shard.name}-${index + 1}.py`, source })),
       ...upstreamSources,
     ];
-    const failures: string[] = [];
     const results: string[] = [];
 
     for (const { filename, source } of allSources) {
@@ -244,14 +243,15 @@ for (const shard of SHARDS) {
           results.push(filename + ": passed");
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          const safeName = filename.replace(/\\W+/g, "-");
           try {
             const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
-            await test.info().attach(filename.replace(/\W+/g, "-") + "-graph.json", {
+            await test.info().attach(safeName + "-graph.json", {
               body: JSON.stringify(graph, null, 2), contentType: "application/json"
             });
             try {
               const evaluation = await page.evaluate(() => (window as any).__build123dFlowTest.evaluateCurrentGraph());
-              await test.info().attach(filename.replace(/\W+/g, "-") + "-evaluation.json", {
+              await test.info().attach(safeName + "-evaluation.json", {
                 body: JSON.stringify(evaluation, null, 2), contentType: "application/json"
               });
             } catch (evaluationError) {
@@ -260,22 +260,24 @@ for (const shard of SHARDS) {
           } catch (diagnosticError) {
             await test.info().attach("evaluation-diagnostics-error.txt", { body: String(diagnosticError) });
           }
-          failures.push(filename + ": " + message);
-          const safeName = filename.replace(/\W+/g, "-");
           await test.info().attach(safeName + ".py", { body: source });
           await test.info().attach(safeName + "-failure.txt", { body: message });
           try {
             const entries = await page.locator(".viewport-log-entry").allTextContents();
-            await test.info().attach(safeName + "-activity-log.txt", { body: entries.join("\n") });
+            await test.info().attach(safeName + "-activity-log.txt", { body: entries.join("\\n") });
           } catch {
             // Preserve the original importer failure if the browser has closed.
           }
+          await test.info().attach("upstream-example-results.txt", { body: results.join("\\n") });
+          await test.info().attach("browser-errors.txt", { body: pageErrors.join("\\n") });
+          // Fail fast: later examples run on the next green iteration. Accumulating
+          // dozens of slow failures obscures the first root cause and wastes CI time.
+          throw error;
         }
       });
     }
-    await test.info().attach("upstream-example-results.txt", { body: [...results, ...failures].join("\n") });
-    await test.info().attach("browser-errors.txt", { body: pageErrors.join("\n") });
+    await test.info().attach("upstream-example-results.txt", { body: results.join("\\n") });
+    await test.info().attach("browser-errors.txt", { body: pageErrors.join("\\n") });
     expect(pageErrors, "no uncaught browser errors").toEqual([]);
-    expect(failures, "every example in this shard must import and evaluate").toEqual([]);
   });
 }

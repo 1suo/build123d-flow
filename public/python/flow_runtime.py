@@ -2326,6 +2326,10 @@ def evaluate_graph_json(payload):
         if isinstance(value, dict):
             if "__flow_tuple__" in value:
                 return tuple(restore_scope_value(item) for item in value["__flow_tuple__"])
+            if "__flow_attrgetter__" in value:
+                return operator.attrgetter(value["__flow_attrgetter__"])
+            if "__flow_attrgetter__" in value:
+                return operator.attrgetter(value["__flow_attrgetter__"])
             if "__flow_callable__" in value:
                 module_name, qualified_name = value["__flow_callable__"]
                 target = importlib.import_module(module_name)
@@ -3690,6 +3694,37 @@ def import_python_code(source):
                 current = current.value
             if isinstance(current, ast.Name):
                 root = current.id
+                owner_name = None
+                member_name = None
+                if len(path) == 1:
+                    owner_name = imported.get(root, root)
+                    member_name = path[0]
+                elif root in aliases and aliases[root] == "b3d" and len(path) == 2:
+                    owner_name, member_name = path[1], path[0]
+                if owner_name and member_name:
+                    try:
+                        owner_symbol = type_catalog.resolve_symbol(owner_name)
+                        if owner_symbol.get("kind") == "type":
+                            owner_record = type_catalog.resolve_type(owner_symbol["type_id"])
+                            if any(
+                                ".property." + member_name in member_id
+                                or ".field." + member_name in member_id
+                                for member_id in owner_record.get("member_node_ids", [])
+                            ):
+                                return ("literal", {"__flow_attrgetter__": member_name})
+                    except CatalogError:
+                        pass
+                if root in user_classes and len(path) == 1:
+                    for class_statement in user_classes[root].body:
+                        targets = (
+                            class_statement.targets if isinstance(class_statement, ast.Assign)
+                            else [class_statement.target] if isinstance(class_statement, ast.AnnAssign)
+                            else []
+                        )
+                        if any(isinstance(target, ast.Name) and target.id == path[0] for target in targets):
+                            class_value_node = class_statement.value
+                            if class_value_node is not None:
+                                return expression(class_value_node)
                 enum_type_name = None
                 enum_member_name = None
                 if root in aliases and aliases[root] == "b3d":

@@ -4662,7 +4662,7 @@ def import_python_code(source):
                 created = add_node(definition_id, params, links, node.lineno)
                 return ("ref", created, "result", "Any")
             if isinstance(node.func, ast.Name) and node.func.id in {
-                "range", "enumerate", "zip", "len", "min", "max", "abs", "round", "print",
+                "range", "enumerate", "zip", "len", "min", "max", "abs", "round", "print", "print",
                 "str", "int", "float", "bool", "list", "tuple", "sorted", "reversed",
                 "all", "any", "sum", "divmod", "pow"
             }:
@@ -4671,6 +4671,31 @@ def import_python_code(source):
                     keyword.arg: expression(keyword.value) for keyword in node.keywords
                     if keyword.arg is not None
                 }
+                if node.func.id == "print":
+                    definition_id = "core.python.builtin.print"
+                    supplied = [("arg_{}".format(i), value) for i, value in enumerate(builtin_args)]
+                    supplied.extend(builtin_kwargs.items())
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "Python print", "source": "python",
+                        "kind": "operation", "category": "Internal", "palette_category": "Python",
+                        "palette_section": "Builtins",
+                        "inputs": [{"name": name, "type": "Any", "required": True} for name, _ in supplied],
+                        "outputs": [{"name": "result", "type": "Any"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = print
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY) for name, _ in supplied
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    params, links = {}, []
+                    for name, value in supplied:
+                        if value[0] == "literal":
+                            params[name] = literal_json_value(value[1])
+                        else:
+                            links.append((name, value[1], value[2]))
+                    created = add_node(definition_id, params, links, node.lineno)
+                    return ("ref", created, "result", "Any")
                 if node.func.id == "print":
                     definition_id = "core.python.builtin.print"
                     supplied = [("arg_{}".format(i), value) for i, value in enumerate(builtin_args)]

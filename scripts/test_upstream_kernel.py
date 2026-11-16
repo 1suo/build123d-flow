@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "public" / "python"))
-EXAMPLE_TIMEOUT_SECONDS = int(os.environ.get("BUILD123D_EXAMPLE_TIMEOUT_SECONDS", "120"))
+EXAMPLE_TIMEOUT_SECONDS = int(os.environ.get("BUILD123D_EXAMPLE_TIMEOUT_SECONDS", "30"))
 
 
 def definition_ids(graph):

@@ -93,6 +93,25 @@ result = box + cylinder
         with self.assertRaisesRegex(ValueError, "unregistered definition"):
             validate_graph(graph, "fabricated.py")
 
+    def test_upstream_graph_validator_accepts_generated_scope_binding(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        from test_upstream_translator import validate_graph
+
+        graph = {
+            "nodes": [{
+                "id": "scope-binding",
+                "data": {"definition": {
+                    "id": "core.python.scope.binding",
+                    "inputs": [],
+                    "outputs": [{"name": "result", "type": "BuildPart"}],
+                }},
+            }],
+            "edges": [],
+        }
+        metrics = validate_graph(graph, "scope.py")
+        self.assertEqual(metrics["node_count"], 1)
+
     def test_call_adapter_forwards_extra_keywords_to_variadic_constructor(self):
         import inspect
 

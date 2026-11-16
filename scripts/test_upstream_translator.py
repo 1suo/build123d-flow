@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
-import re
 import sys
 import traceback
 import urllib.request
@@ -13,27 +12,38 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_DIR = ROOT / "public" / "python"
-SPEC_PATH = ROOT / "tests" / "e2e" / "upstream-examples.spec.ts"
+CORPUS_PATH = ROOT / "tests" / "upstream-examples.json"
 sys.path.insert(0, str(PYTHON_DIR))
 
 import flow_runtime as runtime
 
 
 def corpus():
-    source = SPEC_PATH.read_text(encoding="utf-8")
-    commit_match = re.search(r'const UPSTREAM_COMMIT = "([0-9a-f]{40})";', source)
-    examples_match = re.search(r"const EXAMPLES = \[(.*?)\];", source, re.S)
-    if not commit_match or not examples_match:
-        raise RuntimeError("Cannot read pinned upstream corpus from " + str(SPEC_PATH))
-    examples = re.findall(r'"([^"]+\.py)"', examples_match.group(1))
-    if not examples or len(examples) != len(set(examples)):
-        raise RuntimeError("Upstream corpus is empty or contains duplicate filenames")
-    return commit_match.group(1), examples
+    data = json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
+    repository = data.get("upstream_repository")
+    commit = data.get("commit")
+    examples = data.get("examples")
+    if (
+        not isinstance(repository, str)
+        or not isinstance(commit, str)
+        or not re_full_commit(commit)
+        or not isinstance(examples, list)
+        or not examples
+        or len(examples) != len(set(examples))
+    ):
+        raise RuntimeError("Invalid pinned upstream corpus: " + str(CORPUS_PATH))
+    if any(not isinstance(name, str) or not name.endswith(".py") for name in examples):
+        raise RuntimeError("Upstream corpus contains an invalid example filename")
+    return repository, commit, examples
 
 
-def fetch_example(commit: str, filename: str):
-    url = "https://raw.githubusercontent.com/gumyr/build123d/{}/examples/{}".format(
-        commit, filename
+def re_full_commit(value):
+    return len(value) == 40 and all(char in "0123456789abcdef" for char in value)
+
+
+def fetch_example(repository: str, commit: str, filename: str):
+    url = "https://raw.githubusercontent.com/{}/{}/examples/{}".format(
+        repository, commit, filename
     )
     request = urllib.request.Request(
         url, headers={"User-Agent": "build123d-flow-translator-acceptance/1"}
@@ -107,13 +117,13 @@ def main() -> int:
     if runtime.b3d is not None or "build123d" in sys.modules or "OCP" in sys.modules:
         raise SystemExit("Gate 1 must run without importing build123d or OCP")
     runtime.load_catalog_bundle(catalog_path.read_text(encoding="utf-8"))
-    commit, filenames = corpus()
+    repository, commit, filenames = corpus()
 
     fetched = {}
     failures = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
-            executor.submit(fetch_example, commit, filename): filename
+            executor.submit(fetch_example, repository, commit, filename): filename
             for filename in filenames
         }
         for future in concurrent.futures.as_completed(futures):
@@ -139,6 +149,7 @@ def main() -> int:
                 "filename": filename,
                 "passed": True,
                 "metrics": metrics,
+                "source": fetched[filename],
                 "graph": graph,
             })
             print("PASS {} ({} nodes, {} edges)".format(

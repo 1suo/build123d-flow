@@ -144,7 +144,7 @@ def main() -> int:
             results.append({"filename": filename, "passed": False, **failures[filename]})
             continue
         try:
-            graph = json.loads(runtime.import_python_code(fetched[filename]))
+            graph = runtime.import_python_code(fetched[filename])
             metrics = validate_graph(graph, filename)
             results.append({
                 "filename": filename,

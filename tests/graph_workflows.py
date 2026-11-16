@@ -1575,6 +1575,7 @@ def run_constructor_overload_tests():
         "    Line((0, 0), (10, 0)),\n"
         "    Line((10, 0), (10, 10)),\n"
         ")\n"
+        "profile_edge_count = len(profile.edges())\n"
         "wire = Wire(profile.edges())\n"
         "result = len(wire.edges())\n"
     )
@@ -1595,13 +1596,18 @@ def run_constructor_overload_tests():
     evaluated = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
     if evaluated["errors"]:
         raise AssertionError("Wire iterable constructor evaluation failed: " + json.dumps(evaluated["errors"]))
-    count_node = next(
+    count_nodes = [
         node for node in graph["nodes"]
         if node["data"]["definition"]["id"] == "core.python.builtin.len"
-    )
-    count = evaluated["socket_values"][count_node["id"]]["result"]
-    if count.get("value") != 2:
-        raise AssertionError("Wire(profile.edges()) must retain both edges: " + repr(count))
+    ]
+    if len(count_nodes) != 2:
+        raise AssertionError("Expected separate profile and Wire edge-count nodes")
+    profile_count = evaluated["socket_values"][count_nodes[0]["id"]]["result"]
+    wire_count = evaluated["socket_values"][count_nodes[1]["id"]]["result"]
+    if profile_count.get("value") != 2:
+        raise AssertionError("Curve addition did not preserve both profile edges: " + repr(profile_count))
+    if wire_count.get("value") != 2:
+        raise AssertionError("Wire(profile.edges()) must retain both edges: " + repr(wire_count))
     return {"name": "constructor overload selection", "wire_iterable_edges": True}
 
 

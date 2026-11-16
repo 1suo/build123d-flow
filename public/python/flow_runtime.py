@@ -4376,6 +4376,14 @@ def import_python_code(source):
                         [("value", receiver[1], receiver[2])], node.lineno,
                     )
                     return ("ref", created, "result", property_type)
+                # Python permits dynamic instance attributes and extension
+                # descriptors that are not declared on the discovered class.
+                # Preserve native getattr semantics rather than rejecting them.
+                created = add_node(
+                    _PYTHON_ATTRIBUTE_ID, {"name": node.attr},
+                    [("value", receiver[1], receiver[2])], node.lineno,
+                )
+                return ("ref", created, "result", "Any")
             path = []
             current = node
             while isinstance(current, ast.Attribute):
@@ -5692,13 +5700,13 @@ def import_python_code(source):
                 for scope_id, manager_name, optional in reversed(entered_contexts):
                     active_scope_ids.pop()
                     output_type = {
-                        "BuildPart": "Shape", "BuildSketch": "Sketch", "BuildLine": "Wire",
+                        "BuildPart": "Part", "BuildSketch": "Sketch", "BuildLine": "Wire",
                     }.get(manager_name, "Any")
                     should_emit_result = optional is not None or manager_name in {"BuildPart", "BuildSketch", "BuildLine"}
                     if should_emit_result:
                         result_node = add_scope_node(
                             scope_id, "result", statement.lineno, output_type,
-                            output_type in {"Shape", "Sketch", "Wire"}
+                            output_type in {"Shape", "Part", "Sketch", "Wire"}
                         )
                         if optional is not None:
                             variables[optional.id] = ("ref", result_node, "result")

@@ -4591,14 +4591,14 @@ def import_python_code(source):
                     "outputs": [{"name": "result", "type": output_type}],
                 }
                 _INTERNAL_NODE_IDS.add(definition_id)
-                def reduce_values(operation_name, values, initial_value=None, has_initial=False):
-                    operation = getattr(operator, operation_name)
-                    return functools.reduce(operation, values, initial_value) if has_initial else functools.reduce(operation, values)
+                def reduce_values(operation, iterable, initial=None, has_initial=False):
+                    reducer_function = getattr(operator, operation)
+                    return functools.reduce(reducer_function, iterable, initial) if has_initial else functools.reduce(reducer_function, iterable)
                 _CATALOG_CALLABLES[definition_id] = reduce_values
                 _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
-                    inspect.Parameter("operation_name", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-                    inspect.Parameter("values", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-                    inspect.Parameter("initial_value", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
+                    inspect.Parameter("operation", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("iterable", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("initial", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
                     inspect.Parameter("has_initial", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=False),
                 ])
                 _CATALOG_HINT_TARGETS[definition_id] = False

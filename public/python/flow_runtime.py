@@ -14,6 +14,8 @@ import hashlib
 import operator
 
 import build123d as b3d
+from type_catalog import SCHEMA_VERSION as _CATALOG_SCHEMA_VERSION
+from type_catalog import TypeCatalog, build_type_registry
 
 _CATALOG = {}
 _CATALOG_CALLABLES = {}
@@ -25,6 +27,7 @@ _CATALOG_HINT_TARGETS = {}
 _INTERNAL_NODE_IDS = set()
 _LAST_SHAPE = None
 _DISCOVERY_REPORT = {}
+_TYPE_REGISTRY = {}
 _EVAL_CACHE = {}
 _PREVIEW_CACHE = {}
 _CACHE_LIMIT = 128
@@ -1512,6 +1515,9 @@ def discover(include_full=True):
         report["palette_source_counts"][source] = report["palette_source_counts"].get(source, 0) + 1
         report["palette_category_counts"][source + "/" + category] = report["palette_category_counts"].get(source + "/" + category, 0) + 1
 
+    type_registry = build_type_registry(api_classes, found)
+    report["type_count"] = len(type_registry)
+    report["type_ids"] = sorted(type_registry)
     report["node_count"] = len(found)
     report["kind_counts"] = {}
     report["category_counts"] = {}
@@ -1529,8 +1535,9 @@ def discover(include_full=True):
         name: any(item["name"] == name for item in found.values())
         for name in ("Box", "Cylinder", "Rectangle", "Circle", "extrude", "revolve")
     }
-    global _DISCOVERY_REPORT
+    global _DISCOVERY_REPORT, _TYPE_REGISTRY
     _DISCOVERY_REPORT = report
+    _TYPE_REGISTRY = type_registry
     # Catalog replacement can change a node callable or signature; discard old values.
     _EVAL_CACHE.clear()
     _PREVIEW_CACHE.clear()
@@ -1558,6 +1565,40 @@ def catalog_json():
 
 def discover_full():
     return json.dumps(_json_clean(discover(include_full=True)), allow_nan=False)
+
+
+def type_catalog_json():
+    """Return the complete discovery-generated type registry as kernel-free JSON."""
+    if not _TYPE_REGISTRY:
+        discover(include_full=True)
+    return json.dumps(_json_clean(list(_TYPE_REGISTRY.values())), allow_nan=False)
+
+
+def catalog_bundle_json():
+    """Return versioned type and node registries for the kernel-free interpreter."""
+    if not _CATALOG:
+        discover(include_full=True)
+    try:
+        distribution_version = importlib.metadata.version("build123d")
+    except Exception:
+        distribution_version = getattr(b3d, "__version__", "unknown")
+    return json.dumps(_json_clean({
+        "schema_version": _CATALOG_SCHEMA_VERSION,
+        "build123d_version": distribution_version,
+        "types": list(_TYPE_REGISTRY.values()),
+        "nodes": [
+            definition for node_id, definition in _CATALOG.items()
+            if node_id not in _INTERNAL_NODE_IDS
+        ],
+    }), allow_nan=False)
+
+
+def _type_catalog():
+    """Create the pure-data resolver over the most recently discovered API."""
+    if not _TYPE_REGISTRY or not _CATALOG:
+        discover(include_full=True)
+    bundle = json.loads(catalog_bundle_json())
+    return TypeCatalog(bundle)
 
 
 def _iter_shapes(value):

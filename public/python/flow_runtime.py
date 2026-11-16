@@ -4042,7 +4042,9 @@ def import_python_code(source):
                     return {"__flow_object__": value["__flow_object__"], "args": [], "kwargs": {}}
                 return args if args else kwargs
             return {key: literal_json_value(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, tuple):
+            return {"__flow_tuple__": [literal_json_value(item) for item in value]}
+        if isinstance(value, list):
             return [literal_json_value(item) for item in value]
         return value
 

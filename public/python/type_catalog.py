@@ -12,7 +12,7 @@ import math
 from typing import Any, Mapping
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class CatalogError(ValueError):
@@ -86,6 +86,34 @@ def _serialize_discovered_value(value, depth=0):
     except Exception:
         return None
     return None
+
+
+def build_symbol_registry(module):
+    """Discover root-package exports, including aliases and unit constants."""
+    symbols = {}
+    for exported_name, value in vars(module).items():
+        if exported_name.startswith("_"):
+            continue
+        module_name = getattr(value, "__module__", "")
+        if inspect.isclass(value) and module_name.split(".")[0] == "build123d":
+            symbols[exported_name] = {
+                "kind": "type",
+                "type_id": _qualified_name(value),
+            }
+            continue
+        if callable(value) and module_name.split(".")[0] == "build123d":
+            symbols[exported_name] = {
+                "kind": "callable",
+                "id": module_name + "." + getattr(value, "__name__", exported_name),
+            }
+            continue
+        serialized = _serialize_discovered_value(value)
+        if serialized is not None:
+            symbols[exported_name] = {
+                "kind": "value",
+                "value": serialized,
+            }
+    return symbols
 
 
 def build_type_registry(classes, nodes):
@@ -233,6 +261,17 @@ class TypeCatalog:
                         identity, ", ".join(missing)
                     )
                 )
+
+    def resolve_symbol(self, name: str) -> Mapping[str, Any]:
+        """Resolve a public root-package export, including aliases and constants."""
+        symbol = self.symbols.get(name)
+        if symbol is not None:
+            return symbol
+        try:
+            record = self.resolve_type(name)
+        except CatalogError:
+            raise CatalogError("Unknown discovered build123d symbol: " + name)
+        return {"kind": "type", "type_id": record["id"]}
 
     def resolve_type(self, identity: str) -> Mapping[str, Any]:
         """Resolve a fully qualified type id or an unambiguous short class name."""

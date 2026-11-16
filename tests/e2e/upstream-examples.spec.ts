@@ -263,7 +263,7 @@ for (const shard of SHARDS) {
           const message = error instanceof Error ? error.message : String(error);
           const safeName = filename.replace(/\W+/g, "-");
           try {
-            const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
+            const graph = await withTimeout(page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph()), 5_000, "graph diagnostics");
             await test.info().attach(safeName + "-graph.json", {
               body: JSON.stringify(graph, null, 2), contentType: "application/json"
             });

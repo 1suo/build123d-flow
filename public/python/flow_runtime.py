@@ -3017,9 +3017,18 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
         if annotation is None:
             parameter = signature.parameters.get(name)
             annotation = parameter.annotation if parameter else None
+        globalns = (
+            getattr(target, "__globals__", None)
+            or getattr(callable_obj, "__globals__", {})
+        )
         if isinstance(annotation, str):
             try:
-                annotation = eval(annotation, getattr(target, "__globals__", {}))
+                annotation = eval(annotation, globalns)
+            except Exception:
+                pass
+        elif isinstance(annotation, typing.ForwardRef):
+            try:
+                annotation = eval(annotation.__forward_arg__, globalns)
             except Exception:
                 pass
         if annotation is not None and annotation is not inspect.Signature.empty:

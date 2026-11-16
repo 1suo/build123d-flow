@@ -15,7 +15,10 @@ class KernelFreeCatalogLoadTests(unittest.TestCase):
         catalog_path = os.environ.get("BUILD123D_CATALOG_PATH")
         if not catalog_path:
             self.skipTest("BUILD123D_CATALOG_PATH is not set")
-        self.catalog = TypeCatalog.from_json(Path(catalog_path).read_text(encoding="utf-8"))
+        payload = Path(catalog_path).read_text(encoding="utf-8")
+        self.bundle = json.loads(payload)
+        self.catalog = TypeCatalog(self.bundle)
+        self.load_result = runtime.load_catalog_bundle(payload)
 
     def test_loading_catalog_does_not_import_kernel(self):
         self.assertNotIn("build123d", sys.modules)
@@ -23,11 +26,8 @@ class KernelFreeCatalogLoadTests(unittest.TestCase):
 
     def test_production_runtime_loads_catalog_without_kernel(self):
         self.assertIsNone(runtime.b3d)
-        result = runtime.load_catalog_bundle(
-            Path(os.environ["BUILD123D_CATALOG_PATH"]).read_text(encoding="utf-8")
-        )
-        self.assertEqual(result["type_count"], len(self.catalog.types))
-        self.assertEqual(result["node_count"], len(self.catalog.nodes))
+        self.assertEqual(self.load_result["type_count"], len(self.catalog.types))
+        self.assertEqual(self.load_result["node_count"], len(self.catalog.nodes))
         self.assertIsNone(runtime.b3d)
         self.assertNotIn("build123d", sys.modules)
 

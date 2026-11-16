@@ -4152,7 +4152,7 @@ def import_python_code(source):
         return ("ref", created, "result", output_socket["type"])
 
     def expression(node, expected_type=None):
-        nonlocal mapping_matching
+        nonlocal mapping_matching, random_state_node
         if isinstance(node, ast.Constant):
             return ("literal", node.value)
         if isinstance(node, ast.Set):

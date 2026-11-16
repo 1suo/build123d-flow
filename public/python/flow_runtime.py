@@ -1593,7 +1593,7 @@ def catalog_bundle_json():
     try:
         distribution_version = importlib.metadata.version("build123d")
     except Exception:
-        distribution_version = getattr(b3d, "__version__", "unknown")
+        distribution_version = getattr(b3d, "__version__", "unknown") if b3d is not None else "unknown"
     return json.dumps(_json_clean({
         "schema_version": _CATALOG_SCHEMA_VERSION,
         "build123d_version": distribution_version,
@@ -1617,6 +1617,77 @@ def _type_catalog():
             if node_id not in _INTERNAL_NODE_IDS
         ],
     })
+
+
+def load_catalog_bundle(payload):
+    """Load generated API metadata without importing or initializing build123d."""
+    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES
+    global _CATALOG_HINT_TARGETS, _TYPE_REGISTRY, _DISCOVERY_REPORT
+    bundle = json.loads(payload) if isinstance(payload, str) else dict(payload)
+    catalog = TypeCatalog(bundle)
+    definitions = {item["id"]: dict(item) for item in bundle["nodes"]}
+    callables = {}
+    signatures = {}
+    hint_targets = {}
+    parameter_kinds = {
+        "positional_only": inspect.Parameter.POSITIONAL_ONLY,
+        "positional_or_keyword": inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        "var_positional": inspect.Parameter.VAR_POSITIONAL,
+        "keyword_only": inspect.Parameter.KEYWORD_ONLY,
+        "var_keyword": inspect.Parameter.VAR_KEYWORD,
+    }
+    for node_id, definition in definitions.items():
+        parameters = []
+        for socket in definition.get("inputs", []):
+            kind = parameter_kinds.get(
+                socket.get("kind"), inspect.Parameter.POSITIONAL_OR_KEYWORD
+            )
+            default = (
+                socket.get("default", inspect.Signature.empty)
+                if not socket.get("required", False)
+                else inspect.Signature.empty
+            )
+            annotation = socket.get("annotation") or socket.get("type", "Any")
+            parameters.append(inspect.Parameter(
+                socket["name"], kind, default=default, annotation=annotation
+            ))
+        outputs = definition.get("outputs", [])
+        return_annotation = (
+            outputs[0].get("annotation") or outputs[0].get("type", "Any")
+            if outputs else inspect.Signature.empty
+        )
+        try:
+            signatures[node_id] = inspect.Signature(
+                parameters, return_annotation=return_annotation
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "Invalid signature metadata for {}: {}".format(node_id, exc)
+            ) from exc
+        hint_targets[node_id] = False
+    _register_python_nodes(definitions, callables)
+    _CATALOG = definitions
+    _CATALOG_CALLABLES = callables
+    _CATALOG_SIGNATURES = signatures
+    _CATALOG_HINT_TARGETS = hint_targets
+    _TYPE_REGISTRY = dict(catalog.types)
+    _DISCOVERY_REPORT = {
+        "include_full": True,
+        "catalog_source": "generated",
+        "type_count": len(_TYPE_REGISTRY),
+        "node_count": len(_CATALOG),
+        "modules_visited": [],
+        "module_import_failures": [],
+        "rejected": [],
+        "accepted": [],
+    }
+    _EVAL_CACHE.clear()
+    _PREVIEW_CACHE.clear()
+    return {
+        "type_count": len(_TYPE_REGISTRY),
+        "node_count": len(_CATALOG),
+        "build123d_version": bundle.get("build123d_version", "unknown"),
+    }
 
 
 def _iter_shapes(value):

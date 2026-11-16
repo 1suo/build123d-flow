@@ -374,16 +374,18 @@ class PythonImportSourceTests(unittest.TestCase):
             self.assertIn(required, source)
 
 
-    def test_importer_allows_random_standard_library_module_used_by_upstream_examples(self):
+    def test_importer_allows_required_safe_python_modules(self):
         source = ast.unparse(self.importer)
         assignment = next(
             node for node in ast.walk(self.importer)
             if isinstance(node, ast.Assign)
-            and any(isinstance(target, ast.Name) and target.id == "safe_stdlib_modules"
+            and any(isinstance(target, ast.Name) and target.id == "safe_import_modules"
                     for target in node.targets)
         )
         allowed = ast.literal_eval(assignment.value)
         self.assertIn("random", allowed)
+        self.assertIn("typing", allowed)
+        self.assertIn("scipy.spatial", allowed)
 
 
 if __name__ == "__main__":

@@ -993,6 +993,19 @@ def run_python_import_tests():
     ):
         raise AssertionError("Dynamic math.sin was not represented as a graph operation")
 
+    random_order_graph = runtime.import_python_code(
+        "import random\n"
+        "random.seed(42)\n"
+        "values = [random.randint(1, 10) + random.randint(1, 10) for _ in range(2)]\n"
+    )
+    random_order_result = json.loads(runtime.evaluate_graph_json(json.dumps(random_order_graph)))
+    if random_order_result["errors"]:
+        raise AssertionError("Multiple random draws in one iteration failed: " + json.dumps(random_order_result["errors"]))
+    result_node = random_order_graph["nodes"][-1]
+    result_values = random_order_result["socket_values"][result_node["id"]]["result"]
+    if [item["value"] for item in result_values["items"]] != [3, 9]:
+        raise AssertionError("Random draws were not interleaved in Python evaluation order: " + repr(result_values))
+
     # This is the important round-trip boundary: source -> native graph -> evaluator.
     source = (
         "from build123d import Box, Cylinder\n"

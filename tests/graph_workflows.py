@@ -947,6 +947,23 @@ def run_python_import_tests():
     if reduce_node["id"] not in reduce_result["previews"]:
         raise AssertionError("Graph-backed functools.reduce produced no geometry result")
 
+    sequence_graph = runtime.import_python_code(
+        "from build123d import Box\n"
+        "left = Box(2, 2, 2).edges()\n"
+        "right = Box(3, 3, 3).edges()\n"
+        "combined = left + right\n"
+        "count = len(combined)\n"
+    )
+    sequence_result = json.loads(runtime.evaluate_graph_json(json.dumps(sequence_graph)))
+    if sequence_result["errors"]:
+        raise AssertionError("Python sequence concatenation failed: " + json.dumps(sequence_result["errors"]))
+    length_node = next(
+        node for node in sequence_graph["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.builtin.len"
+    )
+    if sequence_result["socket_values"][length_node["id"]]["result"]["value"] != 24:
+        raise AssertionError("ShapeList concatenation did not preserve both source collections")
+
     # This is the important round-trip boundary: source -> native graph -> evaluator.
     source = (
         "from build123d import Box, Cylinder\n"

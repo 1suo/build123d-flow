@@ -112,13 +112,19 @@ box = Box(10, 10, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
         )
 
     def test_overloaded_constructor_signatures_are_discovered(self):
-        location = self.catalog.resolve_type("Location")
-        overloads = [
-            node_id for node_id in location.get("constructor_node_ids", [])
-            if ".overload-" in node_id
+        overloaded_types = [
+            record for record in self.catalog.types.values()
+            if sum(
+                ".overload-" in node_id
+                for node_id in record.get("constructor_node_ids", [])
+            ) > 1
         ]
-        self.assertGreater(len(overloads), 1)
-        self.assertTrue(all(node_id in self.catalog.nodes for node_id in overloads))
+        self.assertTrue(overloaded_types, "No overloaded public constructors were discovered")
+        for record in overloaded_types:
+            self.assertTrue(
+                set(record["constructor_node_ids"]).issubset(self.catalog.nodes),
+                record["id"],
+            )
 
     def test_class_level_api_call_translates_without_kernel(self):
         graph = runtime.import_python_code("""

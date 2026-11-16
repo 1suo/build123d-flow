@@ -914,6 +914,22 @@ def run_python_import_tests():
     if function_graph["nodes"][-1]["id"] not in function_result["previews"]:
         raise AssertionError("A returned geometry value from a local function was lost")
 
+    random_graph = runtime.import_python_code(
+        "import random\n"
+        "random.seed(42)\n"
+        "values = [random.randint(1, 10) for _ in range(3)]\n"
+    )
+    random_result = json.loads(runtime.evaluate_graph_json(json.dumps(random_graph)))
+    if random_result["errors"]:
+        raise AssertionError("Seeded random graph execution failed: " + json.dumps(random_result["errors"]))
+    random_node = next(
+        node for node in random_graph["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.random.randint"
+    )
+    random_values = random_result["socket_values"][random_node["id"]]["result"]
+    if [item["value"] for item in random_values["items"]] != [2, 1, 5]:
+        raise AssertionError("Seeded random draws did not preserve Python iteration order: " + repr(random_values))
+
     # This is the important round-trip boundary: source -> native graph -> evaluator.
     source = (
         "from build123d import Box, Cylinder\n"

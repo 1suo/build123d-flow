@@ -73,6 +73,17 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
         with self.assertRaises(CatalogError):
             catalog.resolve_type("Duplicate")
 
+    def test_generic_type_variables_survive_unresolved_forward_references(self):
+        import typing
+        from flow_runtime import _typevar_names, _typevar_occurs_in_collection
+
+        annotation = typing.Union[
+            typing.ForwardRef("_ShapeT"),
+            typing.ForwardRef("list[_ShapeT]"),
+        ]
+        self.assertEqual(_typevar_names(annotation), {"_ShapeT"})
+        self.assertTrue(_typevar_occurs_in_collection(annotation, "_ShapeT"))
+
     def test_unknown_schema_is_rejected(self):
         with self.assertRaises(CatalogError):
             TypeCatalog({"schema_version": 999, "types": [], "nodes": []})

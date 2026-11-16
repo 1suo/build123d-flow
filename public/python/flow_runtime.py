@@ -596,6 +596,35 @@ def _invoke_discovered_operator(method, left, right):
     return operation(left, right)
 
 
+def _invoke_discovered_operator_callable(native_invoke, method, mapped, signature):
+    """Invoke a discovered dunder with its real signature; honor reflected fallback."""
+    result = native_invoke(mapped)
+    if result is not NotImplemented:
+        return result
+    operation = _PYTHON_BINARY_OPERATORS.get(method)
+    if operation is None:
+        return result
+    parameters = [
+        parameter for parameter in signature.parameters.values()
+        if parameter.name not in ("self", "cls")
+        and parameter.kind not in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        )
+    ]
+    if not parameters:
+        return result
+    receiver_name = next(
+        (parameter.name for parameter in signature.parameters.values()
+         if parameter.name in ("self", "cls")),
+        "self",
+    )
+    receiver, operand = mapped.get(receiver_name), mapped.get(parameters[0].name)
+    if method.startswith("__r"):
+        return operation(operand, receiver)
+    return operation(receiver, operand)
+
+
 def _register_kernel_discovery_overrides():
     """Register presentation overrides only when the real kernel is available."""
     if b3d is None:
@@ -2686,30 +2715,11 @@ def evaluate_graph_json(payload, include_previews=True):
             python_operator = _PYTHON_BINARY_OPERATORS.get(operator_method)
             if python_operator is not None:
                 native_operator_invoke = invoke
-                operator_parameters = [
-                    parameter for parameter in signature.parameters.values()
-                    if parameter.name not in ("self", "cls")
-                    and parameter.kind not in (
-                        inspect.Parameter.VAR_POSITIONAL,
-                        inspect.Parameter.VAR_KEYWORD,
-                    )
-                ]
-                receiver_name = next(
-                    (parameter.name for parameter in signature.parameters.values()
-                     if parameter.name in ("self", "cls")),
-                    "self",
-                )
-                operand_name = operator_parameters[0].name if operator_parameters else None
 
                 def invoke(mapped):
-                    result = native_operator_invoke(mapped)
-                    if result is not NotImplemented or operand_name is None:
-                        return result
-                    receiver = mapped.get(receiver_name)
-                    operand = mapped.get(operand_name)
-                    if operator_method.startswith("__r"):
-                        return python_operator(operand, receiver)
-                    return python_operator(receiver, operand)
+                    return _invoke_discovered_operator_callable(
+                        native_operator_invoke, operator_method, mapped, signature
+                    )
             stream_shapes = {}
             shape_memo = {}
             # Python for-loops and comprehensions explicitly declare their

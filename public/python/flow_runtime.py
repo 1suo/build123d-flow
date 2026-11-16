@@ -2560,6 +2560,19 @@ def evaluate_graph_json(payload):
                     signature=signature,
                     hint_target=hint_target,
                 )
+            condition_names = [
+                socket.get("name") for socket in definition.get("inputs", [])
+                if str(socket.get("name", "")).startswith("__flow_condition_")
+            ]
+            if condition_names:
+                unguarded_invoke = invoke
+                def invoke(mapped):
+                    if any(not bool(mapped.get(name, False)) for name in condition_names):
+                        return None
+                    return unguarded_invoke({
+                        name: value for name, value in mapped.items()
+                        if name not in condition_names
+                    })
             stream_shapes = {}
             shape_memo = {}
             # Python for-loops and comprehensions explicitly declare their

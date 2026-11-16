@@ -6326,9 +6326,7 @@ def import_python_code(source):
                     except Exception:
                         receiver_type = None
             if receiver_type in {
-                "Number", "Integer", "Float", "String", "Boolean",
-                "Location", "Vector", "Vector2", "Vector3", "Rotation",
-                "Plane", "Axis", "Color", "Matrix", "Any", None,
+                "Number", "Integer", "Float", "String", "Boolean", "Any", None,
             }:
                 return add_python_binary_node(method, left, right, node.lineno)
             receiver_identity = None

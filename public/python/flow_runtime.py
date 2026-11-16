@@ -2994,7 +2994,9 @@ def import_python_code(source):
     stdlib_modules = {}
     stdlib_symbols = {}
     stdlib_star_modules = set()
-    safe_stdlib_modules = {"math", "copy", "functools", "itertools", "operator", "logging", "timeit"}
+    external_modules = {}
+    external_symbols = {}
+    safe_stdlib_modules = {"math", "copy", "functools", "itertools", "operator", "logging", "timeit", "random", "typing"}
     viewer_api = {"show", "show_object", "show_all", "reset_show", "set_defaults"}
     for statement in tree.body:
         if isinstance(statement, ast.Import):
@@ -3005,6 +3007,8 @@ def import_python_code(source):
                     viewer_modules[item.asname or item.name] = "ocp_vscode"
                 elif item.name in safe_stdlib_modules:
                     stdlib_modules[item.asname or item.name] = item.name
+                elif item.name == "scipy" or item.name.startswith("scipy."):
+                    external_modules[item.asname or item.name.split(".")[0]] = item.name
                 else:
                     raise ValueError("Unsupported import at line {}: {}".format(
                         statement.lineno, item.name))
@@ -3032,6 +3036,11 @@ def import_python_code(source):
                     else:
                         raise ValueError("Unsupported standard-library import at line {}: {}".format(
                             statement.lineno, item.name))
+            elif statement.module and statement.module.startswith("scipy."):
+                for item in statement.names:
+                    if item.name == "*":
+                        raise ValueError("Star imports from external modules are not supported (line {})".format(statement.lineno))
+                    external_symbols[item.asname or item.name] = (statement.module, item.name)
             else:
                 raise ValueError("Only build123d, ocp_vscode, and approved standard-library imports are supported (line {})".format(statement.lineno))
 
@@ -4306,10 +4315,6 @@ def import_python_code(source):
                     if keyword.arg is None:
                         raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
                     safe_kwargs[keyword.arg] = expression(keyword.value)
-                # Graph values are immutable between nodes, so copying a
-                # graph-backed value is an identity operation. Preserve the
-                # reference rather than trying to resolve copy.copy as a
-                # build123d API node.
                 if (
                     safe_callable in {copy.copy, copy.deepcopy}
                     and len(safe_args) == 1 and not safe_kwargs
@@ -4326,6 +4331,89 @@ def import_python_code(source):
                         return ("literal", result)
                     except Exception as exc:
                         raise ValueError("Standard-library call failed at line {}: {}".format(node.lineno, exc))
+                else:
+                    supplied = [("arg_{}".format(i), value) for i, value in enumerate(safe_args)]
+                    supplied.extend(safe_kwargs.items())
+                    definition_id = "core.python.stdlib." + hashlib.sha1(
+                        (getattr(safe_callable, "__module__", "") + "." +
+                         getattr(safe_callable, "__qualname__", getattr(safe_callable, "__name__", "call")) +
+                         ":" + ",".join(name for name, _ in supplied)).encode("utf-8")
+                    ).hexdigest()[:16]
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "Python " + getattr(safe_callable, "__name__", "call"),
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Internal", "palette_section": "Graph lowering",
+                        "inputs": [{"name": name, "type": "Any", "required": True} for name, _ in supplied],
+                        "outputs": [{"name": "result", "type": "Any"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = safe_callable
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY)
+                        for name, _ in supplied
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    params, links = {}, []
+                    for name, value in supplied:
+                        if value[0] == "literal":
+                            params[name] = literal_json_value(value[1])
+                        else:
+                            links.append((name, value[1], value[2]))
+                    created = add_node(definition_id, params, links, node.lineno)
+                    return ("ref", created, "result", "Any")
+            external_spec = None
+            if isinstance(node.func, ast.Name) and node.func.id in external_symbols:
+                external_spec = external_symbols[node.func.id]
+            elif isinstance(node.func, ast.Attribute):
+                parts = []
+                current = node.func
+                while isinstance(current, ast.Attribute):
+                    parts.append(current.attr)
+                    current = current.value
+                if isinstance(current, ast.Name) and current.id in external_modules:
+                    external_spec = (
+                        external_modules[current.id],
+                        ".".join(reversed(parts)),
+                    )
+            if external_spec is not None:
+                module_name, attribute_name = external_spec
+                supplied = [("arg_{}".format(i), expression(value)) for i, value in enumerate(node.args)]
+                supplied.extend(
+                    (keyword.arg, expression(keyword.value))
+                    for keyword in node.keywords if keyword.arg is not None
+                )
+                if any(keyword.arg is None for keyword in node.keywords):
+                    raise ValueError("Expanded external keyword arguments are unsupported at line {}".format(node.lineno))
+                definition_id = "core.python.external." + hashlib.sha1(
+                    (module_name + "." + attribute_name).encode("utf-8")
+                ).hexdigest()[:16]
+                def external_call(*args, __module=module_name, __attribute=attribute_name, **kwargs):
+                    target = importlib.import_module(__module)
+                    for part in __attribute.split("."):
+                        target = getattr(target, part)
+                    return target(*args, **kwargs)
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "External " + attribute_name,
+                    "source": "python", "kind": "operation", "category": "External",
+                    "palette_category": "Python", "palette_section": "External calls",
+                    "inputs": [{"name": name, "type": "Any", "required": True} for name, _ in supplied],
+                    "outputs": [{"name": "result", "type": "Any"}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+                _CATALOG_CALLABLES[definition_id] = external_call
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY)
+                    for name, _ in supplied
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {}, []
+                for name, value in supplied:
+                    if value[0] == "literal":
+                        params[name] = literal_json_value(value[1])
+                    else:
+                        links.append((name, value[1], value[2]))
+                created = add_node(definition_id, params, links, node.lineno)
+                return ("ref", created, "result", "Any")
             if isinstance(node.func, ast.Name) and node.func.id in {
                 "range", "enumerate", "zip", "len", "min", "max", "abs", "round",
                 "str", "int", "float", "bool", "list", "tuple", "sorted", "reversed",

@@ -3031,6 +3031,12 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
                 annotation = eval(annotation.__forward_arg__, globalns)
             except Exception:
                 pass
+        try:
+            # Overload signatures commonly contain ForwardRefs nested inside
+            # Union/Iterable/TypeVar annotations; resolve the whole tree.
+            annotation = typing._eval_type(annotation, globalns, globalns)
+        except Exception:
+            pass
         if annotation is not None and annotation is not inspect.Signature.empty:
             parameter = signature.parameters.get(name)
             if parameter is not None and parameter.kind == parameter.VAR_POSITIONAL:

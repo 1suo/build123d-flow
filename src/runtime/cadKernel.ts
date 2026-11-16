@@ -353,7 +353,15 @@ export class Build123dKernelProvider implements CadKernelProvider {
     const result = await this.runtime.evaluate(nativeGraph);
     const geometry: Record<string, CadGeometryHandle> = {};
     for (const nodeId of Object.keys(result.previews)) {
-      geometry[nodeId] = { provider: this.id, handle: nodeId, kind: "geometry" };
+      const node = request.graph.nodes.find((candidate) => candidate.id === nodeId);
+      const operation = node ? this.definitions.get(node.operationId)?.cadOperation : undefined;
+      const geometryPort = operation?.outputs.find(isCadGeometryPort);
+      if (!geometryPort) continue;
+      geometry[nodeId] = {
+        provider: this.id,
+        handle: nodeId,
+        kind: geometryPort.itemType ?? geometryPort.valueType,
+      };
     }
     return {
       values: result.socket_values ?? {},

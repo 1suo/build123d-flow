@@ -22,26 +22,14 @@ def definition_ids(graph):
 
 
 def validate_geometry(evaluation, filename):
-    previews = evaluation.get("previews") or {}
-    populated = []
-    for node_id, preview in previews.items():
-        if not isinstance(preview, dict):
-            continue
-        vertex_count = len(preview.get("vertices") or [])
-        edge_count = len(preview.get("edges") or [])
-        point_count = len(preview.get("points") or [])
-        if vertex_count or edge_count or point_count:
-            populated.append({
-                "node_id": node_id,
-                "vertices": vertex_count // 3,
-                "edge_coordinates": edge_count // 6,
-                "points": point_count // 3,
-            })
-    if not populated:
-        raise ValueError("{}: evaluation produced no tessellated geometry".format(filename))
     shape = runtime._LAST_SHAPE
     if shape is None:
         raise ValueError("{}: evaluator did not retain a terminal CAD shape".format(filename))
+    vertex_count = len(shape.vertices())
+    edge_count = len(shape.edges())
+    face_count = len(shape.faces())
+    if not (vertex_count or edge_count or face_count):
+        raise ValueError("{}: evaluation produced an empty native CAD shape".format(filename))
     validity = getattr(shape, "is_valid", None)
     if callable(validity):
         validity = validity()
@@ -53,8 +41,12 @@ def validate_geometry(evaluation, filename):
     if any(value < 0 for value in dimensions):
         raise ValueError("{}: invalid negative bounding-box dimension".format(filename))
     return {
-        "preview_count": len(previews),
-        "populated_previews": populated,
+        "preview_count": len(evaluation.get("previews") or {}),
+        "native_topology": {
+            "vertices": vertex_count,
+            "edges": edge_count,
+            "faces": face_count,
+        },
         "bounds_size": dimensions,
         "valid": validity is not False,
     }
@@ -91,7 +83,7 @@ def main() -> int:
                     )
                 )
             evaluation = json.loads(
-                runtime.evaluate_graph_json(json.dumps(item["graph"]))
+                runtime.evaluate_graph_json(json.dumps(item["graph"]), include_previews=False)
             )
             errors = evaluation.get("errors") or {}
             if errors:
@@ -102,9 +94,12 @@ def main() -> int:
                 "passed": True,
                 "geometry": geometry,
             })
-            print("PASS {} ({} previews)".format(
-                filename, geometry["preview_count"]
-            ))
+            print("PASS {} ({} vertices, {} edges, {} faces)".format(
+                filename,
+                geometry["native_topology"]["vertices"],
+                geometry["native_topology"]["edges"],
+                geometry["native_topology"]["faces"],
+            ), flush=True)
         except Exception as exc:
             results.append({
                 "filename": filename,
@@ -113,7 +108,7 @@ def main() -> int:
                 "error": str(exc),
                 "traceback": traceback.format_exc(),
             })
-            print("FAIL {}: {}".format(filename, exc))
+            print("FAIL {}: {}".format(filename, exc), flush=True)
 
     passed = sum(1 for result in results if result["passed"])
     payload = {

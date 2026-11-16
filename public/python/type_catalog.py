@@ -108,7 +108,13 @@ class TypeCatalog:
             identity = record["id"]
             if identity in self.types:
                 raise CatalogError("Duplicate type identity: " + identity)
-            if not isinstance(record.get("mro"), list) or identity not in record["mro"]:
+            mro = record.get("mro")
+            if (
+                not isinstance(mro, list)
+                or not mro
+                or mro[0] != identity
+                or len(mro) != len(set(mro))
+            ):
                 raise CatalogError("Type has invalid MRO metadata: " + identity)
             self.types[identity] = dict(record)
             self._short_names.setdefault(record.get("name"), []).append(identity)
@@ -119,6 +125,18 @@ class TypeCatalog:
             if identity in self.nodes:
                 raise CatalogError("Duplicate node identity: " + identity)
             self.nodes[identity] = dict(record)
+        for identity, record in self.types.items():
+            referenced_nodes = (
+                list(record.get("constructor_node_ids", []))
+                + list(record.get("member_node_ids", []))
+            )
+            missing = [node_id for node_id in referenced_nodes if node_id not in self.nodes]
+            if missing:
+                raise CatalogError(
+                    "Type {} references missing graph nodes: {}".format(
+                        identity, ", ".join(missing)
+                    )
+                )
 
     def resolve_type(self, identity: str) -> Mapping[str, Any]:
         """Resolve a fully qualified type id or an unambiguous short class name."""

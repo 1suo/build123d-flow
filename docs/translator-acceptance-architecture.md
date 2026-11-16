@@ -43,6 +43,24 @@ required test in the preceding gate passes.
   retries, browser startup, or settings-popup interaction as substitutes for fixing
   translator behavior.
 
+## Implemented acceptance entry points
+
+- `scripts/generate_type_catalog.py` discovers the complete API from the pinned native
+  `build123d==0.13.0` / `cadquery-ocp-novtk==8.0.1.1.0` environment. The artifact records
+  the build123d, OCP, Python, and catalog-schema versions.
+- `tests/upstream-examples.json` is the single pinned 67-example corpus manifest.
+- `scripts/test_upstream_translator.py` loads that catalog in a `python -S` process,
+  verifies that neither build123d nor OCP is imported, translates every example, and
+  validates node definitions, handles, graph connectivity, and topological ordering.
+  It saves the exact source and graph for the next gate.
+- `scripts/test_upstream_kernel.py` registers the corresponding native callables,
+  checks that kernel-backed translation agrees with Gate 1, then executes Gate 1's
+  saved graphs and validates tessellation, shape validity, and bounds.
+- `tests/test_graph_workflows_native.py` runs the graph-workflow regression suite
+  directly in Python against the native kernel.
+- Playwright is restricted to `tests/e2e/ui-smoke.spec.ts`; it no longer imports the
+  upstream corpus through the browser or settings popup.
+
 ## Required commands / CI shape
 
 Provide distinct commands for the three stages, e.g. `test:translator`,

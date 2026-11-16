@@ -76,6 +76,30 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
         with self.assertRaises(CatalogError):
             TypeCatalog({"schema_version": 999, "types": [], "nodes": []})
 
+    def test_dangling_type_node_reference_is_rejected(self):
+        cls = _fake_type("Dangling")
+        registry = build_type_registry([cls], {
+            "build123d.Dangling.missing": {"id": "build123d.Dangling.missing"},
+        })
+        with self.assertRaises(CatalogError):
+            TypeCatalog({
+                "schema_version": 1,
+                "types": list(registry.values()),
+                "nodes": [],
+            })
+
+    def test_mro_must_be_ordered_and_unique(self):
+        with self.assertRaises(CatalogError):
+            TypeCatalog({
+                "schema_version": 1,
+                "types": [{
+                    "id": "build123d.Invalid",
+                    "name": "Invalid",
+                    "mro": ["build123d.Base", "build123d.Invalid"],
+                }],
+                "nodes": [],
+            })
+
 
 if __name__ == "__main__":
     unittest.main()

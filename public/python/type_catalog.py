@@ -62,6 +62,10 @@ def build_type_registry(classes, nodes):
             if node_id.startswith(member_prefix)
             and node_id not in constructor_ids
         ]
+        supports_context_manager = any(
+            "__enter__" in vars(owner) and "__exit__" in vars(owner)
+            for owner in getattr(cls, "__mro__", ())
+        )
         registry[identity] = {
             "id": identity,
             "name": name,
@@ -70,6 +74,7 @@ def build_type_registry(classes, nodes):
             "bases": bases,
             "mro": mro,
             "is_abstract": inspect.isabstract(cls),
+            "supports_context_manager": supports_context_manager,
             "is_enum": is_enum,
             "enum_members": enum_members,
             "annotations": {

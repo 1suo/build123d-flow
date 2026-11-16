@@ -243,6 +243,44 @@ def _method_signature(function):
     return merged_signature, {}, False
 
 
+def _typevar_names(annotation):
+    """Return TypeVar names, including names preserved in unresolved ForwardRefs."""
+    if isinstance(annotation, typing.ForwardRef):
+        expression = annotation.__forward_arg__.strip()
+        if "[" in expression and expression.endswith("]"):
+            inner = expression.split("[", 1)[1][:-1]
+            return _typevar_names(typing.ForwardRef(inner))
+        return {expression}
+    if annotation.__class__.__name__ == "TypeVar":
+        name = getattr(annotation, "__name__", None)
+        return {name} if name else set()
+    names = set()
+    for argument in typing.get_args(annotation):
+        names.update(_typevar_names(argument))
+    return names
+
+
+def _typevar_occurs_in_collection(annotation, name):
+    """Whether a TypeVar occurs beneath a collection container in an annotation."""
+    if isinstance(annotation, typing.ForwardRef):
+        expression = annotation.__forward_arg__.strip()
+        if "[" in expression and expression.endswith("]"):
+            inner = expression.split("[", 1)[1][:-1]
+            return name in _typevar_names(typing.ForwardRef(inner))
+        return False
+    origin = typing.get_origin(annotation)
+    collection_origins = {
+        list, tuple, set, frozenset, collections.abc.Iterable,
+        collections.abc.Sequence, collections.abc.Collection,
+    }
+    if origin in collection_origins and name in _typevar_names(annotation):
+        return True
+    return any(
+        _typevar_occurs_in_collection(argument, name)
+        for argument in typing.get_args(annotation)
+    )
+
+
 def _resolve_self_annotation(annotation, owner):
     """Resolve typing.Self against the class that declares a discovered member."""
     if annotation is getattr(typing, "Self", None):
@@ -1552,6 +1590,18 @@ def discover(include_full=True):
                     "annotation": str(return_annotation) if return_annotation is not inspect.Signature.empty else "",
                     **_annotation_metadata(resolved_return),
                 }
+                return_typevars = _typevar_names(resolved_return)
+                generic_type_sources = {}
+                for parameter in parameters[1:]:
+                    parameter_annotation = hints.get(parameter.name, parameter.annotation)
+                    for typevar_name in return_typevars & _typevar_names(parameter_annotation):
+                        generic_type_sources[typevar_name] = parameter.name
+                if generic_type_sources:
+                    output_socket["generic_type_sources"] = generic_type_sources
+                    output_socket["generic_type_collection"] = {
+                        name: _typevar_occurs_in_collection(resolved_return, name)
+                        for name in generic_type_sources
+                    }
                 found[method_id] = {
                     "id": method_id, "source": "build123d",
                     "kind": "operation", "name": display_name,
@@ -6329,6 +6379,39 @@ def import_python_code(source):
                 if operand[0] == "literal": params[socket["name"]] = literal_json_value(operand[1])
                 else: links.append((socket["name"], operand[1], operand[2]))
             created = add_node(definition_id, params, links, node.lineno)
+            created_node = next(item for item in graph_nodes if item["id"] == created)
+            created_output = next(
+                socket for socket in created_node["data"]["definition"].get("outputs", [])
+                if socket.get("name") == "result"
+            )
+            for typevar_name, input_name in created_output.get("generic_type_sources", {}).items():
+                input_index = next(
+                    (index for index, socket in enumerate(definition.get("inputs", []))
+                     if socket.get("name") == input_name),
+                    None,
+                )
+                if input_index is None or input_index >= len(operands):
+                    continue
+                source_operand = operands[input_index]
+                source_output = reference_output(source_operand)
+                source_is_collection = bool(
+                    source_output
+                    and source_output.get("data_structure") in {"list", "tree", "tuple"}
+                )
+                if source_is_collection and created_output.get(
+                    "generic_type_collection", {}
+                ).get(typevar_name):
+                    created_output.update({
+                        "type": "List",
+                        "data_structure": "list",
+                        "item_type": source_output.get("item_type", "Any"),
+                        "data_access": "structure",
+                    })
+                else:
+                    created_output["type"] = reference_type(source_operand)
+                    created_output.pop("data_structure", None)
+                    created_output.pop("item_type", None)
+                    created_output["data_access"] = "item"
             return ("ref", created, "result")
         raise ValueError("Unsupported expression '{}' at line {}".format(
             type(node).__name__, getattr(node, "lineno", "?")))

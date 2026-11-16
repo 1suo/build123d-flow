@@ -78,7 +78,7 @@ def main() -> int:
             # Re-run translation only to register the production graph-lowering
             # callables in this kernel process. Evaluation below consumes Gate 1's
             # saved graph, not the graph produced by this registration pass.
-            kernel_translation = json.loads(runtime.import_python_code(item["source"]))
+            kernel_translation = runtime.import_python_code(item["source"])
             expected_ids = definition_ids(item["graph"])
             actual_ids = definition_ids(kernel_translation)
             if expected_ids != actual_ids:

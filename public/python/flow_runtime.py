@@ -3523,7 +3523,21 @@ def import_python_code(source):
                     return "dict"
                 return "item"
             output = reference_output(operand)
-            return output.get("data_structure", "item") if output else "item"
+            if output is None:
+                return "item"
+            structure = output.get("data_structure", "item")
+            if structure == "item":
+                value_type = output.get("item_type") or output.get("type")
+                collection_class = getattr(b3d, value_type, None) if isinstance(value_type, str) else None
+                if inspect.isclass(collection_class):
+                    try:
+                        if issubclass(collection_class, tuple):
+                            return "tuple"
+                        if issubclass(collection_class, list):
+                            return "list"
+                    except TypeError:
+                        pass
+            return structure
 
         left_structure = operand_structure(left)
         right_structure = operand_structure(right)

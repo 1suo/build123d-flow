@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import enum
 import importlib
+import importlib.metadata
 import inspect
 import json
 import pkgutil

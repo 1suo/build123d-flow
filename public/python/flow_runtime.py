@@ -5577,17 +5577,31 @@ def import_python_code(source):
                 definition_id = "core.python.construct." + constructor_name + "." + hashlib.sha1(
                     ",".join(supplied_names).encode("utf-8")
                 ).hexdigest()[:10]
+                def is_loop_mapped_collection(value):
+                    if value[0] != "ref":
+                        return False
+                    source_node = next(
+                        (item for item in graph_nodes if item["id"] == value[1]),
+                        None,
+                    )
+                    return bool(
+                        source_node
+                        and source_node.get("data", {}).get("python_loop_sources")
+                    )
+
                 structured_constructor_arguments = {
                     "arg_{}".format(index)
-                    for index, argument in enumerate(node.args)
+                    for index, (argument, value) in enumerate(zip(node.args, values))
                     if not isinstance(argument, ast.Starred)
                     and isinstance(argument, (ast.Tuple, ast.List, ast.Dict))
+                    and not is_loop_mapped_collection(value)
                 }
                 structured_constructor_arguments.update(
                     keyword.arg
                     for keyword in node.keywords
                     if keyword.arg is not None
                     and isinstance(keyword.value, (ast.Tuple, ast.List, ast.Dict))
+                    and not is_loop_mapped_collection(kwargs[keyword.arg])
                 )
                 input_sockets = [
                     {

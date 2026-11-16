@@ -65,6 +65,8 @@ jobs:
         run: cp tests/graph_workflows.py dist/python/graph_workflows.py
       - name: Typecheck
         run: npm run typecheck
+      - name: Run provider-neutral CAD contract tests
+        run: npm run test:contracts
       - name: Compile Python sources
         run: python -m py_compile public/python/flow_runtime.py tests/graph_workflows.py
       - name: Run Python unit tests

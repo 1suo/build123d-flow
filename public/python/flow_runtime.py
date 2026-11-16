@@ -3544,7 +3544,14 @@ def import_python_code(source):
                             ),
                         )
                     except CatalogError:
-                        pass
+                        try:
+                            class_value = type_catalog.resolve_class_value(
+                                enum_type_name, enum_member_name
+                            )
+                        except CatalogError:
+                            pass
+                        else:
+                            return ("literal", class_value)
                 if root in aliases and aliases[root] == "b3d":
                     symbol_name = path[0] if len(path) == 1 else None
                     definition_id = (
@@ -3725,6 +3732,13 @@ def import_python_code(source):
             return list(value)
         if isinstance(value, dict):
             if "__flow_object__" in value:
+                if all(key in value for key in ("origin", "x_dir", "z_dir")):
+                    return {
+                        key: literal_json_value(value[key])
+                        for key in ("origin", "x_dir", "z_dir")
+                    }
+                if "value" in value:
+                    return literal_json_value(value["value"])
                 args = [literal_json_value(item) for item in value.get("args", [])]
                 kwargs = {key: literal_json_value(item)
                           for key, item in value.get("kwargs", {}).items()}

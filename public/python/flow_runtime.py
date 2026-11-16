@@ -4774,10 +4774,9 @@ def import_python_code(source):
         if not isinstance(node, ast.Call):
             raise ValueError("A with-block must call a build123d context manager (line {})".format(node.lineno))
         function = node.func
-        manager = None
+        manager_name = None
         if isinstance(function, ast.Name):
             manager_name = imported.get(function.id, function.id)
-            manager = getattr(b3d, manager_name, None)
         elif isinstance(function, ast.Attribute):
             parts = []
             current = function
@@ -4787,17 +4786,17 @@ def import_python_code(source):
             if isinstance(current, ast.Name) and current.id in aliases and aliases[current.id] == "b3d":
                 path = list(reversed(parts))
                 if len(path) == 1:
-                    manager = getattr(b3d, path[0], None)
-        if not inspect.isclass(manager) or getattr(manager, "__module__", "").split(".")[0] != "build123d":
+                    manager_name = path[0]
+        try:
+            manager = type_catalog.resolve_type(manager_name) if manager_name else None
+        except CatalogError:
+            manager = None
+        if manager is None:
             raise ValueError("Unsupported build123d context manager at line {}: {}".format(
                 node.lineno, ast.unparse(function)))
-        supports_context = any(
-            "__enter__" in vars(owner) and "__exit__" in vars(owner)
-            for owner in getattr(manager, "__mro__", (manager,))
-        )
-        if not supports_context:
+        if not manager.get("supports_context_manager"):
             raise ValueError("{} is not a context manager (line {})".format(
-                manager.__name__, node.lineno))
+                manager["name"], node.lineno))
         args = [
             {"__flow_starred__": scope_expression(argument.value)}
             if isinstance(argument, ast.Starred)
@@ -4981,7 +4980,7 @@ def import_python_code(source):
                     manager, args, kwargs = resolve_context_manager(item.context_expr)
                     scope_counter += 1
                     scope_id = "python_scope_{}".format(scope_counter)
-                    manager_name = manager.__name__
+                    manager_name = manager["name"]
                     result_attribute = {
                         "BuildPart": "part", "BuildSketch": "sketch", "BuildLine": "line",
                     }.get(manager_name)
@@ -4989,7 +4988,7 @@ def import_python_code(source):
                     if optional is not None and not isinstance(optional, ast.Name):
                         raise ValueError("Only a simple name is supported after 'as' (line {})".format(statement.lineno))
                     descriptor = {
-                        "id": scope_id, "module": manager.__module__,
+                        "id": scope_id, "module": manager["module"],
                         "name": manager_name, "args": args, "kwargs": kwargs,
                         "result_attribute": result_attribute,
                         "has_binding": optional is not None,

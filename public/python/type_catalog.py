@@ -120,12 +120,20 @@ def build_type_registry(classes, nodes):
                     enum_members[member_name] = repr(value)
         class_values = {}
         if not is_enum:
-            for member_name, raw_value in vars(cls).items():
-                if member_name.startswith("_") or isinstance(
-                    raw_value, (property, staticmethod, classmethod)
-                ) or callable(raw_value):
+            # Read public class attributes through the class so class-property
+            # descriptors (for example Plane.XY) are discovered as values.
+            # Ordinary instance properties return a descriptor on class access
+            # and are rejected by the serializer; methods remain callable.
+            for member_name in dir(cls):
+                if member_name.startswith("_"):
                     continue
-                serialized = _serialize_discovered_value(raw_value)
+                try:
+                    class_value = getattr(cls, member_name)
+                except Exception:
+                    continue
+                if callable(class_value):
+                    continue
+                serialized = _serialize_discovered_value(class_value)
                 if serialized is not None:
                     class_values[member_name] = serialized
         member_prefix = identity + "."

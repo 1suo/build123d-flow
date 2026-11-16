@@ -2899,6 +2899,12 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
         else:
             raise TypeError("Missing required positional argument: " + name)
 
+    declared_names = set(signature.parameters)
+    var_keyword = next(
+        (parameter for parameter in signature.parameters.values()
+         if parameter.kind == parameter.VAR_KEYWORD),
+        None,
+    )
     for name, parameter in signature.parameters.items():
         if parameter.kind == parameter.POSITIONAL_ONLY:
             continue
@@ -2912,6 +2918,15 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
                 keywords.update(value)
         else:
             keywords[name] = value
+    extra_keywords = {
+        name: value for name, value in converted.items()
+        if name not in declared_names
+    }
+    if extra_keywords and var_keyword is None:
+        raise TypeError(
+            "Unexpected keyword argument(s): " + ", ".join(sorted(extra_keywords))
+        )
+    keywords.update(extra_keywords)
     return callable_obj(*positional, **keywords)
 
 def _python_getattr(value, name):

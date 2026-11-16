@@ -1360,15 +1360,15 @@ def run_operator_overload_tests():
 
 def run_geometry_subclass_constructor_tests():
     graph = runtime.import_python_code(
-        "from build123d import *\\n"
-        "class ProceduralPart(Part):\\n"
-        "    def __init__(self, length, width, height, radius=0.0):\\n"
-        "        obj = extrude(Rectangle(length, width), amount=height)\\n"
-        "        if radius != 0.0:\\n"
-        "            obj = fillet(obj.edges(), radius=radius)\\n"
-        "        obj -= Rot(0, 90, 0) * Cylinder(width / 4, length)\\n"
-        "        super().__init__(obj.wrapped)\\n"
-        "part = ProceduralPart(10, 8, 6, 0.2)\\n"
+        "from build123d import *\n"
+        "class ProceduralPart(Part):\n"
+        "    def __init__(self, length, width, height, radius=0.0):\n"
+        "        obj = extrude(Rectangle(length, width), amount=height)\n"
+        "        if radius != 0.0:\n"
+        "            obj = fillet(obj.edges(), radius=radius)\n"
+        "        obj -= Rot(0, 90, 0) * Cylinder(width / 4, length)\n"
+        "        super().__init__(obj.wrapped)\n"
+        "part = ProceduralPart(10, 8, 6, 0.2)\n"
     )
     evaluated = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
     if evaluated["errors"]:

@@ -4291,10 +4291,71 @@ def import_python_code(source):
                 stream_variables.update(target_names)
                 for condition in generator.ifs:
                     resolved = expression(condition)
-                    if resolved[0] != "literal" or not isinstance(resolved[1], bool):
-                        raise ValueError("Graph-dependent comprehension filters are not yet importable (line {})".format(condition.lineno))
-                    if not resolved[1]:
-                        return ("literal", [])
+                    if resolved[0] == "literal":
+                        if not bool(resolved[1]):
+                            return ("literal", [])
+                        continue
+                    if resolved[0] != "ref":
+                        raise ValueError("Comprehension filter must be boolean (line {})".format(condition.lineno))
+                    active_loop_frames.pop()
+                    filter_id = "core.python.filter"
+                    def filter_values(items, predicates):
+                        return [item for item, keep in zip(items, predicates) if keep]
+                    definitions[filter_id] = {
+                        "id": filter_id, "name": "Python filter", "source": "python",
+                        "kind": "operation", "category": "Internal", "palette_category": "Python",
+                        "palette_section": "Collections",
+                        "inputs": [
+                            {"name": "items", "type": "List", "required": True, "data_access": "structure"},
+                            {"name": "predicates", "type": "List", "required": True, "data_access": "structure"},
+                        ],
+                        "outputs": [{"name": "result", "type": "List", "data_structure": "list", "item_type": item_type}],
+                    }
+                    _INTERNAL_NODE_IDS.add(filter_id)
+                    _CATALOG_CALLABLES[filter_id] = filter_values
+                    _CATALOG_SIGNATURES[filter_id] = inspect.Signature([
+                        inspect.Parameter("items", inspect.Parameter.KEYWORD_ONLY),
+                        inspect.Parameter("predicates", inspect.Parameter.KEYWORD_ONLY),
+                    ])
+                    _CATALOG_HINT_TARGETS[filter_id] = False
+                    filtered = add_node(
+                        filter_id, {},
+                        [("items", iterable[1], iterable[2]), ("predicates", resolved[1], resolved[2])],
+                        condition.lineno,
+                    )
+                    iterable = ("ref", filtered, "result", item_type, item_types)
+                    generator_streams[-1] = iterable
+                    active_loop_frames.append({
+                        "node_id": filtered, "output_name": "result",
+                        "written_names": set(target_names), "matching": mapping_matching,
+                    })
+                    if isinstance(generator.target, ast.Name):
+                        variables[generator.target.id] = iterable
+                    else:
+                        for element_index, name in enumerate(target_names):
+                            unpack_id = "core.python.unpack"
+                            definitions[unpack_id] = {
+                                "id": unpack_id, "name": "Python Tuple Unpack", "source": "python",
+                                "kind": "operation", "category": "Internal", "palette_category": "Python",
+                                "palette_section": "Assignments",
+                                "inputs": [
+                                    {"name": "value", "type": "Any", "required": True, "data_access": "item"},
+                                    {"name": "index", "type": "Number", "required": True},
+                                ],
+                                "outputs": [{"name": "result", "type": "Any"}],
+                            }
+                            _INTERNAL_NODE_IDS.add(unpack_id)
+                            _CATALOG_CALLABLES[unpack_id] = _python_getitem
+                            _CATALOG_SIGNATURES[unpack_id] = inspect.Signature([
+                                inspect.Parameter("value", inspect.Parameter.POSITIONAL_ONLY),
+                                inspect.Parameter("index", inspect.Parameter.POSITIONAL_ONLY),
+                            ])
+                            _CATALOG_HINT_TARGETS[unpack_id] = False
+                            unpacked = add_node(
+                                unpack_id, {"index": element_index},
+                                [("value", filtered, "result")], condition.lineno,
+                            )
+                            variables[name] = ("ref", unpacked, "result", "Any")
                 if index + 1 < len(node.generators):
                     return compile_generator(index + 1)
                 return expression(node.elt)

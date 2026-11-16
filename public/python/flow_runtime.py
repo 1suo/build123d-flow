@@ -6113,9 +6113,94 @@ def import_python_code(source):
                 )
             if isinstance(statement, ast.If):
                 condition = expression(statement.test)
-                if condition[0] != "literal" or not isinstance(condition[1], bool):
-                    raise ValueError("if conditions must be statically known booleans (line {})".format(statement.lineno))
-                process_statements(statement.body if condition[1] else statement.orelse)
+                if condition[0] == "literal":
+                    process_statements(statement.body if bool(condition[1]) else statement.orelse)
+                    continue
+                if condition[0] != "ref":
+                    raise ValueError("if condition must be a boolean value or graph output (line {})".format(statement.lineno))
+                def assigned_names(statements):
+                    names = set()
+                    for root in statements:
+                        for child in ast.walk(root):
+                            if isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
+                                names.add(child.id)
+                            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and child is not root:
+                                continue
+                    return names
+                changed_names = assigned_names(statement.body) | assigned_names(statement.orelse)
+                saved_variables = dict(variables)
+                active_conditions.append(condition)
+                try:
+                    process_statements(statement.body)
+                finally:
+                    active_conditions.pop()
+                true_variables = dict(variables)
+                variables.clear()
+                variables.update(saved_variables)
+                false_condition_id = "core.python.not"
+                definitions[false_condition_id] = {
+                    "id": false_condition_id, "name": "Python not",
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Python", "palette_section": "Expressions",
+                    "inputs": [{"name": "value", "type": "Boolean", "required": True, "data_access": "item"}],
+                    "outputs": [{"name": "result", "type": "Boolean"}],
+                }
+                _INTERNAL_NODE_IDS.add(false_condition_id)
+                _CATALOG_CALLABLES[false_condition_id] = operator.not_
+                _CATALOG_SIGNATURES[false_condition_id] = inspect.Signature([
+                    inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                ])
+                _CATALOG_HINT_TARGETS[false_condition_id] = False
+                false_node = add_node(
+                    false_condition_id, {},
+                    [("value", condition[1], condition[2])],
+                    statement.lineno,
+                )
+                false_condition = ("ref", false_node, "result", "Boolean")
+                active_conditions.append(false_condition)
+                try:
+                    process_statements(statement.orelse)
+                finally:
+                    active_conditions.pop()
+                false_variables = dict(variables)
+                variables.clear()
+                variables.update(saved_variables)
+                for name in sorted(changed_names):
+                    true_value = true_variables.get(name, saved_variables.get(name, ("literal", None)))
+                    false_value = false_variables.get(name, saved_variables.get(name, ("literal", None)))
+                    if true_value == false_value:
+                        variables[name] = true_value
+                        continue
+                    select_id = "core.python.select"
+                    definitions[select_id] = {
+                        "id": select_id, "name": "Python conditional value",
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Python", "palette_section": "Control flow",
+                        "inputs": [
+                            {"name": "condition", "type": "Boolean", "required": True, "data_access": "item"},
+                            {"name": "if_true", "type": "Any", "required": True, "data_access": "item"},
+                            {"name": "if_false", "type": "Any", "required": True, "data_access": "item"},
+                        ],
+                        "outputs": [{"name": "result", "type": "Any"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(select_id)
+                    _CATALOG_CALLABLES[select_id] = lambda condition, if_true, if_false: if_true if condition else if_false
+                    _CATALOG_SIGNATURES[select_id] = inspect.Signature([
+                        inspect.Parameter("condition", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                        inspect.Parameter("if_true", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                        inspect.Parameter("if_false", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    ])
+                    _CATALOG_HINT_TARGETS[select_id] = False
+                    params, links = {}, []
+                    for input_name, value in (
+                        ("condition", condition), ("if_true", true_value), ("if_false", false_value)
+                    ):
+                        if value[0] == "literal":
+                            params[input_name] = literal_json_value(value[1])
+                        else:
+                            links.append((input_name, value[1], value[2]))
+                    selected = add_node(select_id, params, links, statement.lineno)
+                    variables[name] = ("ref", selected, "result", "Any")
                 continue
             if isinstance(statement, ast.Assert):
                 condition = expression(statement.test)

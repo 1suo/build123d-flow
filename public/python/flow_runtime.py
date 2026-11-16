@@ -3750,16 +3750,7 @@ def import_python_code(source):
                     except CatalogError:
                         pass
                 if root in user_classes and len(path) == 1:
-                    for class_statement in user_classes[root].body:
-                        targets = (
-                            class_statement.targets if isinstance(class_statement, ast.Assign)
-                            else [class_statement.target] if isinstance(class_statement, ast.AnnAssign)
-                            else []
-                        )
-                        if any(isinstance(target, ast.Name) and target.id == path[0] for target in targets):
-                            class_value_node = class_statement.value
-                            if class_value_node is not None:
-                                return expression(class_value_node)
+                    return resolve_user_class_attribute(user_classes[root], path[0])
                 enum_type_name = None
                 enum_member_name = None
                 if root in aliases and aliases[root] == "b3d":
@@ -4186,6 +4177,36 @@ def import_python_code(source):
         output = next(iter(definition.get("outputs", [])), {})
         return ("ref", created, output.get("name", "result"), output.get("type", "Any"))
 
+    def resolve_user_class_attribute(class_node, attribute_name):
+        saved = dict(variables)
+        try:
+            for class_statement in class_node.body:
+                if isinstance(class_statement, ast.Assign):
+                    targets = class_statement.targets
+                    value_node = class_statement.value
+                elif isinstance(class_statement, ast.AnnAssign):
+                    targets = [class_statement.target]
+                    value_node = class_statement.value
+                else:
+                    continue
+                if value_node is None:
+                    continue
+                value = expression(value_node)
+                for target in targets:
+                    if not isinstance(target, ast.Name):
+                        continue
+                    variables[target.id] = value
+                    if target.id == attribute_name:
+                        return value
+            raise ValueError(
+                "Unknown class attribute {}.{} at line {}".format(
+                    class_node.name, attribute_name, class_node.lineno
+                )
+            )
+        finally:
+            variables.clear()
+            variables.update(saved)
+
     def expression(node, expected_type=None):
         nonlocal mapping_matching
         if isinstance(node, ast.JoinedStr):
@@ -4475,6 +4496,8 @@ def import_python_code(source):
         if isinstance(node, ast.Name):
             if node.id in variables:
                 return variables[node.id]
+            if node.id in user_classes:
+                return ("literal", {"__flow_class__": node.id})
             if node.id == "__name__":
                 return ("literal", "__main__")
             if node.id in {"True", "False", "None"}:
@@ -4675,6 +4698,24 @@ def import_python_code(source):
                             class_value_node = class_statement.value
                             if class_value_node is not None:
                                 return expression(class_value_node)
+                if root in user_classes and len(path) == 1:
+                    return resolve_user_class_attribute(user_classes[root], path[0])
+                if len(path) == 1:
+                    owner_name = imported.get(root, root)
+                    try:
+                        owner_symbol = type_catalog.resolve_symbol(owner_name)
+                        owner_record = (
+                            type_catalog.resolve_type(owner_symbol["type_id"])
+                            if owner_symbol.get("kind") == "type" else None
+                        )
+                    except CatalogError:
+                        owner_record = None
+                    if owner_record and any(
+                        ".property." + path[0] in member_id
+                        or ".field." + path[0] in member_id
+                        for member_id in owner_record.get("member_node_ids", [])
+                    ):
+                        return ("literal", {"__flow_attrgetter__": path[0]})
                 if root in aliases and aliases[root] == "b3d" and len(path) == 1:
                     try:
                         symbol = type_catalog.resolve_symbol(path[0])
@@ -4701,6 +4742,16 @@ def import_python_code(source):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Subscript):
+                selected_callable = expression(node.func)
+                if (
+                    selected_callable[0] == "literal"
+                    and isinstance(selected_callable[1], dict)
+                    and isinstance(selected_callable[1].get("__flow_class__"), str)
+                    and selected_callable[1]["__flow_class__"] in user_classes
+                ):
+                    class_name = selected_callable[1]["__flow_class__"]
+                    return inline_user_class(user_classes[class_name], node)
             if isinstance(node.func, ast.Name) and node.func.id in user_classes:
                 return inline_user_class(user_classes[node.func.id], node)
             if (

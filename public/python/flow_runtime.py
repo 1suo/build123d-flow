@@ -4123,11 +4123,42 @@ def import_python_code(source):
         var_keyword = next((s for s in sockets if s.get("kind") == "var_keyword"), None)
         params, links, supplied = {}, [], set()
         index = 0
+        starred_arguments = [item for item in call_node.args if isinstance(item, ast.Starred)]
+        if len(starred_arguments) > 1:
+            raise ValueError("Only one expanded positional argument is supported at line {}".format(call_node.lineno))
+        positional_keywords = {
+            item.arg for item in call_node.keywords
+            if item.arg is not None and any(socket["name"] == item.arg for socket in positional)
+        }
+        expanded_arguments = []
         for argument in call_node.args:
-            if isinstance(argument, ast.Starred):
-                if var_positional is None:
-                    raise ValueError("Expanded positional arguments require *args at line {}".format(call_node.lineno))
-                socket, value_node = var_positional, argument.value
+            if not isinstance(argument, ast.Starred):
+                expanded_arguments.append((None, argument))
+                continue
+            expanded = expression(argument.value)
+            if expanded[0] == "literal" and isinstance(expanded[1], (list, tuple)):
+                expanded_arguments.extend((None, ast.Constant(value=item)) for item in expanded[1])
+                continue
+            if var_positional is not None:
+                expanded_arguments.append((var_positional, argument.value))
+                continue
+            remaining = len(positional) - sum(
+                1 for item in call_node.args if not isinstance(item, ast.Starred)
+            ) - len(positional_keywords)
+            if expanded[0] != "ref" or remaining < 0:
+                raise ValueError("Expanded positional arguments do not match the discovered signature at line {}".format(call_node.lineno))
+            for item_index in range(remaining):
+                subscript_id = add_node(
+                    _PYTHON_SUBSCRIPT_ID, {"index": item_index},
+                    [("value", expanded[1], expanded[2])], call_node.lineno,
+                )
+                expanded_arguments.append((
+                    None,
+                    ("precomputed", ("ref", subscript_id, "result", "Any")),
+                ))
+        for socket_override, value_node in expanded_arguments:
+            if socket_override is not None:
+                socket = socket_override
             else:
                 if index >= len(positional):
                     if var_positional is None:
@@ -4137,12 +4168,14 @@ def import_python_code(source):
                 else:
                     socket = positional[index]
                     index += 1
-                value_node = argument
             name = socket["name"]
             if name in supplied and socket is not var_positional:
                 raise ValueError("Multiple values for argument '{}' at line {}".format(name, call_node.lineno))
             supplied.add(name)
-            value = expression(value_node)
+            value = (
+                value_node[1] if isinstance(value_node, tuple) and value_node[0] == "precomputed"
+                else expression(value_node)
+            )
             if value[0] == "literal":
                 params[name] = literal_json_value(value[1])
             else:
@@ -4430,6 +4463,42 @@ def import_python_code(source):
                     links.append((name, value[1], value[2]))
             created = add_node(definition_id, params, links, node.lineno)
             return ("ref", created, "result", "String")
+        if isinstance(node, ast.IfExp):
+            condition = expression(node.test)
+            if condition[0] == "literal":
+                return expression(node.body if bool(condition[1]) else node.orelse)
+            true_value = expression(node.body)
+            false_value = expression(node.orelse)
+            definition_id = "core.python.if_expression"
+            def choose_value(test, when_true, when_false):
+                return when_true if test else when_false
+            definitions[definition_id] = {
+                "id": definition_id, "name": "Python Conditional Expression",
+                "source": "python", "kind": "operation", "category": "Internal",
+                "palette_category": "Python", "palette_section": "Expressions",
+                "inputs": [
+                    {"name": "condition", "type": "Boolean", "required": True},
+                    {"name": "when_true", "type": "Any", "required": True},
+                    {"name": "when_false", "type": "Any", "required": True},
+                ],
+                "outputs": [{"name": "result", "type": "Any"}],
+            }
+            _INTERNAL_NODE_IDS.add(definition_id)
+            _CATALOG_CALLABLES[definition_id] = choose_value
+            _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                inspect.Parameter("test", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                inspect.Parameter("when_true", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                inspect.Parameter("when_false", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            ])
+            _CATALOG_HINT_TARGETS[definition_id] = False
+            params, links = {}, []
+            for name, value in (("condition", condition), ("when_true", true_value), ("when_false", false_value)):
+                if value[0] == "literal":
+                    params[name] = literal_json_value(value[1])
+                else:
+                    links.append((name, value[1], value[2]))
+            created = add_node(definition_id, params, links, node.lineno)
+            return ("ref", created, "result", "Any")
         if isinstance(node, ast.Constant):
             return ("literal", node.value)
         if isinstance(node, ast.Set):

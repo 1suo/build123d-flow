@@ -15,11 +15,20 @@ def norm(name):
 
 def setup_roots(path):
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    roots, mocks = [
+    roots, provided = [
         Requirement("micropip"), Requirement("build123d==0.13.0"),
         Requirement("scipy"),
     ], set()
     for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "PROVIDED_IMPORTS"
+            for target in node.targets
+        ) and isinstance(node.value, ast.Dict):
+            for key, value in zip(node.value.keys, node.value.values):
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    provided.add(norm(key.value))
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    roots.append(Requirement(value.value))
         if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "OCP_VERSION" for target in node.targets):
             if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                 roots.append(Requirement(f"cadquery-ocp-novtk-OCP.wasm=={node.value.value}"))
@@ -27,7 +36,7 @@ def setup_roots(path):
         owner = node.func.value
         if not isinstance(owner, ast.Name) or owner.id != "micropip": continue
         if node.func.attr == "add_mock_package" and node.args and isinstance(node.args[0], ast.Constant):
-            mocks.add(norm(node.args[0].value))
+            provided.add(norm(node.args[0].value))
         if node.func.attr != "install" or not node.args: continue
         arg = node.args[0]
         for value in (arg.elts if isinstance(arg, (ast.List, ast.Tuple, ast.Set)) else [arg]):
@@ -35,13 +44,13 @@ def setup_roots(path):
             raw = value.value.strip()
             if raw.endswith(".whl") or " @ https://" in raw: continue
             roots.append(Requirement(raw))
-    return roots, mocks
+    return roots, provided
 
 class Resolver:
-    def __init__(self, packages, mocks):
+    def __init__(self, packages, provided):
         self.packages = packages
         self.names = {norm(n): n for n in packages}
-        self.mocks, self.required, self.visited, self.cache = mocks, set(), set(), {}
+        self.provided, self.required, self.visited, self.cache = provided, set(), set(), {}
         self.external = {}
 
     @staticmethod
@@ -73,7 +82,7 @@ class Resolver:
 
     def add(self, req):
         name = norm(req.name)
-        if name in self.mocks: return
+        if name in self.provided: return
         lock_name = self.names.get(name)
         if lock_name:
             package = self.packages[lock_name]
@@ -106,7 +115,7 @@ def download(url, destination, expected_hash):
         raise RuntimeError(f"SHA-256 mismatch for {destination.name}: {actual} != {expected_hash}")
 
 def stage(archive, destination, setup, wheelhouse):
-    roots, mocks = setup_roots(setup)
+    roots, provided = setup_roots(setup)
     destination.mkdir(parents=True, exist_ok=True)
     wheelhouse.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive, "r:bz2") as bundle:
@@ -118,7 +127,7 @@ def stage(archive, destination, setup, wheelhouse):
         lock_file = bundle.extractfile(members["pyodide-lock.json"])
         if lock_file is None: raise SystemExit("Could not read pyodide-lock.json")
         packages = json.load(lock_file).get("packages", {})
-        resolver = Resolver(packages, mocks)
+        resolver = Resolver(packages, provided)
         for root in roots: resolver.add(root)
         required = set(CORE)
         for name in resolver.required:
@@ -150,7 +159,7 @@ def stage(archive, destination, setup, wheelhouse):
         json.dumps(sorted(resolver.required), indent=2) + "\n", encoding="utf-8"
     )
     print("Runtime roots:", ", ".join(sorted({r.name for r in roots})))
-    print("Mocked distributions:", ", ".join(sorted(mocks)))
+    print("Provided import packages / mocks:", ", ".join(sorted(provided)))
     print("Staged Pyodide closure:", ", ".join(sorted(resolver.required)))
     print("Staged PyPI wheels:", ", ".join(f'{x["name"]}=={x["version"]}' for x in manifest))
     print(f"Staged {len(required)} Pyodide files and {len(manifest)} PyPI wheels ({total:,} bytes)")

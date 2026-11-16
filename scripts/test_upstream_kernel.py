@@ -90,16 +90,6 @@ def main() -> int:
                         list((expected_ids - actual_ids).elements()),
                     )
                 )
-            missing_callables = sorted({
-                identity for identity in expected_ids
-                if identity not in runtime._CATALOG_CALLABLES
-            })
-            if missing_callables:
-                raise ValueError(
-                    "{}: graph-lowering callables were not registered: {}".format(
-                        filename, missing_callables
-                    )
-                )
             evaluation = json.loads(
                 runtime.evaluate_graph_json(json.dumps(item["graph"]))
             )

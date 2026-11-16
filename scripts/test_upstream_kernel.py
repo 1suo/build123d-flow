@@ -17,6 +17,19 @@ sys.path.insert(0, str(ROOT / "public" / "python"))
 EXAMPLE_TIMEOUT_SECONDS = int(os.environ.get("BUILD123D_EXAMPLE_TIMEOUT_SECONDS", "30"))
 
 
+def stop_worker(process):
+    """Bound worker shutdown even when native CAD code ignores SIGTERM."""
+    if not process.is_alive():
+        return
+    process.terminate()
+    process.join(2)
+    if process.is_alive():
+        process.kill()
+        process.join(2)
+    if process.is_alive():
+        raise RuntimeError("kernel worker could not be killed")
+
+
 def definition_ids(graph):
     return collections.Counter(
         node.get("data", {}).get("definition", {}).get("id")
@@ -136,8 +149,7 @@ def run_isolated_example(context, item, runtime):
     child_connection.close()
     try:
         if not parent_connection.poll(EXAMPLE_TIMEOUT_SECONDS):
-            process.terminate()
-            process.join()
+            stop_worker(process)
             return {
                 "filename": item["filename"],
                 "passed": False,
@@ -157,7 +169,9 @@ def run_isolated_example(context, item, runtime):
                     process.exitcode
                 ),
             }
-        process.join()
+        process.join(2)
+        if process.is_alive():
+            stop_worker(process)
         if process.exitcode != 0 and result.get("passed"):
             return {
                 "filename": item["filename"],
@@ -169,8 +183,7 @@ def run_isolated_example(context, item, runtime):
     finally:
         parent_connection.close()
         if process.is_alive():
-            process.terminate()
-            process.join()
+            stop_worker(process)
 
 
 def main() -> int:

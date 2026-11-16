@@ -3195,6 +3195,10 @@ def import_python_code(source):
 
     graph_nodes, graph_edges = [], []
     variables = {}
+    user_functions = {
+        statement.name: statement for statement in tree.body
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
     stream_variables = set()
     mapping_matching = "longest"
     active_loop_frames = []
@@ -4296,6 +4300,8 @@ def import_python_code(source):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in user_functions:
+                return inline_user_function(user_functions[node.func.id], node)
             if isinstance(node.func, ast.Name) and node.func.id == "locals":
                 local_names = set(variables) | set(imported) | set(viewer_functions) | set(stdlib_symbols)
                 return ("literal", {name: True for name in local_names})
@@ -5592,6 +5598,13 @@ def import_python_code(source):
                     created = add_node(definition_id, params, links, statement.lineno)
                     variables[statement.target.id] = ("ref", created, "result")
                 continue
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if isinstance(statement, ast.Return):
+                raise _FunctionReturn(
+                    expression(statement.value) if statement.value is not None
+                    else ("literal", None)
+                )
             if isinstance(statement, ast.If):
                 condition = expression(statement.test)
                 if condition[0] != "literal" or not isinstance(condition[1], bool):
@@ -5640,6 +5653,85 @@ def import_python_code(source):
                 continue
             raise ValueError("Unsupported statement '{}' at line {}".format(
                 type(statement).__name__, getattr(statement, "lineno", "?")))
+
+    class _FunctionReturn(Exception):
+        def __init__(self, value):
+            self.value = value
+
+    def inline_user_function(function_node, call_node):
+        arguments = function_node.args
+        positional_parameters = list(arguments.posonlyargs) + list(arguments.args)
+        defaults = list(arguments.defaults)
+        default_offset = len(positional_parameters) - len(defaults)
+        bound = {}
+        supplied = set()
+        for index, argument in enumerate(call_node.args):
+            if isinstance(argument, ast.Starred):
+                expanded = expression(argument.value)
+                if expanded[0] != "literal" or not isinstance(expanded[1], (list, tuple)):
+                    raise ValueError("Expanded user-function arguments must be literal sequences (line {})".format(call_node.lineno))
+                values = list(expanded[1])
+            else:
+                values = [None]
+            if isinstance(argument, ast.Starred):
+                for value in values:
+                    if index >= len(positional_parameters):
+                        raise ValueError("Too many arguments for function {} (line {})".format(function_node.name, call_node.lineno))
+                    name = positional_parameters[index].arg
+                    bound[name] = ("literal", value)
+                    supplied.add(name)
+                    index += 1
+                continue
+            if index >= len(positional_parameters):
+                if arguments.vararg is None:
+                    raise ValueError("Too many arguments for function {} (line {})".format(function_node.name, call_node.lineno))
+                name = arguments.vararg.arg
+                prior = bound.setdefault(name, ("literal", []))
+                bound[name] = ("literal", list(prior[1]) + [expression(argument)[1]])
+            else:
+                name = positional_parameters[index].arg
+                bound[name] = expression(argument)
+                supplied.add(name)
+        for keyword in call_node.keywords:
+            if keyword.arg is None:
+                expanded = expression(keyword.value)
+                if expanded[0] != "literal" or not isinstance(expanded[1], dict):
+                    raise ValueError("Expanded user-function keywords must be literal mappings (line {})".format(call_node.lineno))
+                pairs = expanded[1].items()
+            else:
+                pairs = [(keyword.arg, keyword.value)]
+            for name, value_node in pairs:
+                parameter = next((item for item in positional_parameters if item.arg == name), None)
+                if parameter is None and arguments.kwarg is None:
+                    raise ValueError("Unknown keyword '{}' for function {} (line {})".format(name, function_node.name, call_node.lineno))
+                if name in supplied:
+                    raise ValueError("Multiple values for argument '{}' (line {})".format(name, call_node.lineno))
+                bound[name] = expression(value_node) if isinstance(value_node, ast.AST) else ("literal", value_node)
+                supplied.add(name)
+        for index, parameter in enumerate(positional_parameters):
+            if parameter.arg not in bound:
+                if index >= default_offset:
+                    bound[parameter.arg] = expression(defaults[index - default_offset])
+                else:
+                    raise ValueError("Missing argument '{}' for function {} (line {})".format(parameter.arg, function_node.name, call_node.lineno))
+        if arguments.vararg and arguments.vararg.arg not in bound:
+            bound[arguments.vararg.arg] = ("literal", [])
+        if arguments.kwarg and arguments.kwarg.arg not in bound:
+            bound[arguments.kwarg.arg] = ("literal", {})
+        saved = dict(variables)
+        saved_stream = set(stream_variables)
+        try:
+            variables.update(bound)
+            try:
+                process_statements(function_node.body)
+            except _FunctionReturn as returned:
+                return returned.value
+            return ("literal", None)
+        finally:
+            variables.clear()
+            variables.update(saved)
+            stream_variables.clear()
+            stream_variables.update(saved_stream)
 
     process_statements(tree.body)
     if not graph_nodes:

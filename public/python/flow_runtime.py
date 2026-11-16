@@ -3006,7 +3006,7 @@ def import_python_code(source):
     stdlib_modules = {}
     stdlib_symbols = {}
     stdlib_star_modules = set()
-    safe_stdlib_modules = {"math", "copy", "functools", "itertools", "operator", "logging", "timeit"}
+    safe_stdlib_modules = {"math", "copy", "functools", "itertools", "operator", "logging", "timeit", "random"}
     viewer_api = {"show", "show_object", "show_all", "reset_show", "set_defaults"}
     for statement in tree.body:
         if isinstance(statement, ast.Import):

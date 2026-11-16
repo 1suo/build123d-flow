@@ -146,6 +146,29 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
             {"__flow_object__": "VectorValue", "value": [1.0, 2.0, 3.0]},
         )
 
+    def test_metaclass_class_properties_are_discovered(self):
+        class VectorValue:
+            __module__ = "build123d.geometry"
+            def __iter__(self):
+                return iter((0.0, 0.0, 0.0))
+        class PlaneMeta(type):
+            @property
+            def XY(cls):
+                return VectorValue()
+        class Plane(metaclass=PlaneMeta):
+            pass
+        Plane.__module__ = "build123d.geometry"
+        registry = build_type_registry([Plane], {})
+        catalog = TypeCatalog({
+            "schema_version": 2,
+            "types": list(registry.values()),
+            "nodes": [],
+        })
+        self.assertEqual(
+            catalog.resolve_class_value("Plane", "XY"),
+            {"__flow_object__": "VectorValue", "value": [0.0, 0.0, 0.0]},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

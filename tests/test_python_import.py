@@ -374,8 +374,23 @@ class PythonImportSourceTests(unittest.TestCase):
             self.assertIn(required, source)
 
 
+    def test_importer_accepts_native_sketch_geometry_subclasses(self):
+        assignment = next(
+            node for node in ast.walk(self.importer)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "geometry_base_types"
+                for target in node.targets
+            )
+        )
+        source = ast.unparse(assignment.value)
+        self.assertIn("b3d.Shape", source)
+        self.assertIn("b3d.Sketch", source)
+        self.assertIn("b3d.BaseSketchObject", source)
+        importer_source = ast.unparse(self.importer)
+        self.assertIn("issubclass(base_class, geometry_type)", importer_source)
+
     def test_importer_allows_required_safe_python_modules(self):
-        source = ast.unparse(self.importer)
         assignment = next(
             node for node in ast.walk(self.importer)
             if isinstance(node, ast.Assign)

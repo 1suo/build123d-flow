@@ -251,6 +251,27 @@ result = Location() * ShapeList([Box(10, 10, 10)])
             "reflected result",
         )
 
+    def test_annotation_metadata_does_not_treat_iterable_domain_values_as_lists(self):
+        from flow_runtime import _annotation_metadata
+
+        class IterableDomainValue:
+            def __iter__(self):
+                return iter(())
+
+            def __len__(self):
+                return 0
+
+            def __getitem__(self, index):
+                raise IndexError(index)
+
+        class CustomList(list):
+            pass
+
+        self.assertNotIn("data_structure", _annotation_metadata(IterableDomainValue))
+        self.assertEqual(
+            _annotation_metadata(CustomList)["data_structure"], "list"
+        )
+
     def test_discovered_operator_preserves_nonstandard_operand_parameter_name(self):
         import inspect
         from flow_runtime import _invoke_discovered_operator_callable

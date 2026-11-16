@@ -3853,7 +3853,10 @@ def import_python_code(source):
         if not class_name:
             return None
         try:
-            type_record = type_catalog.resolve_type(class_name)
+            symbol = type_catalog.resolve_symbol(class_name)
+            if symbol.get("kind") != "type":
+                return None
+            type_record = type_catalog.resolve_type(symbol["type_id"])
         except CatalogError:
             return None
         constructor_type = type_record.get("socket_type", type_record["name"])

@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
-"""Execute Gate 1 graphs with the native kernel and a killable persistent worker."""
+"""Execute Gate 1 graphs with the native kernel, isolating every example."""
 from __future__ import annotations
 
 import collections
-import gc
 import io
 import json
+import multiprocessing
 import os
-import select
-import subprocess
 import sys
 import tarfile
-import tempfile
 import traceback
 from pathlib import Path
 
@@ -28,7 +25,7 @@ def definition_ids(graph):
 
 
 def prepare_kernel_runtime(catalog_path: Path):
-    """Initialize native discovery once in each disposable worker process."""
+    """Discover native callables once; forked example workers inherit this snapshot."""
     import flow_runtime as runtime
 
     if runtime.b3d is None:
@@ -38,6 +35,8 @@ def prepare_kernel_runtime(catalog_path: Path):
     discovered_signatures = dict(runtime._CATALOG_SIGNATURES)
     discovered_hints = dict(runtime._CATALOG_HINT_TARGETS)
     runtime.load_catalog_bundle(catalog_path.read_text(encoding="utf-8"))
+    # Gate 1 and Gate 2 use identical discovered metadata. Retain the real native
+    # callables/hints, but only for definitions present in the serialized catalog.
     runtime._CATALOG_CALLABLES.update({
         key: value for key, value in discovered_callables.items()
         if key in runtime._CATALOG
@@ -53,9 +52,12 @@ def prepare_kernel_runtime(catalog_path: Path):
     return runtime
 
 
-def evaluate_item(item, runtime):
+def kernel_worker(item, runtime, result_connection):
+    """Evaluate one graph in a disposable fork of the preinitialized kernel."""
     filename = item["filename"]
     try:
+        # Register graph-lowering callables in this isolated process, then execute
+        # the exact graph produced by the kernel-free Gate 1 interpreter.
         kernel_translation = runtime.import_python_code(item["source"])
         expected_ids = definition_ids(item["graph"])
         actual_ids = definition_ids(kernel_translation)
@@ -95,7 +97,7 @@ def evaluate_item(item, runtime):
         if any(value < 0 for value in dimensions):
             raise ValueError("invalid negative bounding-box dimension")
 
-        return {
+        result = {
             "filename": filename,
             "passed": True,
             "geometry": {
@@ -110,100 +112,68 @@ def evaluate_item(item, runtime):
             },
         }
     except Exception as exc:
-        return {
+        result = {
             "filename": filename,
             "passed": False,
             "stage": "kernel-execution",
             "error": str(exc),
             "traceback": traceback.format_exc(),
         }
-
-
-def worker_server(catalog_path: Path) -> int:
-    """Serve one example at a time; parent kills/restarts this process on timeout."""
-    import flow_runtime as runtime
-
-    runtime = prepare_kernel_runtime(catalog_path)
-    # Graph lowering adds generated Python nodes to these registries. Restore
-    # the discovered catalog after every example so examples cannot influence
-    # later translation or dispatch.
-    baseline_catalog = dict(runtime._CATALOG)
-    baseline_callables = dict(runtime._CATALOG_CALLABLES)
-    baseline_signatures = dict(runtime._CATALOG_SIGNATURES)
-    baseline_hints = dict(runtime._CATALOG_HINT_TARGETS)
-    baseline_internal_ids = set(runtime._INTERNAL_NODE_IDS)
-
-    for line in sys.stdin:
-        try:
-            item = json.loads(line)
-            result = evaluate_item(item, runtime)
-        except Exception as exc:
-            result = {
-                "filename": item.get("filename", "<unknown>") if "item" in locals() else "<unknown>",
-                "passed": False,
-                "stage": "kernel-worker",
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-            }
-        finally:
-            runtime._CATALOG.clear()
-            runtime._CATALOG.update(baseline_catalog)
-            runtime._CATALOG_CALLABLES.clear()
-            runtime._CATALOG_CALLABLES.update(baseline_callables)
-            runtime._CATALOG_SIGNATURES.clear()
-            runtime._CATALOG_SIGNATURES.update(baseline_signatures)
-            runtime._CATALOG_HINT_TARGETS.clear()
-            runtime._CATALOG_HINT_TARGETS.update(baseline_hints)
-            runtime._INTERNAL_NODE_IDS.clear()
-            runtime._INTERNAL_NODE_IDS.update(baseline_internal_ids)
-            runtime._LAST_SHAPE = None
-            gc.collect()
-        print(json.dumps(result, allow_nan=False), flush=True)
-    return 0
-
-
-def start_worker(catalog_path: Path, example_root: Path):
-    return subprocess.Popen(
-        [sys.executable, str(Path(__file__).resolve()), "--worker-server", str(catalog_path.resolve())],
-        cwd=str(example_root),
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        bufsize=1,
-    )
-
-
-def run_worker_item(worker, item):
-    """Request one graph result with a hard timeout on the worker process."""
     try:
-        worker.stdin.write(json.dumps(item, allow_nan=False) + "\n")
-        worker.stdin.flush()
-        ready, _, _ = select.select([worker.stdout], [], [], EXAMPLE_TIMEOUT_SECONDS)
-        if not ready:
-            return None, True
-        line = worker.stdout.readline()
-        if not line:
+        result_connection.send(result)
+    finally:
+        result_connection.close()
+
+
+def run_isolated_example(context, item, runtime):
+    """Fork a clean evaluator state and retain a hard per-example kill boundary."""
+    parent_connection, child_connection = context.Pipe(duplex=False)
+    process = context.Process(
+        target=kernel_worker,
+        args=(item, runtime, child_connection),
+    )
+    process.start()
+    child_connection.close()
+    try:
+        if not parent_connection.poll(EXAMPLE_TIMEOUT_SECONDS):
+            process.terminate()
+            process.join()
+            return {
+                "filename": item["filename"],
+                "passed": False,
+                "stage": "kernel-timeout",
+                "timeout_seconds": EXAMPLE_TIMEOUT_SECONDS,
+                "error": "native kernel execution exceeded the per-example timeout; "
+                         "worker process was terminated",
+            }
+        try:
+            result = parent_connection.recv()
+        except EOFError:
+            result = {
+                "filename": item["filename"],
+                "passed": False,
+                "stage": "kernel-process",
+                "error": "worker exited without returning a result (exit code {})".format(
+                    process.exitcode
+                ),
+            }
+        process.join()
+        if process.exitcode != 0 and result.get("passed"):
             return {
                 "filename": item["filename"],
                 "passed": False,
                 "stage": "kernel-process",
-                "error": "native worker exited without returning a result",
-            }, False
-        return json.loads(line), False
-    except Exception as exc:
-        return {
-            "filename": item["filename"],
-            "passed": False,
-            "stage": "kernel-harness",
-            "error": str(exc),
-            "traceback": traceback.format_exc(),
-        }, False
+                "error": "worker exited with code {}".format(process.exitcode),
+            }
+        return result
+    finally:
+        parent_connection.close()
+        if process.is_alive():
+            process.terminate()
+            process.join()
 
 
 def main() -> int:
-    if len(sys.argv) == 3 and sys.argv[1] == "--worker-server":
-        return worker_server(Path(sys.argv[2]))
     if len(sys.argv) != 4:
         raise SystemExit(
             "usage: test_upstream_kernel.py GATE1_RESULTS.json CATALOG.json RESULTS.json"
@@ -215,9 +185,16 @@ def main() -> int:
         raise SystemExit("Gate 2 cannot start: Gate 1 results are not completely green")
 
     results = []
-    with tempfile.TemporaryDirectory(prefix="build123d-gate2-") as temporary_dir:
+    # Native discovery and catalog hydration are expensive and deterministic.
+    # Initialize them once, then fork a fresh process for each graph. This keeps
+    # the native kernel kill boundary and clean per-example state without repeating
+    # full API discovery 67 times.
+    runtime = prepare_kernel_runtime(catalog_path)
+    context = multiprocessing.get_context("fork")
+    with __import__("tempfile").TemporaryDirectory(prefix="build123d-gate2-") as temporary_dir:
         temporary_root = Path(temporary_dir)
-        # Preserve relative STL/3MF/DXF/image assets from the exact pinned source.
+        # Upstream examples use relative STL/3MF/DXF/image assets. Download the
+        # exact pinned source archive and preserve its examples directory layout.
         import urllib.request
         archive_url = "https://github.com/{}/archive/{}.tar.gz".format(
             gate1["upstream_repository"], gate1["upstream_commit"]
@@ -238,53 +215,35 @@ def main() -> int:
             raise RuntimeError(
                 "Pinned upstream archive must contain exactly one examples directory"
             )
-        example_root = example_roots[0]
+        os.chdir(example_roots[0])
+        for item in gate1["results"]:
+            try:
+                result = run_isolated_example(context, item, runtime)
+            except Exception as exc:
+                result = {
+                    "filename": item["filename"],
+                    "passed": False,
+                    "stage": "kernel-harness",
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
 
-        worker = None
-        try:
-            for item in gate1["results"]:
-                if worker is None or worker.poll() is not None:
-                    worker = start_worker(catalog_path, example_root)
-                result, timed_out = run_worker_item(worker, item)
-                if timed_out:
-                    worker.kill()
-                    worker.wait()
-                    worker = None
-                    result = {
-                        "filename": item["filename"],
-                        "passed": False,
-                        "stage": "kernel-timeout",
-                        "timeout_seconds": EXAMPLE_TIMEOUT_SECONDS,
-                        "error": "native kernel execution exceeded the per-example timeout; "
-                                 "worker process was terminated",
-                    }
-                elif result is None:
-                    result = {
-                        "filename": item["filename"],
-                        "passed": False,
-                        "stage": "kernel-harness",
-                        "error": "worker returned no result",
-                    }
-                results.append(result)
-                if result.get("passed"):
-                    geometry = result["geometry"]["native_topology"]
-                    print(
-                        "PASS {} ({} vertices, {} edges, {} faces)".format(
-                            item["filename"], geometry["vertices"], geometry["edges"], geometry["faces"]
-                        ),
-                        flush=True,
-                    )
-                else:
-                    print(
-                        "FAIL {} [{}]: {}".format(
-                            item["filename"], result.get("stage"), result.get("error")
-                        ),
-                        flush=True,
-                    )
-        finally:
-            if worker is not None and worker.poll() is None:
-                worker.terminate()
-                worker.wait()
+            results.append(result)
+            if result.get("passed"):
+                geometry = result["geometry"]["native_topology"]
+                print(
+                    "PASS {} ({} vertices, {} edges, {} faces)".format(
+                        item["filename"], geometry["vertices"], geometry["edges"], geometry["faces"]
+                    ),
+                    flush=True,
+                )
+            else:
+                print(
+                    "FAIL {} [{}]: {}".format(
+                        item["filename"], result.get("stage"), result.get("error")
+                    ),
+                    flush=True,
+                )
 
     passed = sum(1 for result in results if result["passed"])
     payload = {

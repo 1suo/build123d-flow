@@ -3885,6 +3885,17 @@ def import_python_code(source):
                 return "dict"
             if isinstance(argument, ast.Constant):
                 return "scalar"
+            # Arithmetic expressions over Python numeric values are scalar
+            # arguments too. Treating them as unknown makes overloaded
+            # constructors (notably Pos/Location and Axis) tie-break to the
+            # first discovered overload, often a Vector/sequence overload.
+            if isinstance(argument, (ast.BinOp, ast.UnaryOp)):
+                numeric_operators = (
+                    ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv,
+                    ast.Mod, ast.Pow, ast.UAdd, ast.USub,
+                )
+                if isinstance(argument.op if isinstance(argument, ast.BinOp) else argument.op, numeric_operators):
+                    return "scalar"
             return None
 
         def overload_argument_score(argument, socket):

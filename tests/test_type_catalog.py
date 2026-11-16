@@ -1,3 +1,4 @@
+import enum
 import sys
 import unittest
 from pathlib import Path
@@ -99,6 +100,32 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
                 }],
                 "nodes": [],
             })
+
+    def test_enum_members_are_discovered_and_serializable(self):
+        class Unit(enum.Enum):
+            MM = "mm"
+            IN = "in"
+        Unit.__module__ = "build123d.units"
+        registry = build_type_registry([Unit], {})
+        catalog = TypeCatalog({
+            "schema_version": 1,
+            "types": list(registry.values()),
+            "nodes": [],
+        })
+        self.assertEqual(
+            catalog.resolve_enum_member("Unit", "MM"),
+            {"__flow_enum__": ["build123d.units", "Unit", "MM"]},
+        )
+
+    def test_context_manager_capability_is_discovered(self):
+        class Manager:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+        Manager.__module__ = "build123d.builders"
+        record = build_type_registry([Manager], {})["build123d.builders.Manager"]
+        self.assertTrue(record["supports_context_manager"])
 
 
 if __name__ == "__main__":

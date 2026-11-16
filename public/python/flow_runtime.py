@@ -3221,6 +3221,7 @@ def import_python_code(source):
     active_scope_ids = []
     execution_scopes = []
     scope_result_nodes = {}
+    active_conditions = []
     scope_counter = 0
     counter = 0
 
@@ -3243,6 +3244,16 @@ def import_python_code(source):
         node_definition = dict(definition)
         node_definition["inputs"] = [dict(socket) for socket in definition.get("inputs", [])]
         node_definition["outputs"] = [dict(socket) for socket in definition.get("outputs", [])]
+        links = list(links)
+        for condition_index, condition in enumerate(active_conditions):
+            condition_name = "__flow_condition_{}".format(condition_index)
+            node_definition["inputs"].append({
+                "name": condition_name, "type": "Boolean", "required": True,
+                "data_access": "item",
+            })
+            if condition[0] != "ref":
+                raise ValueError("Conditional graph operations require graph-backed predicates")
+            links.append((condition_name, condition[1], condition[2]))
         receiver_socket = next(
             (socket for socket in node_definition["inputs"] if socket.get("name") in {"self", "cls"}),
             None,
@@ -3342,7 +3353,7 @@ def import_python_code(source):
             iteration_links.append((input_name, frame["node_id"], frame["output_name"]))
         data = {"definition": node_definition, "params": params,
                 "execution_scope_path": list(active_scope_ids),
-                "visible": not builder_scope_active and any(
+                "visible": not active_conditions and not builder_scope_active and any(
                     socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
                     for socket in definition.get("outputs", [])
                 )}

@@ -121,7 +121,7 @@ box = Box(10, 10, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
         self.assertTrue(all(node_id in self.catalog.nodes for node_id in overloads))
 
     def test_class_level_api_call_translates_without_kernel(self):
-        graph = json.loads(runtime.import_python_code("""
+        graph = runtime.import_python_code("""
 from build123d import Wire
 wire = Wire.make_circle(5)
 """)

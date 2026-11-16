@@ -116,7 +116,9 @@ def validate_graph(graph, filename):
                     name = socket["name"]
                     # Loop lowering may add explicitly marked iteration sockets;
                     # all other embedded sockets must originate in the catalog.
-                    if name not in registered_names and not name.startswith("__flow_iteration_"):
+                    if name not in registered_names and not name.startswith((
+                        "__flow_iteration_", "__flow_condition_"
+                    )):
                         raise ValueError(
                             "{}: node {} embeds unknown {} socket {} on {}".format(
                                 filename, node_id, socket_group, name, definition_id

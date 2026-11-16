@@ -1839,12 +1839,24 @@ def _mesh_preview(value, style=None):
     flat_vertices, flat_triangles, edge_segments, vertex_points = [], [], [], []
     try:
         for shape in shapes:
-            vertices, triangles = shape.tessellate(0.15, 0.25)
-            offset = len(flat_vertices) // 3
-            for vertex in vertices:
-                flat_vertices.extend(_point_xyz(vertex))
-            flat_triangles.extend(offset + int(index) for triangle in triangles for index in triangle)
-            for edge in shape.edges():
+            # OCCT may represent an empty intermediate accumulator with a
+            # non-null wrapper. Detect the absence of all topology before
+            # calling tessellate(), which raises for such values. Curves and
+            # wires with edges remain previewable without face triangulation.
+            faces = shape.faces()
+            edges = shape.edges()
+            vertices = shape.vertices()
+            if not faces and not edges and not vertices:
+                continue
+            if faces:
+                mesh_vertices, triangles = shape.tessellate(0.15, 0.25)
+                offset = len(flat_vertices) // 3
+                for vertex in mesh_vertices:
+                    flat_vertices.extend(_point_xyz(vertex))
+                flat_triangles.extend(
+                    offset + int(index) for triangle in triangles for index in triangle
+                )
+            for edge in edges:
                 try:
                     samples = [_point_xyz(point) for point in edge.positions(deflection=0.15)]
                     for first, second in zip(samples, samples[1:]):
@@ -1855,7 +1867,7 @@ def _mesh_preview(value, style=None):
                     if len(endpoints) >= 2:
                         edge_segments.extend(endpoints[0])
                         edge_segments.extend(endpoints[-1])
-            for vertex in shape.vertices():
+            for vertex in vertices:
                 vertex_points.extend(_point_xyz(vertex.center()))
         preview = {"vertices": flat_vertices, "triangles": flat_triangles,
                    "edges": edge_segments, "points": vertex_points}

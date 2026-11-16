@@ -2683,11 +2683,33 @@ def evaluate_graph_json(payload, include_previews=True):
                         if name not in condition_names
                     })
             operator_method = definition.get("operator", {}).get("method")
-            if operator_method in _PYTHON_BINARY_OPERATORS:
-                def invoke(mapped):
-                    return _invoke_discovered_operator(
-                        operator_method, mapped.get("self"), mapped.get("other")
+            python_operator = _PYTHON_BINARY_OPERATORS.get(operator_method)
+            if python_operator is not None:
+                native_operator_invoke = invoke
+                operator_parameters = [
+                    parameter for parameter in signature.parameters.values()
+                    if parameter.name not in ("self", "cls")
+                    and parameter.kind not in (
+                        inspect.Parameter.VAR_POSITIONAL,
+                        inspect.Parameter.VAR_KEYWORD,
                     )
+                ]
+                receiver_name = next(
+                    (parameter.name for parameter in signature.parameters.values()
+                     if parameter.name in ("self", "cls")),
+                    "self",
+                )
+                operand_name = operator_parameters[0].name if operator_parameters else None
+
+                def invoke(mapped):
+                    result = native_operator_invoke(mapped)
+                    if result is not NotImplemented or operand_name is None:
+                        return result
+                    receiver = mapped.get(receiver_name)
+                    operand = mapped.get(operand_name)
+                    if operator_method.startswith("__r"):
+                        return python_operator(operand, receiver)
+                    return python_operator(receiver, operand)
             stream_shapes = {}
             shape_memo = {}
             # Python for-loops and comprehensions explicitly declare their

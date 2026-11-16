@@ -1621,7 +1621,7 @@ def discover(include_full=True):
         report["palette_source_counts"][source] = report["palette_source_counts"].get(source, 0) + 1
         report["palette_category_counts"][source + "/" + category] = report["palette_category_counts"].get(source + "/" + category, 0) + 1
 
-    type_registry = build_type_registry(api_classes, found)
+    type_registry = build_type_registry(api_classes, found, getattr(b3d, "Shape", None))
     for api_class in api_classes:
         type_id = api_class.__module__ + "." + api_class.__name__
         record = type_registry.get(type_id)
@@ -2010,15 +2010,21 @@ def _stream_item_kind(value):
     return "object"
 
 
-_GEOMETRY_INPUT_TYPES = {"Shape", "Solid", "Compound", "Face", "Edge", "Vertex", "Wire", "Shell", "Part", "Sketch"}
 _SCALAR_INPUT_TYPES = {"Number", "Boolean", "String", "Code"}
-_OBJECT_INPUT_TYPES = {
-    "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis", "Color", "Matrix", "Enum",
-    # Face is a concrete wrapper used by geometry construction expressions
-    # such as Plane(Face(Wire.make_polygon(...))). It is not a base class for
-    # primitive builders like Box, so its constructor can be lowered safely.
-    "Face",
-}
+
+
+def _discovered_input_type_sets():
+    """Return geometry/object socket types from the generated class registry."""
+    geometry_types, object_types = set(), {"Enum"}
+    for record in _TYPE_REGISTRY.values():
+        socket_type = record.get("socket_type", record.get("name"))
+        if not isinstance(socket_type, str) or not socket_type:
+            continue
+        if record.get("is_geometry"):
+            geometry_types.add(socket_type)
+        elif not record.get("is_abstract"):
+            object_types.add(socket_type)
+    return geometry_types, object_types
 
 
 def _validate_stream_items(definition, params, stream_shapes):
@@ -2043,9 +2049,10 @@ def _validate_stream_items(definition, params, stream_shapes):
             target_types = [input_socket.get("type")]
         if any(target in ("Any", "List", "Tuple", "Set", "Dict") for target in target_types):
             continue
-        geometry_target = any(target in _GEOMETRY_INPUT_TYPES for target in target_types)
+        geometry_types, object_types = _discovered_input_type_sets()
+        geometry_target = any(target in geometry_types for target in target_types)
         scalar_target = any(target in _SCALAR_INPUT_TYPES for target in target_types)
-        object_target = any(target in _OBJECT_INPUT_TYPES for target in target_types)
+        object_target = any(target in object_types for target in target_types)
         if not (geometry_target or scalar_target or object_target):
             continue
         kinds = {_stream_item_kind(item) for item in value}
@@ -3856,7 +3863,8 @@ def import_python_code(source):
                     score += 5
                 elif access == "item":
                     score -= 5
-                if target_types.intersection(_GEOMETRY_INPUT_TYPES | _OBJECT_INPUT_TYPES):
+                geometry_types, object_types = _discovered_input_type_sets()
+                if target_types.intersection(geometry_types | object_types):
                     score -= 3
                 return score
             score = 1 if access in (None, "item") else -1

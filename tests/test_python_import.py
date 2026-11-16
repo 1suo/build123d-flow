@@ -384,9 +384,9 @@ class PythonImportSourceTests(unittest.TestCase):
             )
         )
         source = ast.unparse(assignment.value)
-        self.assertIn("b3d.Shape", source)
-        self.assertIn("b3d.Sketch", source)
-        self.assertIn("b3d.BaseSketchObject", source)
+        self.assertIn("'Shape'", source)
+        self.assertIn("'Sketch'", source)
+        self.assertIn("'BaseSketchObject'", source)
         importer_source = ast.unparse(self.importer)
         self.assertIn("issubclass(base_class, geometry_type)", importer_source)
 

@@ -4991,26 +4991,101 @@ def import_python_code(source):
                 ast.NotIn: lambda left, right: left not in right,
                 ast.Is: operator.is_, ast.IsNot: operator.is_not,
             }
+            names = {
+                ast.Eq: "eq", ast.NotEq: "ne", ast.Lt: "lt",
+                ast.LtE: "le", ast.Gt: "gt", ast.GtE: "ge",
+                ast.In: "in", ast.NotIn: "not_in",
+                ast.Is: "is", ast.IsNot: "is_not",
+            }
             operands = [expression(node.left)] + [expression(item) for item in node.comparators]
-            if any(item[0] != "literal" for item in operands):
-                raise ValueError("Graph-dependent conditions are not yet importable (line {})".format(node.lineno))
-            values = [materialize_literal(item[1]) for item in operands]
-            result = True
+            if all(item[0] == "literal" for item in operands):
+                values = [materialize_literal(item[1]) for item in operands]
+                result = True
+                for index, operation in enumerate(node.ops):
+                    function = operators.get(type(operation))
+                    if function is None:
+                        raise ValueError("Unsupported comparison at line {}".format(node.lineno))
+                    try:
+                        result = result and function(values[index], values[index + 1])
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("Invalid comparison at line {}: {}".format(node.lineno, exc))
+                return ("literal", result)
+            result = None
             for index, operation in enumerate(node.ops):
-                function = operators.get(type(operation))
-                if function is None:
+                operation_name = names.get(type(operation))
+                if operation_name is None:
                     raise ValueError("Unsupported comparison at line {}".format(node.lineno))
-                try:
-                    result = result and function(values[index], values[index + 1])
-                except (TypeError, ValueError) as exc:
-                    raise ValueError("Invalid comparison at line {}: {}".format(node.lineno, exc))
-            return ("literal", result)
+                definition_id = "core.python.compare." + operation_name
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "Python compare " + operation_name,
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Python", "palette_section": "Expressions",
+                    "inputs": [
+                        {"name": "left", "type": "Any", "required": True},
+                        {"name": "right", "type": "Any", "required": True},
+                    ],
+                    "outputs": [{"name": "result", "type": "Boolean"}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+                _CATALOG_CALLABLES[definition_id] = operators[type(operation)]
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter("left", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("right", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {}, []
+                for name, operand in (("left", operands[index]), ("right", operands[index + 1])):
+                    if operand[0] == "literal":
+                        params[name] = literal_json_value(operand[1])
+                    else:
+                        links.append((name, operand[1], operand[2]))
+                created = add_node(definition_id, params, links, node.lineno)
+                result = ("ref", created, "result", "Boolean")
+                if index > 0:
+                    result = add_python_binary_node("__and__", previous, result, node.lineno)
+                previous = result
+            return result
         if isinstance(node, ast.BoolOp):
             values = [expression(item) for item in node.values]
-            if any(item[0] != "literal" for item in values):
-                raise ValueError("Graph-dependent conditions are not yet importable (line {})".format(node.lineno))
-            raw = [materialize_literal(item[1]) for item in values]
-            return ("literal", all(raw) if isinstance(node.op, ast.And) else any(raw))
+            if all(item[0] == "literal" for item in values):
+                raw = [materialize_literal(item[1]) for item in values]
+                return ("literal", all(raw) if isinstance(node.op, ast.And) else any(raw))
+            operation_name = "and" if isinstance(node.op, ast.And) else "or"
+            definition_id = "core.python.bool." + operation_name
+            def boolean_operation(left, right):
+                return right if left else left if operation_name == "and" else left if left else right
+            if operation_name == "and":
+                boolean_operation = lambda left, right: right if left else left
+            else:
+                boolean_operation = lambda left, right: left if left else right
+            definitions[definition_id] = {
+                "id": definition_id, "name": "Python " + operation_name,
+                "source": "python", "kind": "operation", "category": "Internal",
+                "palette_category": "Python", "palette_section": "Expressions",
+                "inputs": [
+                    {"name": "left", "type": "Any", "required": True},
+                    {"name": "right", "type": "Any", "required": True},
+                ],
+                "outputs": [{"name": "result", "type": "Boolean"}],
+            }
+            _INTERNAL_NODE_IDS.add(definition_id)
+            _CATALOG_CALLABLES[definition_id] = boolean_operation
+            _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                inspect.Parameter("left", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                inspect.Parameter("right", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            ])
+            _CATALOG_HINT_TARGETS[definition_id] = False
+            result = values[0]
+            for value in values[1:]:
+                params, links = {}, []
+                for name, operand in (("left", result), ("right", value)):
+                    if operand[0] == "literal":
+                        params[name] = literal_json_value(operand[1])
+                    else:
+                        links.append((name, operand[1], operand[2]))
+                created = add_node(definition_id, params, links, node.lineno)
+                result = ("ref", created, "result", "Boolean")
+            return result
         if isinstance(node, ast.UnaryOp):
             methods = {
                 ast.USub: ("__neg__", operator.neg),

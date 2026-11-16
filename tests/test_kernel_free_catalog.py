@@ -206,6 +206,21 @@ result = box + cylinder
             "z_dir": (0, 0, 1),
         }))
 
+    def test_generic_location_operator_infers_shape_result_from_operand(self):
+        graph = runtime.import_python_code("""
+from build123d import Box, Location
+result = Location() * Box(10, 10, 10)
+""")
+        operator_node = next(
+            node for node in graph["nodes"]
+            if node.get("data", {}).get("definition", {}).get("id")
+            == "build123d.geometry.Location.operator.__mul__"
+        )
+        output = operator_node["data"]["definition"]["outputs"][0]
+        self.assertEqual(output["type"], "Part")
+        self.assertNotIn("data_structure", output)
+        self.assertIsNone(runtime.b3d)
+
     def test_context_manager_translation_uses_catalog_metadata(self):
         manager = self.catalog.resolve_type("BuildPart")
         self.assertTrue(manager["supports_context_manager"])

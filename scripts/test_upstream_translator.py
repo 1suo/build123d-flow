@@ -30,6 +30,7 @@ def corpus():
         or not isinstance(examples, list)
         or not examples
         or len(examples) != len(set(examples))
+        or len(examples) != data.get("expected_example_count")
     ):
         raise RuntimeError("Invalid pinned upstream corpus: " + str(CORPUS_PATH))
     if any(not isinstance(name, str) or not name.endswith(".py") for name in examples):

@@ -1,5 +1,6 @@
 import inspect
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -12,7 +13,11 @@ import flow_runtime as runtime
 class LiveDiscoveryCatalogTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.bundle = json.loads(runtime.catalog_bundle_json())
+        catalog_path = os.environ.get("BUILD123D_CATALOG_PATH")
+        cls.bundle = (
+            json.loads(Path(catalog_path).read_text(encoding="utf-8"))
+            if catalog_path else json.loads(runtime.catalog_bundle_json())
+        )
         cls.catalog = runtime._type_catalog()
 
     def test_discovery_contains_every_public_package_class(self):

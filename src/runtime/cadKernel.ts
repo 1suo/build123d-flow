@@ -300,10 +300,19 @@ export class Build123dKernelProvider implements CadKernelProvider {
   constructor(private readonly runtime: PythonRuntime) {}
 
   setDefinitions(definitions: readonly NodeDefinition[]): void {
-    this.definitions = new Map(definitions.map((definition) => [
-      definition.id,
-      definition.cadOperation ? definition : { ...definition, cadOperation: adaptRuntimeOperation(definition) },
-    ]));
+    const next = new Map<string, NodeDefinition>();
+    for (const definition of definitions) {
+      const normalized = definition.cadOperation
+        ? definition
+        : { ...definition, cadOperation: adaptRuntimeOperation(definition) };
+      const contractErrors = validateCadOperation(normalized.cadOperation!);
+      if (contractErrors.length) {
+        throw new Error(contractErrors.join("; "));
+      }
+      next.set(definition.id, normalized);
+    }
+    // Publish only a fully validated catalog; never leave a partially updated provider.
+    this.definitions = next;
   }
 
   async discoverOperations(): Promise<readonly CadOperationDefinition[]> {

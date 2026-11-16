@@ -56,8 +56,8 @@ micropip.add_mock_package("threejs-materials", "1.2.5", modules={
     ),
 })
 
-# build123d imports Mesher at package import time; 3MF is unused here, so
-# register the same import-only stub each session and install it only once.
+# The upstream Mesher imports Lib3MF during build123d startup. The staged
+# PyEmscripten distribution supplies the real "lib3mf" Python module.
 manifest_path = Path("/python/wheels/manifest.json")
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 wheel_paths = [f"emfs:/python/wheels/{item['filename']}" for item in manifest]

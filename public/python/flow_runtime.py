@@ -6100,15 +6100,34 @@ def import_python_code(source):
                     raise ValueError(
                         "Invalid {} operand at line {}: {}".format(method, node.lineno, exc)
                     )
-            definition_id = next((key for key in definitions if ".operator." + method in key), None)
-            if not definition_id or operand[0] != "ref":
+            if operand[0] != "ref":
                 raise ValueError("No compatible graph node for unary operator at line {}".format(node.lineno))
-            definition = definitions[definition_id]
-            receiver_socket = next((item for item in definition.get("inputs", []) if item.get("name") in {"self", "cls"}), None)
-            if receiver_socket is None:
-                raise ValueError("Unary operator has no receiver socket")
-            created = add_node(definition_id, {}, [(receiver_socket["name"], operand[1], operand[2])], node.lineno)
-            return ("ref", created, "result")
+            # Unary dispatch is a Python protocol operation. Selecting the
+            # first discovered .operator.__neg__ node globally binds (for
+            # example) Location.__neg__ to an integer loop variable. Invoke
+            # the native protocol on each mapped item instead; this preserves
+            # runtime MRO and works for both builtin and CAD value types.
+            definition_id = "core.python.unary." + method
+            output_type = reference_type(operand)
+            if type(node.op) is ast.Not:
+                output_type = "Boolean"
+            definitions[definition_id] = {
+                "id": definition_id, "name": "Python " + method,
+                "source": "python", "kind": "operation", "category": "Internal",
+                "palette_category": "Python", "palette_section": "Operators",
+                "inputs": [{"name": "value", "type": "Any", "required": True}],
+                "outputs": [{"name": "result", "type": output_type}],
+            }
+            _INTERNAL_NODE_IDS.add(definition_id)
+            _CATALOG_CALLABLES[definition_id] = apply_operator
+            _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                inspect.Parameter("value", inspect.Parameter.POSITIONAL_ONLY)
+            ])
+            _CATALOG_HINT_TARGETS[definition_id] = False
+            created = add_node(
+                definition_id, {}, [("value", operand[1], operand[2])], node.lineno
+            )
+            return ("ref", created, "result", output_type)
         if isinstance(node, ast.BinOp):
             # Keep this table aligned with Python's complete binary-operator AST.
             # The importer must not silently assume arithmetic means only + - * /.

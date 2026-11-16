@@ -71,7 +71,7 @@ from build123d import BuildPart, Box
 with BuildPart() as part:
     Box(10, 10, 10)
 """
-        graph = json.loads(runtime.import_python_code(source))
+        graph = runtime.import_python_code(source)
         scopes = graph.get("execution_scopes", [])
         self.assertTrue(scopes)
         self.assertEqual(scopes[0]["name"], "BuildPart")
@@ -98,10 +98,10 @@ with BuildSketch(Plane.XY):
     def test_enum_arguments_translate_from_discovered_members(self):
         align = self.catalog.resolve_type("Align")
         self.assertTrue(align["is_enum"])
-        graph = json.loads(runtime.import_python_code("""
+        graph = runtime.import_python_code("""
 from build123d import Box, Align
 box = Box(10, 10, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
-"""))
+""")
         box_node = next(
             node for node in graph["nodes"]
             if node.get("data", {}).get("definition", {}).get("id", "").endswith(".Box")
@@ -124,7 +124,7 @@ box = Box(10, 10, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
         graph = json.loads(runtime.import_python_code("""
 from build123d import Wire
 wire = Wire.make_circle(5)
-"""))
+""")
         identities = [
             node.get("data", {}).get("definition", {}).get("id", "")
             for node in graph["nodes"]

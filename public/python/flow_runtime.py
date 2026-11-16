@@ -4494,7 +4494,15 @@ def import_python_code(source):
                 try:
                     return ("literal", getattr(materialize_literal(receiver[1]), node.attr))
                 except AttributeError:
-                    pass
+                    if isinstance(receiver[1], dict) and (
+                        "__flow_object__" in receiver[1] or "__flow_type__" in receiver[1]
+                    ):
+                        created = add_node(
+                            _PYTHON_ATTRIBUTE_ID,
+                            {"name": node.attr, "value": literal_json_value(receiver[1])},
+                            [], node.lineno,
+                        )
+                        return ("ref", created, "result", "Any")
             if receiver and receiver[0] == "ref":
                 receiver_node = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
                 receiver_type = reference_type(receiver)

@@ -3092,6 +3092,13 @@ def import_python_code(source):
             "base": base_node, "base_type": _type_name(base_class),
         }
     active_user_classes = []
+    user_functions = {
+        item.name: item for item in tree.body
+        if isinstance(item, ast.FunctionDef)
+    }
+    active_user_functions = []
+    no_function_return = object()
+    function_return_stack = []
 
     def is_viewer_call(node):
         if not isinstance(node, ast.Call):
@@ -4389,6 +4396,64 @@ def import_python_code(source):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            # Inline ordinary top-level Python functions by compiling their
+            # AST bodies in a temporary lexical environment. No source is
+            # executed; supported statements still pass through the same
+            # conservative graph lowerer as module-level code.
+            if isinstance(node.func, ast.Name) and node.func.id in user_functions:
+                function_node = user_functions[node.func.id]
+                if node.func.id in active_user_functions:
+                    raise ValueError("Recursive Python function calls are not yet importable (line {})".format(node.lineno))
+                arguments = function_node.args
+                if arguments.vararg or arguments.kwarg:
+                    raise ValueError("Python functions with *args or **kwargs are not yet importable (line {})".format(node.lineno))
+                positional_parameters = list(arguments.posonlyargs) + list(arguments.args)
+                keyword_parameters = list(arguments.args) + list(arguments.kwonlyargs)
+                defaults = [None] * (len(positional_parameters) - len(arguments.defaults)) + list(arguments.defaults)
+                bound = {}
+                if any(isinstance(argument, ast.Starred) for argument in node.args):
+                    raise ValueError("Starred function arguments are not yet importable (line {})".format(node.lineno))
+                if len(node.args) > len(positional_parameters):
+                    raise ValueError("Too many arguments for function {} (line {})".format(node.func.id, node.lineno))
+                for parameter, argument in zip(positional_parameters, node.args):
+                    bound[parameter.arg] = expression(argument)
+                positional_only_names = {parameter.arg for parameter in arguments.posonlyargs}
+                for keyword in node.keywords:
+                    if keyword.arg is None:
+                        raise ValueError("Expanded function keyword arguments are not yet importable (line {})".format(node.lineno))
+                    if keyword.arg in positional_only_names or keyword.arg not in {parameter.arg for parameter in keyword_parameters}:
+                        raise ValueError("Unexpected keyword '{}' for function {} (line {})".format(keyword.arg, node.func.id, node.lineno))
+                    if keyword.arg in bound:
+                        raise ValueError("Multiple values for function argument '{}' (line {})".format(keyword.arg, node.lineno))
+                    bound[keyword.arg] = expression(keyword.value)
+                for parameter, default in zip(positional_parameters, defaults):
+                    if parameter.arg not in bound:
+                        if default is None:
+                            raise ValueError("Missing function argument '{}' (line {})".format(parameter.arg, node.lineno))
+                        bound[parameter.arg] = expression(default)
+                for parameter, default in zip(arguments.kwonlyargs, arguments.kw_defaults):
+                    if parameter.arg not in bound:
+                        if default is None:
+                            raise ValueError("Missing keyword-only function argument '{}' (line {})".format(parameter.arg, node.lineno))
+                        bound[parameter.arg] = expression(default)
+                saved_variables = dict(variables)
+                saved_stream_variables = set(stream_variables)
+                saved_matching = mapping_matching
+                variables.update(bound)
+                active_user_functions.append(node.func.id)
+                function_return_stack.append(no_function_return)
+                try:
+                    process_statements(function_node.body)
+                    returned = function_return_stack[-1]
+                finally:
+                    function_return_stack.pop()
+                    active_user_functions.pop()
+                    variables.clear()
+                    variables.update(saved_variables)
+                    stream_variables.clear()
+                    stream_variables.update(saved_stream_variables)
+                    mapping_matching = saved_matching
+                return ("literal", None) if returned is no_function_return else returned
             # Inline eligible user-defined geometry constructors from their
             # AST. This preserves the operations in __init__ as graph nodes
             # without executing arbitrary user source or inventing a CAD
@@ -5380,8 +5445,15 @@ def import_python_code(source):
             raise ValueError("Unsupported assignment target at line {}".format(line))
 
         for statement_index, statement in enumerate(statements):
-            if isinstance(statement, (ast.Import, ast.ImportFrom, ast.ClassDef)):
+            if function_return_stack and function_return_stack[-1] is not no_function_return:
+                break
+            if isinstance(statement, (ast.Import, ast.ImportFrom, ast.ClassDef, ast.FunctionDef)):
                 continue
+            if isinstance(statement, ast.Return):
+                if not function_return_stack:
+                    raise ValueError("Return is only supported inside an inlined function (line {})".format(statement.lineno))
+                function_return_stack[-1] = expression(statement.value) if statement.value is not None else ("literal", None)
+                break
             if isinstance(statement, ast.With):
                 entered_contexts = []
                 for item in statement.items:

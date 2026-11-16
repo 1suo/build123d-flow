@@ -235,6 +235,22 @@ result = Location() * ShapeList([Box(10, 10, 10)])
         self.assertEqual(output["type"], "ShapeList")
         self.assertIsNone(runtime.b3d)
 
+    def test_discovered_operator_uses_python_reflected_dispatch(self):
+        from flow_runtime import _invoke_discovered_operator
+
+        class Left:
+            def __mul__(self, other):
+                return NotImplemented
+
+        class Right:
+            def __rmul__(self, other):
+                return "reflected result"
+
+        self.assertEqual(
+            _invoke_discovered_operator("__mul__", Left(), Right()),
+            "reflected result",
+        )
+
     def test_context_manager_translation_uses_catalog_metadata(self):
         manager = self.catalog.resolve_type("BuildPart")
         self.assertTrue(manager["supports_context_manager"])

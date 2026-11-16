@@ -243,7 +243,7 @@ for (const shard of SHARDS) {
           results.push(filename + ": passed");
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          const safeName = filename.replace(/\\W+/g, "-");
+          const safeName = filename.replace(/\W+/g, "-");
           try {
             const graph = await page.evaluate(() => (window as any).__build123dFlowTest.getCurrentGraph());
             await test.info().attach(safeName + "-graph.json", {
@@ -264,7 +264,7 @@ for (const shard of SHARDS) {
           await test.info().attach(safeName + "-failure.txt", { body: message });
           try {
             const entries = await page.locator(".viewport-log-entry").allTextContents();
-            await test.info().attach(safeName + "-activity-log.txt", { body: entries.join("\\n") });
+            await test.info().attach(safeName + "-activity-log.txt", { body: entries.join("\n") });
           } catch {
             // Preserve the original importer failure if the browser has closed.
           }

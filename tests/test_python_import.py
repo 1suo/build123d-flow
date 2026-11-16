@@ -374,5 +374,17 @@ class PythonImportSourceTests(unittest.TestCase):
             self.assertIn(required, source)
 
 
+    def test_importer_allows_random_standard_library_module_used_by_upstream_examples(self):
+        source = ast.unparse(self.importer)
+        assignment = next(
+            node for node in ast.walk(self.importer)
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "safe_stdlib_modules"
+                    for target in node.targets)
+        )
+        allowed = ast.literal_eval(assignment.value)
+        self.assertIn("random", allowed)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -74,6 +74,25 @@ result = box + cylinder
         self.assertIsNone(runtime.b3d)
         self.assertNotIn("build123d", sys.modules)
 
+    def test_upstream_graph_validator_rejects_unregistered_embedded_node(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        from test_upstream_translator import validate_graph
+
+        graph = {
+            "nodes": [{
+                "id": "fabricated-node",
+                "data": {"definition": {
+                    "id": "fabricated.module.call",
+                    "inputs": [],
+                    "outputs": [],
+                }},
+            }],
+            "edges": [],
+        }
+        with self.assertRaisesRegex(ValueError, "unregistered definition"):
+            validate_graph(graph, "fabricated.py")
+
     def test_call_adapter_forwards_extra_keywords_to_variadic_constructor(self):
         import inspect
 

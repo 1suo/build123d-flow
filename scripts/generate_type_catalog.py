@@ -27,10 +27,13 @@ def main() -> int:
         raise SystemExit("Expected cadquery-ocp-novtk 8.0.1.1.0, discovered " + ocp_version)
     payload["ocp_distribution_version"] = ocp_version
     payload["python_version"] = sys.version.split()[0]
-    if payload.get("build123d_version") != "0.13.0":
+    expected_build123d_version = "0.13.1.dev342+g03b257b1c"
+    if payload.get("build123d_version") != expected_build123d_version:
         raise SystemExit(
-            "Expected build123d 0.13.0, discovered {}".format(
-                payload.get("build123d_version")
+            "Expected build123d from upstream corpus commit {} ({}), discovered {}".format(
+                "03b257b1ce8f15c9f9c3fb726533798578b3f1c3",
+                expected_build123d_version,
+                payload.get("build123d_version"),
             )
         )
     if not payload.get("types") or not payload.get("nodes"):

@@ -3565,16 +3565,26 @@ def import_python_code(source):
         # class whose catalog entries are named Pos(v) / Pos(X, Y, Z), rather
         # than a single Pos node. Resolve the alias to its canonical class and
         # choose the overload that accepts this call's positional/keyword form.
-        candidate = getattr(b3d, symbol_name, None) if symbol_name else None
-        if candidate is None and isinstance(node, ast.Name):
+        candidate = (
+            getattr(b3d, symbol_name, None)
+            if b3d is not None and symbol_name else None
+        )
+        if candidate is None and b3d is not None and isinstance(node, ast.Name):
             candidate = getattr(b3d, imported.get(node.id, node.id), None)
-        if candidate is None or not inspect.isclass(candidate):
-            return definition_id
-        canonical_name = getattr(candidate, "__name__", "")
-        prefix = getattr(candidate, "__module__", "") + "." + canonical_name + ".overload-"
+        if inspect.isclass(candidate):
+            canonical_name = getattr(candidate, "__name__", "")
+            canonical_id = getattr(candidate, "__module__", "") + "." + canonical_name
+        else:
+            try:
+                type_record = type_catalog.resolve_type(symbol_name or "")
+                canonical_name = type_record["name"]
+                canonical_id = type_record["id"]
+            except CatalogError:
+                return definition_id
+        prefix = canonical_id + ".overload-"
         overload_ids = sorted(
-            definition_id for definition_id in definitions
-            if definition_id.startswith(prefix)
+            candidate_id for candidate_id in definitions
+            if candidate_id.startswith(prefix)
         )
         if not overload_ids:
             return definition_id or by_name.get(canonical_name)

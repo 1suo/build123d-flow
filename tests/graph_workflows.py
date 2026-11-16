@@ -930,6 +930,23 @@ def run_python_import_tests():
     if [item["value"] for item in random_values["items"]] != [2, 1, 5]:
         raise AssertionError("Seeded random draws did not preserve Python iteration order: " + repr(random_values))
 
+    reduce_graph = runtime.import_python_code(
+        "import functools\n"
+        "import operator\n"
+        "from build123d import Box, Part\n"
+        "boxes = [Box(2, 2, 2) for _ in range(2)]\n"
+        "result = functools.reduce(operator.add, boxes, Part())\n"
+    )
+    reduce_result = json.loads(runtime.evaluate_graph_json(json.dumps(reduce_graph)))
+    if reduce_result["errors"]:
+        raise AssertionError("Graph-backed functools.reduce failed: " + json.dumps(reduce_result["errors"]))
+    reduce_node = next(
+        node for node in reduce_graph["nodes"]
+        if node["data"]["definition"]["id"] == "core.python.reduce"
+    )
+    if reduce_node["id"] not in reduce_result["previews"]:
+        raise AssertionError("Graph-backed functools.reduce produced no geometry result")
+
     # This is the important round-trip boundary: source -> native graph -> evaluator.
     source = (
         "from build123d import Box, Cylinder\n"

@@ -3896,82 +3896,92 @@ def import_python_code(source):
         return constructor, constructor_type, type_record["name"]
 
     def resolve_build123d_class_callable(function_node):
-        """Class-level callables are resolved exclusively from discovered node metadata."""
-        return None
+        """Resolve class-level API calls from the discovered catalog, never live introspection."""
+        if not isinstance(function_node, ast.Attribute):
+            return None
+        member_name = function_node.attr
+        current = function_node.value
+        owner_name = None
+        if isinstance(current, ast.Name):
+            owner_name = imported.get(current.id, current.id)
+        elif isinstance(current, ast.Attribute) and isinstance(current.value, ast.Name):
+            root = current.value.id
+            if root in aliases and aliases[root] == "b3d":
+                owner_name = current.attr
+        if not owner_name:
+            return None
+        try:
+            symbol = type_catalog.resolve_symbol(owner_name)
+            if symbol.get("kind") != "type":
+                return None
+            owner = type_catalog.resolve_type(symbol["type_id"])
+        except CatalogError:
+            return None
+        candidates = []
+        for node_id in owner.get("member_node_ids", []):
+            if not (
+                node_id.endswith(".static." + member_name)
+                or node_id.endswith(".classmethod." + member_name)
+            ):
+                continue
+            definition = definitions.get(node_id)
+            if definition is None:
+                continue
+            if any(socket.get("name") in {"self", "cls"} for socket in definition.get("inputs", [])):
+                continue
+            candidates.append(node_id)
+        if len(candidates) > 1:
+            raise ValueError(
+                "Ambiguous discovered class method {}.{}: {}".format(
+                    owner["name"], member_name, ", ".join(sorted(candidates))
+                )
+            )
+        return candidates[0] if candidates else None
 
-    def add_build123d_class_call(owner, member_name, callable_obj, call_node):
-        """Lower a bound static/class method into one typed graph operation."""
-        signature = inspect.signature(callable_obj)
-        hints = _resolve_hints(callable_obj)
-        parameters = list(signature.parameters.values())
-        inputs = []
-        for parameter in parameters:
-            annotation = hints.get(parameter.name, parameter.annotation)
-            socket = {
-                "name": parameter.name,
-                "type": _type_name(annotation),
-                "required": parameter.default is inspect.Signature.empty
-                and parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD),
-            }
-            socket.update(_annotation_metadata(annotation))
-            if socket.get("data_structure") in {"list", "tree", "tuple", "set", "dict"}:
-                socket["data_access"] = "structure"
-            if parameter.kind == parameter.VAR_POSITIONAL:
-                socket["kind"] = "var_positional"
-                socket["data_access"] = "structure"
-            elif parameter.kind == parameter.VAR_KEYWORD:
-                socket["kind"] = "var_keyword"
-                socket["data_access"] = "structure"
-            if parameter.default is not inspect.Signature.empty:
-                default, default_repr, _, serializable = _safe_default(parameter.default)
-                if serializable:
-                    socket["default"] = default
-                socket["default_repr"] = default_repr
-            inputs.append(socket)
-
-        definition_id = "core.python.classcall." + owner.__name__ + "." + member_name + "." + hashlib.sha1(
-            (str(signature) + ":" + str(call_node.lineno)).encode("utf-8")
-        ).hexdigest()[:10]
-        return_annotation = hints.get("return", signature.return_annotation)
-        output_socket = {"name": "result", "type": _type_name(return_annotation)}
-        output_socket.update(_annotation_metadata(return_annotation))
-        definitions[definition_id] = {
-            "id": definition_id, "name": "Python " + owner.__name__ + "." + member_name,
-            "source": "python", "kind": "operation", "category": "Internal",
-            "palette_category": "Internal", "palette_section": "Graph lowering",
-            "inputs": inputs, "outputs": [output_socket],
-        }
-        _INTERNAL_NODE_IDS.add(definition_id)
-        _CATALOG_CALLABLES[definition_id] = callable_obj
-        _CATALOG_SIGNATURES[definition_id] = signature
-        _CATALOG_HINT_TARGETS[definition_id] = False
-
-        params, links = {}, []
-        positional_parameters = [
-            parameter for parameter in parameters
-            if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+    def add_build123d_class_call(definition_id, call_node):
+        """Lower a discovered static/class method using its serialized socket contract."""
+        definition = definitions[definition_id]
+        sockets = definition.get("inputs", [])
+        positional_sockets = [
+            socket for socket in sockets
+            if socket.get("kind", "positional_or_keyword")
+            in {"positional_only", "positional_or_keyword"}
         ]
         var_positional = next(
-            (parameter for parameter in parameters if parameter.kind == parameter.VAR_POSITIONAL), None
+            (socket for socket in sockets if socket.get("kind") == "var_positional"),
+            None,
         )
+        var_keyword = next(
+            (socket for socket in sockets if socket.get("kind") == "var_keyword"),
+            None,
+        )
+        params, links, supplied = {}, [], set()
         positional_index = 0
-        supplied = set()
         for argument in call_node.args:
             if isinstance(argument, ast.Starred):
                 if var_positional is None:
-                    raise ValueError("Expanded positional arguments require a variadic parameter at line {}".format(call_node.lineno))
-                name = var_positional.name
+                    raise ValueError(
+                        "Expanded positional arguments require a variadic parameter at line {}".format(
+                            call_node.lineno
+                        )
+                    )
+                socket = var_positional
                 value_node = argument.value
             else:
-                if positional_index < len(positional_parameters):
-                    name = positional_parameters[positional_index].name
-                    positional_index += 1
-                elif var_positional is not None:
-                    name = var_positional.name
+                if positional_index >= len(positional_sockets):
+                    if var_positional is None:
+                        raise ValueError(
+                            "Too many positional arguments for {} at line {}".format(
+                                definition.get("name"), call_node.lineno
+                            )
+                        )
+                    socket = var_positional
                 else:
-                    raise ValueError("Too many positional arguments at line {}".format(call_node.lineno))
+                    socket = positional_sockets[positional_index]
+                    positional_index += 1
                 value_node = argument
-            if name in supplied:
+            name = socket["name"]
+            if name in supplied and socket is not var_positional:
                 raise ValueError("Multiple values for argument '{}' at line {}".format(name, call_node.lineno))
             supplied.add(name)
             value = expression(value_node)
@@ -3979,18 +3989,25 @@ def import_python_code(source):
                 params[name] = literal_json_value(value[1])
             else:
                 links.append((name, value[1], value[2]))
-
-        var_keyword = next(
-            (parameter for parameter in parameters if parameter.kind == parameter.VAR_KEYWORD), None
-        )
         for keyword in call_node.keywords:
             if keyword.arg is None:
                 if var_keyword is None:
-                    raise ValueError("Expanded keyword arguments require **kwargs at line {}".format(call_node.lineno))
-                name = var_keyword.name
+                    raise ValueError(
+                        "Expanded keyword arguments require **kwargs at line {}".format(call_node.lineno)
+                    )
+                socket = var_keyword
             else:
-                name = keyword.arg
-            if name in supplied:
+                socket = next((item for item in sockets if item.get("name") == keyword.arg), None)
+                if socket is None:
+                    if var_keyword is None:
+                        raise ValueError(
+                            "Unknown keyword argument '{}' for {} at line {}".format(
+                                keyword.arg, definition.get("name"), call_node.lineno
+                            )
+                        )
+                    socket = var_keyword
+            name = socket["name"]
+            if name in supplied and socket is not var_keyword:
                 raise ValueError("Multiple values for argument '{}' at line {}".format(name, call_node.lineno))
             supplied.add(name)
             value = expression(keyword.value)
@@ -3998,8 +4015,21 @@ def import_python_code(source):
                 params[name] = literal_json_value(value[1])
             else:
                 links.append((name, value[1], value[2]))
+        required = [
+            socket["name"] for socket in sockets
+            if socket.get("required", False)
+            and socket.get("kind") not in {"var_positional", "var_keyword"}
+            and socket["name"] not in supplied
+        ]
+        if required:
+            raise ValueError(
+                "Missing required arguments for {} at line {}: {}".format(
+                    definition.get("name"), call_node.lineno, ", ".join(required)
+                )
+            )
         created = add_node(definition_id, params, links, call_node.lineno)
-        return ("ref", created, "result", output_socket["type"])
+        output = next(iter(definition.get("outputs", [])), {})
+        return ("ref", created, output.get("name", "result"), output.get("type", "Any"))
 
     def expression(node, expected_type=None):
         nonlocal mapping_matching
@@ -4558,7 +4588,7 @@ def import_python_code(source):
 
             class_callable = resolve_build123d_class_callable(node.func)
             if class_callable is not None:
-                return add_build123d_class_call(*class_callable, node)
+                return add_build123d_class_call(class_callable, node)
 
             definition_id = resolve_callable(node.func, node)
             receiver = None

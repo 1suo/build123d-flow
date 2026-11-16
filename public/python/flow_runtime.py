@@ -2326,6 +2326,12 @@ def evaluate_graph_json(payload):
         if isinstance(value, dict):
             if "__flow_tuple__" in value:
                 return tuple(restore_scope_value(item) for item in value["__flow_tuple__"])
+            if "__flow_callable__" in value:
+                module_name, qualified_name = value["__flow_callable__"]
+                target = importlib.import_module(module_name)
+                for part in qualified_name.split("."):
+                    target = getattr(target, part)
+                return target
             if "__flow_ref__" in value:
                 source_id, output_name = value["__flow_ref__"]
                 if source_id not in values:

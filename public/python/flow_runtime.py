@@ -2417,9 +2417,13 @@ def evaluate_graph_json(payload):
             str(socket.get("name", "")).startswith("__flow_iteration_")
             for socket in node_definition.get("inputs", [])
         )
+        has_condition_inputs = any(
+            str(socket.get("name", "")).startswith("__flow_condition_")
+            for socket in node_definition.get("inputs", [])
+        )
         definition = (
             node_definition
-            if has_loop_inputs or str(definition_id).startswith("core.python.")
+            if has_loop_inputs or has_condition_inputs or str(definition_id).startswith("core.python.")
             else _CATALOG.get(definition_id)
         )
         if definition is None:
@@ -2529,6 +2533,18 @@ def evaluate_graph_json(payload):
                     signature=signature,
                     hint_target=hint_target,
                 )
+            conditions = data.get("python_conditions", [])
+            if conditions:
+                unconditioned_invoke = invoke
+                def invoke(mapped):
+                    for condition in conditions:
+                        if bool(mapped.get(condition["input"])) != condition["expected"]:
+                            return None
+                    filtered = {
+                        name: value for name, value in mapped.items()
+                        if not name.startswith("__flow_condition_")
+                    }
+                    return unconditioned_invoke(filtered)
             stream_shapes = {}
             shape_memo = {}
             # Python for-loops and comprehensions explicitly declare their
@@ -3246,7 +3262,7 @@ def import_python_code(source):
         for condition_index, (condition, expected) in enumerate(active_conditions):
             input_name = "__flow_condition_" + str(condition_index)
             node_definition["inputs"].append({
-                "name": input_name, "type": "Boolean", "required": True,
+                "name": input_name, "type": "Any", "required": True,
                 "data_access": "item",
             })
             condition_links.append((input_name, condition[1], condition[2]))

@@ -3054,6 +3054,45 @@ def import_python_code(source):
             else:
                 raise ValueError("Only build123d, ocp_vscode, and approved standard-library imports are supported (line {})".format(statement.lineno))
 
+    # User-defined geometry subclasses are lowered as static constructor
+    # macros. The class body is never executed: only a restricted __init__
+    # composed of already-supported AST statements and one native geometry
+    # base class is eligible.
+    user_classes = {}
+    for class_node in tree.body:
+        if not isinstance(class_node, ast.ClassDef):
+            continue
+        initializers = [
+            item for item in class_node.body
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and item.name == "__init__"
+        ]
+        other_methods = [
+            item for item in class_node.body
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and item.name != "__init__"
+        ]
+        if len(class_node.bases) != 1 or len(initializers) != 1 or other_methods:
+            continue
+        base_node = class_node.bases[0]
+        if isinstance(base_node, ast.Name):
+            base_class = getattr(b3d, imported.get(base_node.id, base_node.id), None)
+        elif isinstance(base_node, ast.Attribute) and isinstance(base_node.value, ast.Name) and aliases.get(base_node.value.id) == "b3d":
+            base_class = getattr(b3d, base_node.attr, None)
+        else:
+            base_class = None
+        if (
+            not inspect.isclass(base_class)
+            or not issubclass(base_class, getattr(b3d, "Shape", object))
+            or getattr(base_class, "__module__", "").split(".")[0] != "build123d"
+        ):
+            continue
+        user_classes[class_node.name] = {
+            "node": class_node, "initializer": initializers[0],
+            "base": base_node, "base_type": _type_name(base_class),
+        }
+    active_user_classes = []
+
     def is_viewer_call(node):
         if not isinstance(node, ast.Call):
             return False
@@ -4350,6 +4389,75 @@ def import_python_code(source):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            # Inline eligible user-defined geometry constructors from their
+            # AST. This preserves the operations in __init__ as graph nodes
+            # without executing arbitrary user source or inventing a CAD
+            # implementation for the subclass.
+            if isinstance(node.func, ast.Attribute) and node.func.attr == "__init__" and isinstance(node.func.value, ast.Call) and isinstance(node.func.value.func, ast.Name) and node.func.value.func.id == "super" and active_user_classes:
+                class_info = active_user_classes[-1]
+                base_call = ast.Call(
+                    func=copy.deepcopy(class_info["base"]),
+                    args=copy.deepcopy(node.args),
+                    keywords=copy.deepcopy(node.keywords),
+                )
+                ast.copy_location(base_call, node)
+                initialized = expression(base_call)
+                variables["self"] = (
+                    initialized[0], initialized[1], initialized[2],
+                    class_info["base_type"],
+                ) if initialized[0] == "ref" else initialized
+                return ("literal", None)
+            if isinstance(node.func, ast.Name) and node.func.id in user_classes:
+                class_info = user_classes[node.func.id]
+                initializer = class_info["initializer"]
+                arguments = initializer.args
+                positional_parameters = list(arguments.posonlyargs) + list(arguments.args)
+                if not positional_parameters or positional_parameters[0].arg != "self":
+                    raise ValueError("Geometry subclass __init__ must declare self first (line {})".format(node.lineno))
+                parameters = positional_parameters[1:]
+                if arguments.vararg or arguments.kwarg or arguments.kwonlyargs:
+                    raise ValueError("Geometry subclass __init__ supports positional and keyword parameters only (line {})".format(node.lineno))
+                defaults = [None] * (len(parameters) - len(arguments.defaults)) + list(arguments.defaults)
+                bound = {}
+                if any(isinstance(argument, ast.Starred) for argument in node.args):
+                    raise ValueError("Starred arguments to geometry subclass constructors are unsupported (line {})".format(node.lineno))
+                if len(node.args) > len(parameters):
+                    raise ValueError("Too many arguments for geometry subclass {} (line {})".format(node.func.id, node.lineno))
+                for parameter, argument in zip(parameters, node.args):
+                    bound[parameter.arg] = expression(argument)
+                for keyword in node.keywords:
+                    if keyword.arg is None:
+                        raise ValueError("Expanded keyword arguments to geometry subclass constructors are unsupported (line {})".format(node.lineno))
+                    if keyword.arg not in {parameter.arg for parameter in parameters}:
+                        raise ValueError("Unknown geometry subclass argument '{}' (line {})".format(keyword.arg, node.lineno))
+                    if keyword.arg in bound:
+                        raise ValueError("Multiple values for geometry subclass argument '{}' (line {})".format(keyword.arg, node.lineno))
+                    bound[keyword.arg] = expression(keyword.value)
+                for parameter, default in zip(parameters, defaults):
+                    if parameter.arg not in bound:
+                        if default is None:
+                            raise ValueError("Missing geometry subclass argument '{}' (line {})".format(parameter.arg, node.lineno))
+                        bound[parameter.arg] = expression(default)
+                saved_variables = dict(variables)
+                saved_stream_variables = set(stream_variables)
+                saved_matching = mapping_matching
+                variables.update(bound)
+                active_user_classes.append(class_info)
+                try:
+                    process_statements(initializer.body)
+                    instance = variables.get("self")
+                    if instance is None:
+                        raise ValueError("Geometry subclass {} must initialize its native base with super().__init__ (line {})".format(node.func.id, node.lineno))
+                finally:
+                    active_user_classes.pop()
+                    variables.clear()
+                    variables.update(saved_variables)
+                    stream_variables.clear()
+                    stream_variables.update(saved_stream_variables)
+                    mapping_matching = saved_matching
+                if instance[0] == "ref":
+                    return (instance[0], instance[1], instance[2], class_info["base_type"])
+                return instance
             if isinstance(node.func, ast.Name) and node.func.id == "locals":
                 local_names = set(variables) | set(imported) | set(viewer_functions) | set(stdlib_symbols)
                 return ("literal", {name: True for name in local_names})
@@ -5271,7 +5379,7 @@ def import_python_code(source):
             raise ValueError("Unsupported assignment target at line {}".format(line))
 
         for statement_index, statement in enumerate(statements):
-            if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            if isinstance(statement, (ast.Import, ast.ImportFrom, ast.ClassDef)):
                 continue
             if isinstance(statement, ast.With):
                 entered_contexts = []

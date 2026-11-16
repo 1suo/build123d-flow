@@ -3774,6 +3774,8 @@ def import_python_code(source):
     def materialize_literal(value):
         if isinstance(value, dict):
             if "__flow_object__" in value:
+                if b3d is None:
+                    return value
                 constructor = getattr(b3d, value["__flow_object__"])
                 args = [materialize_literal(item) for item in value.get("args", [])]
                 kwargs = {key: materialize_literal(item)
@@ -3834,47 +3836,8 @@ def import_python_code(source):
         return constructor, constructor_type, type_record["name"]
 
     def resolve_build123d_class_callable(function_node):
-        """Resolve a public class-level build123d callable without treating its class as a graph value."""
-        if not isinstance(function_node, ast.Attribute):
-            return None
-        parts = []
-        current = function_node
-        while isinstance(current, ast.Attribute):
-            parts.append(current.attr)
-            current = current.value
-        if not isinstance(current, ast.Name):
-            return None
-        root = current.id
-        if root in variables:
-            return None
-        if root in aliases and aliases[root] == "b3d":
-            path = list(reversed(parts))
-            if len(path) != 2:
-                return None
-            owner = getattr(b3d, path[0], None)
-            member_name = path[1]
-        elif root in imported:
-            owner = getattr(b3d, imported[root], None)
-            path = list(reversed(parts))
-            if len(path) != 1:
-                return None
-            member_name = path[0]
-        elif hasattr(b3d, root):
-            owner = getattr(b3d, root, None)
-            path = list(reversed(parts))
-            if len(path) != 1:
-                return None
-            member_name = path[0]
-        else:
-            return None
-        if not inspect.isclass(owner):
-            return None
-        callable_obj = getattr(owner, member_name, None)
-        if not callable(callable_obj):
-            return None
-        if getattr(callable_obj, "__module__", "").split(".")[0] != "build123d":
-            return None
-        return owner, member_name, callable_obj
+        """Class-level callables are resolved exclusively from discovered node metadata."""
+        return None
 
     def add_build123d_class_call(owner, member_name, callable_obj, call_node):
         """Lower a bound static/class method into one typed graph operation."""
@@ -4763,7 +4726,13 @@ def import_python_code(source):
             if not method:
                 raise ValueError("Unsupported binary operator at line {}".format(node.lineno))
             left, right = expression(node.left), expression(node.right)
-            if left[0] == "literal" and right[0] == "literal":
+            if (
+                left[0] == "literal" and right[0] == "literal"
+                and not any(
+                    isinstance(value, dict) and "__flow_object__" in value
+                    for value in (left[1], right[1])
+                )
+            ):
                 operations = {
                     ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
                     ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,

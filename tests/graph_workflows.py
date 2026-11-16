@@ -136,6 +136,33 @@ def run_data_mapping_tests():
 
 def run_annotation_resolution_tests():
     """Cross-module ForwardRefs and bare collection ABCs must stay structural."""
+    # The generated type registry is complete independently of graph-node
+    # eligibility, and its serialized MRO must reproduce native operator lookup.
+    bundle = json.loads(runtime.catalog_bundle_json())
+    if bundle.get("schema_version") != 1 or not bundle.get("types"):
+        raise AssertionError("Generated API catalog is missing its versioned type registry")
+    catalog = runtime._type_catalog()
+    node_ids = set(catalog.nodes)
+    for type_record in bundle["types"]:
+        for node_id in type_record.get("constructor_node_ids", []) + type_record.get("member_node_ids", []):
+            if node_id not in node_ids:
+                raise AssertionError(
+                    "Type registry references a missing node: {} -> {}".format(
+                        type_record["id"], node_id
+                    )
+                )
+    box_type_id = runtime.b3d.Box.__module__ + "." + runtime.b3d.Box.__qualname__
+    expected_operator = next(
+        (
+            owner.__module__ + "." + owner.__qualname__ + ".operator.__add__"
+            for owner in runtime.b3d.Box.__mro__
+            if owner.__module__ + "." + owner.__qualname__ + ".operator.__add__" in node_ids
+        ),
+        None,
+    )
+    if expected_operator is None or catalog.resolve_operator(box_type_id, "__add__") != expected_operator:
+        raise AssertionError("Serialized type MRO does not preserve Box + operator dispatch")
+
     import typing
     import collections.abc
     union = _shape_operator("__add__")

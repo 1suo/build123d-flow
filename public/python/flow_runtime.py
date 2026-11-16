@@ -4204,6 +4204,32 @@ def import_python_code(source):
                 current = current.value
             if isinstance(current, ast.Name):
                 root = current.id
+                enum_type_name = None
+                enum_member_name = None
+                if root in aliases and aliases[root] == "b3d":
+                    enum_path = list(reversed(path))
+                    if len(enum_path) == 2:
+                        enum_type_name, enum_member_name = enum_path
+                elif len(path) == 1:
+                    enum_type_name = imported.get(root, root)
+                    enum_member_name = path[0]
+                if enum_type_name and enum_member_name:
+                    try:
+                        return (
+                            "literal",
+                            type_catalog.resolve_enum_member(
+                                enum_type_name, enum_member_name
+                            ),
+                        )
+                    except CatalogError:
+                        try:
+                            class_value = type_catalog.resolve_class_value(
+                                enum_type_name, enum_member_name
+                            )
+                        except CatalogError:
+                            pass
+                        else:
+                            return ("literal", class_value)
                 if root in aliases and aliases[root] == "b3d":
                     path = list(reversed(path))
                     if path:

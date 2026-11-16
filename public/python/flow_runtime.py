@@ -3186,13 +3186,10 @@ def import_python_code(source):
                 if owner_id in receiver_mro:
                     mro_rank = min(mro_rank, receiver_mro.index(owner_id))
             candidates.append((score, -mro_rank, candidate_id))
-        if not candidates and receiver_type in (None, "Any"):
-            for candidate_id, candidate in definitions.items():
-                if candidate_id.rsplit(".", 1)[-1] != member_name:
-                    continue
-                if any(item.get("name") in {"self", "cls"}
-                       for item in candidate.get("inputs", [])):
-                    candidates.append((0, 0, candidate_id))
+        # Never guess a receiver type when static inference is unavailable.
+        # Selecting an arbitrary discovered method by name binds the wrong
+        # implementation. Defer to native getattr/method dispatch instead,
+        # preserving Python's runtime MRO and descriptor semantics.
         if not candidates:
             return None, ()
         best_score = max(score for score, _, _ in candidates)

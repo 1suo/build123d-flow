@@ -577,6 +577,17 @@ _PYTHON_OPERATOR_SPECS = {
     "__invert__": {"symbol": "~", "codegen_symbol": "~", "family": "unary", "palette_category": "Logic", "palette_section": "Bitwise operators"},
 }
 
+_PYTHON_BINARY_OPERATORS = {
+    "__add__": operator.add, "__sub__": operator.sub,
+    "__mul__": operator.mul, "__truediv__": operator.truediv,
+    "__floordiv__": operator.floordiv, "__mod__": operator.mod,
+    "__pow__": operator.pow, "__matmul__": operator.matmul,
+    "__and__": operator.and_, "__or__": operator.or_,
+    "__xor__": operator.xor, "__lshift__": operator.lshift,
+    "__rshift__": operator.rshift,
+}
+
+
 def _register_kernel_discovery_overrides():
     """Register presentation overrides only when the real kernel is available."""
     if b3d is None:
@@ -2663,6 +2674,15 @@ def evaluate_graph_json(payload, include_previews=True):
                         name: value for name, value in mapped.items()
                         if name not in condition_names
                     })
+            operator_method = definition.get("operator", {}).get("method")
+            python_operator = _PYTHON_BINARY_OPERATORS.get(operator_method)
+            if python_operator is not None:
+                native_invoke = invoke
+                def invoke(mapped):
+                    result = native_invoke(mapped)
+                    if result is not NotImplemented:
+                        return result
+                    return python_operator(mapped.get("self"), mapped.get("other"))
             stream_shapes = {}
             shape_memo = {}
             # Python for-loops and comprehensions explicitly declare their

@@ -2739,10 +2739,11 @@ def evaluate_graph_json(payload, include_previews=True):
             # metadata alone cannot identify it as a stream. Preserve the
             # source identity from the importer and map item-access inputs
             # over that sequence exactly once.
+            node_loop_sources = node.get("data", {}).get("python_loop_sources", [])
             loop_source_groups = {
                 (str(source.get("node_id")), str(source.get("output_name", "result"))):
                     (index, source.get("matching", "longest"))
-                for index, source in enumerate(data.get("python_loop_sources", []))
+                for index, source in enumerate(node_loop_sources)
             }
             loop_sources = set(loop_source_groups)
             stream_groups = {}
@@ -2754,20 +2755,31 @@ def evaluate_graph_json(payload, include_previews=True):
                 access = input_socket.get("data_access")
                 if access is None:
                     access = "structure" if _socket_data_structure(input_socket) != "item" else "item"
-                if access != "item":
+                source_key = (str(source_id), str(source_output))
+                source_node = nodes.get(source_id, {})
+                source_loop_sources = {
+                    (str(source.get("node_id")), str(source.get("output_name", "result")))
+                    for source in source_node.get("data", {}).get("python_loop_sources", [])
+                }
+                shared_loop_sources = [
+                    key for key in loop_source_groups if key in source_loop_sources
+                ]
+                direct_loop_source = source_key in loop_sources
+                # Structure-consuming inputs are item-mapped only when their
+                # producer is mapped in the same Python loop. This aligns
+                # paired operands without flattening an intentional collection.
+                if access != "item" and not direct_loop_source and not shared_loop_sources:
                     continue
                 source_shape = _effective_output_structure(
                     source_id, source_output, nodes, incoming, shape_memo
                 )
                 if source_shape in ("list", "tuple", "tree"):
                     stream_shapes[input_name] = "list" if source_shape == "tuple" else source_shape
-                elif (source_id, source_output) in loop_sources:
-                    # The Python AST explicitly says this edge supplies the
-                    # current loop variable. Treat an Any-typed iterable as
-                    # an item stream rather than passing its whole collection
-                    # into operations such as v.X or tuple(v).
+                elif direct_loop_source or shared_loop_sources:
                     stream_shapes[input_name] = "list"
-                loop_group = loop_source_groups.get((str(source_id), str(source_output)))
+                loop_group = loop_source_groups.get(source_key)
+                if loop_group is None and shared_loop_sources:
+                    loop_group = loop_source_groups[shared_loop_sources[0]]
                 if loop_group is not None:
                     stream_groups[input_name] = loop_group
             result = _map_item_inputs(

@@ -2539,6 +2539,7 @@ def evaluate_graph_json(payload, include_previews=True):
                 and signature_parameters
                 and signature_parameters[0].name == receiver_socket["name"]
                 and ".operator." not in definition_id
+                and not definition_id.startswith("core.python.method.")
             )
             if is_instance_method:
                 receiver_name = receiver_socket["name"]

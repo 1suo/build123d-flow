@@ -1006,6 +1006,53 @@ def run_python_import_tests():
     if [item["value"] for item in result_values["items"]] != [3, 9]:
         raise AssertionError("Random draws were not interleaved in Python evaluation order: " + repr(result_values))
 
+    conditional_graph = runtime.import_python_code(
+        "from build123d import Box\n"
+        "for index in [0, 1, 2]:\n"
+        "    if index == 0:\n"
+        "        Box(1, 1, 1)\n"
+        "    elif index == 1:\n"
+        "        Box(2, 2, 2)\n"
+        "    else:\n"
+        "        Box(3, 3, 3)\n"
+    )
+    conditional_result = json.loads(runtime.evaluate_graph_json(json.dumps(conditional_graph)))
+    if conditional_result["errors"]:
+        raise AssertionError("Conditional branch lowering failed: " + json.dumps(conditional_result["errors"]))
+    conditional_nodes = [
+        node for node in conditional_graph["nodes"]
+        if node["data"].get("python_conditions")
+    ]
+    if len(conditional_nodes) != 3:
+        raise AssertionError("Expected one condition-gated node per branch, got {}".format(len(conditional_nodes)))
+    for node in conditional_nodes:
+        result_value = conditional_result["socket_values"][node["id"]]["result"]
+        if not isinstance(result_value, dict) or len([
+            item for item in result_value.get("items", []) if item is not None
+        ]) != 1:
+            raise AssertionError("Conditional branch executed for the wrong loop items: " + repr(result_value))
+
+    class_dispatch_graph = runtime.import_python_code(
+        "from build123d import Box, Part\n"
+        "class SmallPart(Part):\n"
+        "    def __init__(self):\n"
+        "        shape = Box(1, 1, 1)\n"
+        "        super().__init__(shape.wrapped)\n"
+        "class LargePart(Part):\n"
+        "    def __init__(self):\n"
+        "        shape = Box(2, 2, 2)\n"
+        "        super().__init__(shape.wrapped)\n"
+        "class PartFactory(Part):\n"
+        "    makers = {'small': SmallPart, 'large': LargePart}\n"
+        "    def __init__(self, kind):\n"
+        "        shape = PartFactory.makers[kind]()\n"
+        "        super().__init__(shape.wrapped)\n"
+        "result = PartFactory('large')\n"
+    )
+    class_dispatch_result = json.loads(runtime.evaluate_graph_json(json.dumps(class_dispatch_graph)))
+    if class_dispatch_result["errors"]:
+        raise AssertionError("Class-attribute constructor dispatch failed: " + json.dumps(class_dispatch_result["errors"]))
+
     # This is the important round-trip boundary: source -> native graph -> evaluator.
     source = (
         "from build123d import Box, Cylinder\n"

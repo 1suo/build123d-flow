@@ -68,8 +68,8 @@ jobs:
         run: npm run typecheck
       - name: Run kernel-free catalog contract tests
         run: python -S -m unittest discover -s tests -p 'test_type_catalog.py'
-      - name: Install pinned native build123d discovery kernel
-        run: python -m pip install --disable-pip-version-check "build123d==0.13.0" "cadquery-ocp-novtk==8.0.1.1.0" "scipy==1.16.3"
+      - name: Install build123d at the exact upstream examples commit
+        run: python -m pip install --disable-pip-version-check "git+https://github.com/gumyr/build123d.git@03b257b1ce8f15c9f9c3fb726533798578b3f1c3" "cadquery-ocp-novtk==8.0.1.1.0" "scipy==1.16.3"
       - name: Generate complete discovered API catalog
         run: python scripts/generate_type_catalog.py "$RUNNER_TEMP/build123d_catalog.json"
       - name: Verify catalog in kernel-free interpreter process

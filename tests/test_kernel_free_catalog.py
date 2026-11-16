@@ -32,6 +32,16 @@ class KernelFreeCatalogLoadTests(unittest.TestCase):
         self.assertIsNone(runtime.b3d)
         self.assertNotIn("build123d", sys.modules)
 
+    def test_extension_method_receiver_preserves_positional_only_order(self):
+        for method in ("Generated", "Modified"):
+            node_id = "build123d.topology.history.MakeShapeLike." + method
+            signature = runtime._CATALOG_SIGNATURES[node_id]
+            parameters = list(signature.parameters.values())
+            self.assertEqual(parameters[0].name, "self")
+            self.assertEqual(parameters[0].kind, parameters[0].POSITIONAL_ONLY)
+            self.assertEqual(parameters[1].name, "shape")
+            self.assertEqual(parameters[1].kind, parameters[1].POSITIONAL_ONLY)
+
     def test_discovered_box_operator_resolves_from_serialized_mro(self):
         box = self.catalog.resolve_type("Box")
         operator_id = self.catalog.resolve_operator(box["id"], "__add__")

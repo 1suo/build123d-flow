@@ -12,7 +12,7 @@ import math
 from typing import Any, Mapping
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class CatalogError(ValueError):

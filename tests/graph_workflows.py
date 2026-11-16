@@ -901,6 +901,19 @@ def run_python_import_tests():
         if len(graph.get("nodes", [])) != 1 or graph.get("edges"):
             raise AssertionError("ocp_vscode display code changed the geometry graph: " + json.dumps(graph))
 
+    try:
+        runtime.import_python_code(
+            "class UnsupportedHelper:\\n"
+            "    pass\\n"
+            "result = UnsupportedHelper()\\n"
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "Unsupported class definition 'UnsupportedHelper'" not in message or "line 1" not in message:
+            raise AssertionError("Unsupported class diagnostics lost the class name or source location: " + message)
+    else:
+        raise AssertionError("An unsupported class definition was silently discarded")
+
     function_graph = runtime.import_python_code(
         "from build123d import Box\n"
         "def make_box(length, width=2):\n"

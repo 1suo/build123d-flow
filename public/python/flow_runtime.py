@@ -5658,46 +5658,16 @@ def import_python_code(source):
             if isinstance(statement, ast.AugAssign):
                 if not isinstance(statement.target, ast.Name):
                     raise ValueError("Only simple augmented assignments are supported (line {})".format(statement.lineno))
-                current = variables.get(statement.target.id)
-                if current is None:
+                if statement.target.id not in variables:
                     raise ValueError("Unresolved augmented-assignment target '{}' at line {}".format(
                         statement.target.id, statement.lineno))
                 combined = ast.BinOp(
-                    left=ast.Constant(value=None), op=statement.op, right=statement.value
+                    left=ast.Name(id=statement.target.id, ctx=ast.Load()),
+                    op=statement.op,
+                    right=statement.value,
                 )
                 ast.copy_location(combined, statement)
-                # Reuse the normal operator lowering without synthesizing source text.
-                left_expr = expression(statement.value)
-                if current[0] == "literal" and left_expr[0] == "literal":
-                    methods = {
-                        ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-                        ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
-                        ast.Mod: operator.mod, ast.Pow: operator.pow,
-                    }
-                    operation = methods.get(type(statement.op))
-                    if operation is None:
-                        raise ValueError("Unsupported augmented operator at line {}".format(statement.lineno))
-                    variables[statement.target.id] = ("literal", operation(
-                        materialize_literal(current[1]), materialize_literal(left_expr[1])))
-                else:
-                    methods = {
-                        ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",
-                        ast.Div: "__truediv__", ast.FloorDiv: "__floordiv__",
-                        ast.Mod: "__mod__", ast.Pow: "__pow__",
-                    }
-                    method = methods.get(type(statement.op))
-                    definition_id = next((key for key in definitions if ".operator." + str(method) in key), None)
-                    if not definition_id:
-                        raise ValueError("No graph node registered for augmented operator at line {}".format(statement.lineno))
-                    definition = definitions[definition_id]
-                    params, links = {}, []
-                    for socket, operand in zip(definition.get("inputs", []), (current, left_expr)):
-                        if operand[0] == "literal":
-                            params[socket["name"]] = literal_json_value(operand[1])
-                        else:
-                            links.append((socket["name"], operand[1], operand[2]))
-                    created = add_node(definition_id, params, links, statement.lineno)
-                    variables[statement.target.id] = ("ref", created, "result")
+                variables[statement.target.id] = expression(combined)
                 continue
             if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue

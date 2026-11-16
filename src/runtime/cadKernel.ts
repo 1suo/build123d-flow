@@ -202,6 +202,7 @@ export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationD
     : definition.data_matching === "cross" ? "cartesian"
       : definition.data_matching === "shortest" ? "zip-shortest"
         : "zip-longest";
+  const purity = definition.execution?.purity;
   return {
     id: definition.id,
     label: definition.name,
@@ -209,10 +210,8 @@ export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationD
     description: definition.description,
     inputs: definition.inputs.map(cadPort),
     outputs: definition.outputs.map(cadPort),
-    execution: definition.execution?.purity === "pure"
-      || definition.execution?.purity === "stateful"
-      || definition.execution?.purity === "effect"
-      ? definition.execution.purity
+    execution: purity === "pure" || purity === "stateful" || purity === "effect"
+      ? purity
       : "unspecified",
     cacheable: definition.execution?.cacheable === true,
     mapping: {

@@ -1746,7 +1746,10 @@ def load_catalog_bundle(payload):
             ) or socket.get("required", False):
                 default = inspect.Signature.empty
             else:
-                default = socket.get("default", inspect.Signature.empty)
+                # Some CAD defaults are intentionally not serialized (for
+                # example a Plane instance). Preserve optionality in the
+                # reconstructed signature without inventing the actual value.
+                default = socket.get("default", None)
             annotation = socket.get("annotation") or socket.get("type", "Any")
             parameters.append(inspect.Parameter(
                 socket["name"], kind, default=default, annotation=annotation

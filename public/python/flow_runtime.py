@@ -3288,6 +3288,17 @@ def import_python_code(source):
                      if socket.get("name") == receiver_link[2]),
                     None,
                 )
+        linked_item_types = []
+        for input_name, source_id, source_output_name in links:
+            source_node = next((item for item in graph_nodes if item["id"] == source_id), None)
+            if source_node:
+                source_output = next(
+                    (socket for socket in source_node.get("data", {}).get("definition", {}).get("outputs", [])
+                     if socket.get("name") == source_output_name),
+                    None,
+                )
+                if source_output and source_output.get("item_type") not in (None, "", "Any"):
+                    linked_item_types.append(source_output.get("item_type"))
         for output_socket in node_definition["outputs"]:
             if output_socket.get("type") == "GroupBy":
                 output_socket.setdefault("item_type", "ShapeList")
@@ -3316,6 +3327,13 @@ def import_python_code(source):
                     output_socket["item_type"] = inherited_item_type
                     if receiver_output.get("item_types"):
                         output_socket["item_types"] = receiver_output["item_types"]
+            if (
+                output_socket.get("item_type") in (None, "", "Any")
+                and (output_socket.get("data_structure") == "list"
+                     or output_socket.get("type") in {"List", "Locations", "LocationList", "ShapeList"})
+                and linked_item_types
+            ):
+                output_socket["item_type"] = linked_item_types[0]
         iteration_links = []
         for index, frame in enumerate(active_loop_frames if map_over_active_loops else []):
             # Only an item-access input triggers this loop's mapping. A

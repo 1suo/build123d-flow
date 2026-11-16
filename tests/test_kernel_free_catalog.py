@@ -217,7 +217,7 @@ result = Location() * Box(10, 10, 10)
             == "build123d.geometry.Location.operator.__mul__"
         )
         output = operator_node["data"]["definition"]["outputs"][0]
-        self.assertEqual(output["type"], "Part")
+        self.assertEqual(output["type"], "Box")
         self.assertNotIn("data_structure", output)
         self.assertIsNone(runtime.b3d)
 

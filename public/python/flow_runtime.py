@@ -1634,7 +1634,7 @@ def discover(include_full=True):
         except TypeError:
             record["is_geometry"] = False
     report["type_count"] = len(type_registry)
-    symbol_registry = build_symbol_registry(b3d)
+    symbol_registry = build_symbol_registry(b3d, modules)
     report["symbol_count"] = len(symbol_registry)
     report["type_ids"] = sorted(type_registry)
     report["node_count"] = len(found)
@@ -4496,6 +4496,10 @@ def import_python_code(source):
         if isinstance(node, ast.Name):
             if node.id in variables:
                 return variables[node.id]
+            if node.id in stdlib_modules:
+                return ("literal", {"__flow_module__": stdlib_modules[node.id]})
+            if node.id in aliases and aliases[node.id] == "b3d":
+                return ("literal", {"__flow_module__": "build123d"})
             if node.id in user_classes:
                 return ("literal", {"__flow_class__": node.id})
             if node.id == "__name__":
@@ -4727,7 +4731,33 @@ def import_python_code(source):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "__init__"
+                and isinstance(node.func.value, ast.Call)
+                and isinstance(node.func.value.func, ast.Name)
+                and node.func.value.func.id == "super"
+                and class_stack
+            ):
+                base_name = class_stack[-1]
+                synthetic = ast.Call(
+                    func=ast.Name(id=base_name, ctx=ast.Load()),
+                    args=node.args, keywords=node.keywords,
+                )
+                ast.copy_location(synthetic, node)
+                base_result = expression(synthetic)
+                variables["self"] = base_result
+                return base_result
             if isinstance(node.func, ast.Attribute):
+                stdlib_root = node.func.value
+                while isinstance(stdlib_root, ast.Attribute):
+                    stdlib_root = stdlib_root.value
+                if (
+                    isinstance(stdlib_root, ast.Name)
+                    and stdlib_root.id in stdlib_modules
+                    and stdlib_modules[stdlib_root.id] == "logging"
+                ):
+                    return ("literal", None)
                 literal_receiver = expression(node.func.value)
                 if literal_receiver[0] == "literal":
                     bound_method = getattr(

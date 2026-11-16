@@ -4505,8 +4505,10 @@ def import_python_code(source):
             while isinstance(receiver_root, ast.Attribute):
                 receiver_root = receiver_root.value
             receiver = None
-            if ((isinstance(receiver_root, ast.Name) and receiver_root.id in variables)
-                    or isinstance(node.value, (ast.Call, ast.Subscript, ast.BinOp, ast.UnaryOp))):
+            if (
+                (isinstance(receiver_root, ast.Name) and receiver_root.id in variables)
+                or isinstance(receiver_root, (ast.Call, ast.Subscript, ast.BinOp, ast.UnaryOp))
+            ):
                 receiver = expression(node.value)
             if receiver and receiver[0] == "literal":
                 try:

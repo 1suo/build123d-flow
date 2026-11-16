@@ -5420,8 +5420,8 @@ def import_python_code(source):
             }
             _INTERNAL_NODE_IDS.add(definition_id)
             comparison_functions = {name: function for name, function in operators.values()}
-            def compare_values(operation_name, left, right):
-                return comparison_functions[operation_name](left, right)
+            def compare_values(operation, left, right):
+                return comparison_functions[operation](left, right)
             _CATALOG_CALLABLES[definition_id] = compare_values
             _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
                 inspect.Parameter("operation", inspect.Parameter.POSITIONAL_OR_KEYWORD),

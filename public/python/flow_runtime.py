@@ -4177,8 +4177,155 @@ def import_python_code(source):
         output = next(iter(definition.get("outputs", [])), {})
         return ("ref", created, output.get("name", "result"), output.get("type", "Any"))
 
+    _STATIC_UNRESOLVED = object()
+
+    def evaluate_static_expression(node, scope):
+        """Evaluate only side-effect-free literal class constants and comprehensions."""
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.Name):
+            if node.id in scope:
+                return scope[node.id]
+            value = variables.get(node.id)
+            if value is not None and value[0] == "literal":
+                return materialize_literal(value[1])
+            if node.id in user_classes:
+                return {"__flow_class__": node.id}
+            if node.id in {"True", "False", "None"}:
+                return {"True": True, "False": False, "None": None}[node.id]
+            safe_value = resolve_safe_stdlib_name(node.id)
+            if safe_value is not None and not callable(safe_value):
+                return safe_value
+            return _STATIC_UNRESOLVED
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            items = [evaluate_static_expression(item, scope) for item in node.elts]
+            if any(item is _STATIC_UNRESOLVED for item in items):
+                return _STATIC_UNRESOLVED
+            return items if isinstance(node, ast.List) else tuple(items) if isinstance(node, ast.Tuple) else set(items)
+        if isinstance(node, ast.Dict):
+            keys = [evaluate_static_expression(item, scope) for item in node.keys]
+            values = [evaluate_static_expression(item, scope) for item in node.values]
+            if any(item is _STATIC_UNRESOLVED for item in keys + values):
+                return _STATIC_UNRESOLVED
+            return dict(zip(keys, values))
+        if isinstance(node, ast.BinOp):
+            functions = {
+                ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+                ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
+                ast.Mod: operator.mod, ast.Pow: operator.pow,
+                ast.BitOr: operator.or_, ast.BitAnd: operator.and_,
+                ast.BitXor: operator.xor,
+            }
+            left = evaluate_static_expression(node.left, scope)
+            right = evaluate_static_expression(node.right, scope)
+            function = functions.get(type(node.op))
+            if function is None or left is _STATIC_UNRESOLVED or right is _STATIC_UNRESOLVED:
+                return _STATIC_UNRESOLVED
+            try:
+                return function(left, right)
+            except Exception:
+                return _STATIC_UNRESOLVED
+        if isinstance(node, ast.UnaryOp):
+            functions = {ast.UAdd: operator.pos, ast.USub: operator.neg, ast.Not: operator.not_, ast.Invert: operator.invert}
+            value = evaluate_static_expression(node.operand, scope)
+            function = functions.get(type(node.op))
+            if function is None or value is _STATIC_UNRESOLVED:
+                return _STATIC_UNRESOLVED
+            try:
+                return function(value)
+            except Exception:
+                return _STATIC_UNRESOLVED
+        if isinstance(node, ast.Subscript):
+            value = evaluate_static_expression(node.value, scope)
+            index = evaluate_static_expression(node.slice, scope)
+            if value is _STATIC_UNRESOLVED or index is _STATIC_UNRESOLVED:
+                return _STATIC_UNRESOLVED
+            try:
+                return operator.getitem(value, index)
+            except Exception:
+                return _STATIC_UNRESOLVED
+        if isinstance(node, ast.IfExp):
+            condition = evaluate_static_expression(node.test, scope)
+            if condition is _STATIC_UNRESOLVED:
+                return _STATIC_UNRESOLVED
+            return evaluate_static_expression(node.body if condition else node.orelse, scope)
+        if isinstance(node, ast.ListComp):
+            result = []
+            local_scope = dict(scope)
+
+            def evaluate_generator(index):
+                if index == len(node.generators):
+                    return evaluate_static_expression(node.elt, local_scope)
+                generator = node.generators[index]
+                if generator.is_async:
+                    return _STATIC_UNRESOLVED
+                iterable = evaluate_static_expression(generator.iter, local_scope)
+                if iterable is _STATIC_UNRESOLVED:
+                    return _STATIC_UNRESOLVED
+                try:
+                    iterator = iter(iterable)
+                except TypeError:
+                    return _STATIC_UNRESOLVED
+                for item in iterator:
+                    if isinstance(generator.target, ast.Name):
+                        local_scope[generator.target.id] = item
+                    elif isinstance(generator.target, (ast.Tuple, ast.List)) and isinstance(item, (tuple, list)):
+                        if len(generator.target.elts) != len(item) or not all(isinstance(part, ast.Name) for part in generator.target.elts):
+                            return _STATIC_UNRESOLVED
+                        for target, value in zip(generator.target.elts, item):
+                            local_scope[target.id] = value
+                    else:
+                        return _STATIC_UNRESOLVED
+                    include = True
+                    for condition_node in generator.ifs:
+                        condition = evaluate_static_expression(condition_node, local_scope)
+                        if condition is _STATIC_UNRESOLVED:
+                            return _STATIC_UNRESOLVED
+                        if not condition:
+                            include = False
+                            break
+                    if include:
+                        value = evaluate_generator(index + 1)
+                        if value is _STATIC_UNRESOLVED:
+                            return _STATIC_UNRESOLVED
+                        result.append(value)
+                return None
+
+            completed = evaluate_generator(0)
+            return _STATIC_UNRESOLVED if completed is _STATIC_UNRESOLVED else result
+        if isinstance(node, ast.Call):
+            function = None
+            if isinstance(node.func, ast.Name):
+                name = node.func.id
+                builtins = {
+                    "range": range, "enumerate": enumerate, "zip": zip,
+                    "len": len, "min": min, "max": max, "abs": abs,
+                    "round": round, "int": int, "float": float, "str": str,
+                    "tuple": tuple, "list": list, "set": set, "sorted": sorted,
+                }
+                function = builtins.get(name) or resolve_safe_stdlib_name(name)
+            elif isinstance(node.func, ast.Attribute):
+                function = resolve_safe_stdlib_attribute(node.func)
+            if not callable(function):
+                return _STATIC_UNRESOLVED
+            args = [evaluate_static_expression(item, scope) for item in node.args]
+            kwargs = {
+                item.arg: evaluate_static_expression(item.value, scope)
+                for item in node.keywords if item.arg is not None
+            }
+            if any(item is _STATIC_UNRESOLVED for item in args + list(kwargs.values())):
+                return _STATIC_UNRESOLVED
+            if any(item.arg is None for item in node.keywords):
+                return _STATIC_UNRESOLVED
+            try:
+                return function(*args, **kwargs)
+            except Exception:
+                return _STATIC_UNRESOLVED
+        return _STATIC_UNRESOLVED
+
     def resolve_user_class_attribute(class_node, attribute_name):
         saved = dict(variables)
+        class_values = {}
         try:
             for class_statement in class_node.body:
                 if isinstance(class_statement, ast.Assign):
@@ -4191,10 +4338,16 @@ def import_python_code(source):
                     continue
                 if value_node is None:
                     continue
-                value = expression(value_node)
+                static_value = evaluate_static_expression(value_node, class_values)
+                value = (
+                    ("literal", static_value)
+                    if static_value is not _STATIC_UNRESOLVED
+                    else expression(value_node)
+                )
                 for target in targets:
                     if not isinstance(target, ast.Name):
                         continue
+                    class_values[target.id] = materialize_literal(value[1]) if value[0] == "literal" else _STATIC_UNRESOLVED
                     variables[target.id] = value
                     if target.id == attribute_name:
                         return value

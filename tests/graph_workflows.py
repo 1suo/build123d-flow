@@ -1611,8 +1611,30 @@ def run_constructor_overload_tests():
     return {"name": "constructor overload selection", "wire_iterable_edges": True}
 
 
+def run_lib3mf_binding_tests():
+    import os
+
+    mesher = runtime.b3d.Mesher()
+    version = mesher.library_version
+    if not version.startswith("2.5.0"):
+        raise AssertionError("Expected the staged upstream Lib3MF 2.5.0 binding, got " + version)
+
+    path = "/tmp/build123d-flow-lib3mf-roundtrip.3mf"
+    exporter = runtime.b3d.Mesher()
+    exporter.add_shape([runtime.b3d.Box(2, 3, 4)])
+    exporter.write(path)
+    try:
+        imported = runtime.b3d.Mesher().read(path)
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+    if len(imported) != 1 or imported[0].volume <= 0:
+        raise AssertionError("Upstream Mesher failed to round-trip a solid through 3MF")
+    return {"name": "upstream Lib3MF binding", "version": version, "three_mf_round_trip": True}
+
+
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_operator_overload_tests(), run_geometry_subclass_constructor_tests(), run_empty_shape_preview_tests(), run_constructor_overload_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_operator_overload_tests(), run_geometry_subclass_constructor_tests(), run_empty_shape_preview_tests(), run_constructor_overload_tests(), run_lib3mf_binding_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

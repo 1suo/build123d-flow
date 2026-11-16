@@ -13,7 +13,12 @@ import collections.abc
 import hashlib
 import operator
 
-import build123d as b3d
+try:
+    import build123d as b3d
+except ModuleNotFoundError as exc:
+    if exc.name != "build123d":
+        raise
+    b3d = None
 from type_catalog import SCHEMA_VERSION as _CATALOG_SCHEMA_VERSION
 from type_catalog import CatalogError, TypeCatalog, build_type_registry
 
@@ -42,7 +47,7 @@ def _type_name(annotation):
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
         union_args = [arg for arg in args if arg is not type(None)]
-        shape_base = getattr(b3d, "Shape", None)
+        shape_base = getattr(b3d, "Shape", None) if b3d is not None else None
         if union_args and inspect.isclass(shape_base):
             try:
                 if all(inspect.isclass(arg) and issubclass(arg, shape_base) for arg in union_args):
@@ -94,10 +99,10 @@ def _type_name(annotation):
             if issubclass(annotation, enum.Enum):
                 return "Enum"
             for shape_name in ("Solid", "Compound", "Face", "Edge", "Wire", "Vertex", "Shell", "Sketch", "Part"):
-                shape_class = getattr(b3d, shape_name, None)
+                shape_class = getattr(b3d, shape_name, None) if b3d is not None else None
                 if inspect.isclass(shape_class) and issubclass(annotation, shape_class):
                     return shape_name
-            if issubclass(annotation, getattr(b3d, "Shape", object)):
+            if b3d is not None and issubclass(annotation, getattr(b3d, "Shape", object)):
                 return "Shape"
         except TypeError:
             pass
@@ -146,7 +151,8 @@ def _hint_namespace(target):
     module globals alone raise NameError inside typing.get_type_hints.
     """
     names = dict(vars(typing))
-    names.update(vars(b3d))
+    if b3d is not None:
+        names.update(vars(b3d))
     module = inspect.getmodule(target)
     if module is not None:
         names.update(vars(module))
@@ -474,6 +480,8 @@ def _candidate_rejection(obj):
 
 
 def _discover_modules(report=None):
+    if b3d is None:
+        raise RuntimeError("build123d is required for API discovery")
     modules = [b3d]
     seen = {b3d.__name__}
     report = report if report is not None else {}
@@ -522,16 +530,17 @@ _PYTHON_OPERATOR_SPECS = {
     "__invert__": {"symbol": "~", "codegen_symbol": "~", "family": "unary", "palette_category": "Logic", "palette_section": "Bitwise operators"},
 }
 
-# Native Shape algebra keeps its actual Python method identity and signature.
-# These are presentation overrides only: they do not register nodes or callables.
-for _shape_method, _shape_presentation in {
-    "__add__": {"name": "Shape + (Union)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-    "__sub__": {"name": "Shape − (Difference)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-    "__and__": {"name": "Shape & (Intersection)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-}.items():
-    _NODE_METADATA_OVERRIDES[
-        b3d.Shape.__module__ + "." + b3d.Shape.__name__ + ".operator." + _shape_method
-    ] = _shape_presentation
+def _register_kernel_discovery_overrides():
+    """Register presentation overrides only when the real kernel is available."""
+    if b3d is None:
+        raise RuntimeError("build123d is required for API discovery")
+    for method, presentation in {
+        "__add__": {"name": "Shape + (Union)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+        "__sub__": {"name": "Shape − (Difference)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+        "__and__": {"name": "Shape & (Intersection)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+    }.items():
+        node_id = b3d.Shape.__module__ + "." + b3d.Shape.__name__ + ".operator." + method
+        _NODE_METADATA_OVERRIDES[node_id] = presentation
 
 
 _FLOW_PALETTE = {
@@ -1142,6 +1151,9 @@ def _register_python_nodes(found, callables):
 
 def discover(include_full=True):
     global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
+    if b3d is None:
+        raise RuntimeError("build123d is required for API discovery; load a generated catalog instead")
+    _register_kernel_discovery_overrides()
     found = {}
     callables = {}
     signatures = {}

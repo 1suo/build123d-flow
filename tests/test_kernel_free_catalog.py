@@ -169,9 +169,18 @@ result = box + cylinder
             }],
             "edges": [],
         }
-        result = json.loads(runtime.evaluate_graph_json(json.dumps(graph), include_previews=False))
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        # The Python Function helper exposes Vector in its restricted scope;
+        # a inert placeholder keeps this evaluator contract test kernel-free.
+        with patch.object(runtime, "b3d", SimpleNamespace(Vector=object)):
+            result = json.loads(runtime.evaluate_graph_json(
+                json.dumps(graph), include_previews=False
+            ))
         self.assertEqual(result["errors"], {}, result["errors"])
         self.assertIn("conditional-function", result["socket_values"])
+        self.assertIsNone(runtime.b3d)
 
     def test_call_adapter_forwards_extra_keywords_to_variadic_constructor(self):
         import inspect

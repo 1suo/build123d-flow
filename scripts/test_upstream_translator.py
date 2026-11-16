@@ -168,6 +168,12 @@ def main() -> int:
                 filename, metrics["node_count"], metrics["edge_count"]
             ))
         except Exception as exc:
+            if filename == "maker_coin.py":
+                print("DEBUG project_to_shape symbol:", runtime._SYMBOL_REGISTRY.get("project_to_shape"))
+                print("DEBUG project_to_shape nodes:", [
+                    node_id for node_id in runtime._CATALOG
+                    if "project_to_shape" in node_id
+                ])
             results.append({
                 "filename": filename,
                 "passed": False,

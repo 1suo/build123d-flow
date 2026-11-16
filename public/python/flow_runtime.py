@@ -5026,27 +5026,36 @@ def import_python_code(source):
                     return ("literal", None)
                 literal_receiver = expression(node.func.value)
                 if literal_receiver[0] == "literal":
-                    bound_method = getattr(
-                        materialize_literal(literal_receiver[1]), node.func.attr, None
-                    )
-                    if callable(bound_method):
-                        bound_args = [expression(item) for item in node.args]
-                        bound_kwargs = {
-                            item.arg: expression(item.value) for item in node.keywords
-                            if item.arg is not None
-                        }
-                        if any(item.arg is None for item in node.keywords):
-                            raise ValueError("Expanded bound-method keywords are unsupported (line {})".format(node.lineno))
-                        if all(item[0] == "literal" for item in bound_args) and all(
-                            item[0] == "literal" for item in bound_kwargs.values()
-                        ):
-                            try:
-                                return ("literal", bound_method(
-                                    *[materialize_literal(item[1]) for item in bound_args],
-                                    **{name: materialize_literal(item[1]) for name, item in bound_kwargs.items()}
-                                ))
-                            except Exception as exc:
-                                raise ValueError("Literal method call failed at line {}: {}".format(node.lineno, exc))
+                    # Never constant-fold methods on discovered API values.
+                    # Doing so only works when the CAD kernel is installed and
+                    # makes Gate 2 translate a different graph from Gate 1.
+                    try:
+                        type_catalog.resolve_type(reference_type(literal_receiver))
+                        discovered_api_receiver = True
+                    except CatalogError:
+                        discovered_api_receiver = False
+                    if not discovered_api_receiver:
+                        bound_method = getattr(
+                            materialize_literal(literal_receiver[1]), node.func.attr, None
+                        )
+                        if callable(bound_method):
+                            bound_args = [expression(item) for item in node.args]
+                            bound_kwargs = {
+                                item.arg: expression(item.value) for item in node.keywords
+                                if item.arg is not None
+                            }
+                            if any(item.arg is None for item in node.keywords):
+                                raise ValueError("Expanded bound-method keywords are unsupported (line {})".format(node.lineno))
+                            if all(item[0] == "literal" for item in bound_args) and all(
+                                item[0] == "literal" for item in bound_kwargs.values()
+                            ):
+                                try:
+                                    return ("literal", bound_method(
+                                        *[materialize_literal(item[1]) for item in bound_args],
+                                        **{name: materialize_literal(item[1]) for name, item in bound_kwargs.items()}
+                                    ))
+                                except Exception as exc:
+                                    raise ValueError("Literal method call failed at line {}: {}".format(node.lineno, exc))
             if isinstance(node.func, ast.Subscript):
                 selected_callable = expression(node.func)
                 if (

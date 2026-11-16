@@ -251,6 +251,31 @@ result = Location() * ShapeList([Box(10, 10, 10)])
             "reflected result",
         )
 
+    def test_call_coercion_resolves_nested_forward_refs_before_union_selection(self):
+        import collections.abc
+        import inspect
+        import typing
+        from flow_runtime import _call_with_coercion
+
+        def identity(value):
+            return value
+
+        annotation = typing.Union[
+            typing.ForwardRef("str"),
+            collections.abc.Iterable[typing.ForwardRef("str")],
+        ]
+        signature = inspect.Signature([
+            inspect.Parameter(
+                "value", inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=annotation,
+            )
+        ])
+        value = "a CAD domain value"
+        result = _call_with_coercion(
+            identity, {"value": value}, signature=signature, hint_target=False
+        )
+        self.assertIs(result, value)
+
     def test_union_coercion_preserves_iterable_domain_object(self):
         import collections.abc
         import typing

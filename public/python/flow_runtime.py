@@ -1606,6 +1606,16 @@ def discover(include_full=True):
         report["palette_category_counts"][source + "/" + category] = report["palette_category_counts"].get(source + "/" + category, 0) + 1
 
     type_registry = build_type_registry(api_classes, found)
+    for api_class in api_classes:
+        type_id = api_class.__module__ + "." + api_class.__name__
+        record = type_registry.get(type_id)
+        if record is None:
+            continue
+        record["socket_type"] = _type_name(api_class)
+        try:
+            record["is_geometry"] = issubclass(api_class, b3d.Shape)
+        except TypeError:
+            record["is_geometry"] = False
     report["type_count"] = len(type_registry)
     report["type_ids"] = sorted(type_registry)
     report["node_count"] = len(found)

@@ -266,8 +266,9 @@ result = Location() * ShapeList([Box(10, 10, 10)])
             def __getitem__(self, index):
                 return (1, 2, 3)[index]
 
+        shape_type = typing.TypeVar("ShapeType", bound=IterableShape)
         annotation = typing.Union[
-            IterableShape, collections.abc.Iterable[IterableShape]
+            shape_type, collections.abc.Iterable[IterableShape]
         ]
         shape = IterableShape()
         self.assertIs(_coerce_annotation(shape, annotation), shape)

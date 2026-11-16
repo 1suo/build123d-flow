@@ -5,11 +5,10 @@ from __future__ import annotations
 import collections
 import io
 import json
+import multiprocessing
 import os
-import subprocess
 import sys
 import tarfile
-import tempfile
 import traceback
 from pathlib import Path
 
@@ -25,37 +24,40 @@ def definition_ids(graph):
     )
 
 
-def kernel_worker(item_path: Path, catalog_path: Path, example_root: Path) -> int:
-    """Run one example in a disposable process so a stuck native call is killable."""
+def prepare_kernel_runtime(catalog_path: Path):
+    """Discover native callables once; forked example workers inherit this snapshot."""
     import flow_runtime as runtime
 
-    item = json.loads(item_path.read_text(encoding="utf-8"))
+    if runtime.b3d is None:
+        raise RuntimeError("Gate 2 requires the real build123d kernel")
+    runtime.discover(include_full=True)
+    discovered_callables = dict(runtime._CATALOG_CALLABLES)
+    discovered_signatures = dict(runtime._CATALOG_SIGNATURES)
+    discovered_hints = dict(runtime._CATALOG_HINT_TARGETS)
+    runtime.load_catalog_bundle(catalog_path.read_text(encoding="utf-8"))
+    # Gate 1 and Gate 2 use identical discovered metadata. Retain the real native
+    # callables/hints, but only for definitions present in the serialized catalog.
+    runtime._CATALOG_CALLABLES.update({
+        key: value for key, value in discovered_callables.items()
+        if key in runtime._CATALOG
+    })
+    runtime._CATALOG_SIGNATURES.update({
+        key: value for key, value in discovered_signatures.items()
+        if key in runtime._CATALOG
+    })
+    runtime._CATALOG_HINT_TARGETS.update({
+        key: value for key, value in discovered_hints.items()
+        if key in runtime._CATALOG
+    })
+    return runtime
+
+
+def kernel_worker(item, runtime, result_connection):
+    """Evaluate one graph in a disposable fork of the preinitialized kernel."""
     filename = item["filename"]
     try:
-        if runtime.b3d is None:
-            raise RuntimeError("Gate 2 requires the real build123d kernel")
-        runtime.discover(include_full=True)
-        discovered_callables = dict(runtime._CATALOG_CALLABLES)
-        discovered_signatures = dict(runtime._CATALOG_SIGNATURES)
-        discovered_hints = dict(runtime._CATALOG_HINT_TARGETS)
-        runtime.load_catalog_bundle(catalog_path.read_text(encoding="utf-8"))
-        # Gate 1 and Gate 2 must use identical discovered metadata. Retain the
-        # real native callables/hints from this kernel process.
-        runtime._CATALOG_CALLABLES.update({
-            key: value for key, value in discovered_callables.items()
-            if key in runtime._CATALOG
-        })
-        runtime._CATALOG_SIGNATURES.update({
-            key: value for key, value in discovered_signatures.items()
-            if key in runtime._CATALOG
-        })
-        runtime._CATALOG_HINT_TARGETS.update({
-            key: value for key, value in discovered_hints.items()
-            if key in runtime._CATALOG
-        })
-
-        # Register graph-lowering callables in this process, then evaluate the
-        # exact graph produced by Gate 1.
+        # Register graph-lowering callables in this isolated process, then execute
+        # the exact graph produced by the kernel-free Gate 1 interpreter.
         kernel_translation = runtime.import_python_code(item["source"])
         expected_ids = definition_ids(item["graph"])
         actual_ids = definition_ids(kernel_translation)
@@ -109,8 +111,6 @@ def kernel_worker(item_path: Path, catalog_path: Path, example_root: Path) -> in
                 "valid": validity is not False,
             },
         }
-        print(json.dumps(result, allow_nan=False), flush=True)
-        return 0
     except Exception as exc:
         result = {
             "filename": filename,
@@ -119,13 +119,61 @@ def kernel_worker(item_path: Path, catalog_path: Path, example_root: Path) -> in
             "error": str(exc),
             "traceback": traceback.format_exc(),
         }
-        print(json.dumps(result, allow_nan=False), flush=True)
-        return 1
+    try:
+        result_connection.send(result)
+    finally:
+        result_connection.close()
+
+
+def run_isolated_example(context, item, runtime):
+    """Fork a clean evaluator state and retain a hard per-example kill boundary."""
+    parent_connection, child_connection = context.Pipe(duplex=False)
+    process = context.Process(
+        target=kernel_worker,
+        args=(item, runtime, child_connection),
+    )
+    process.start()
+    child_connection.close()
+    try:
+        if not parent_connection.poll(EXAMPLE_TIMEOUT_SECONDS):
+            process.terminate()
+            process.join()
+            return {
+                "filename": item["filename"],
+                "passed": False,
+                "stage": "kernel-timeout",
+                "timeout_seconds": EXAMPLE_TIMEOUT_SECONDS,
+                "error": "native kernel execution exceeded the per-example timeout; "
+                         "worker process was terminated",
+            }
+        try:
+            result = parent_connection.recv()
+        except EOFError:
+            result = {
+                "filename": item["filename"],
+                "passed": False,
+                "stage": "kernel-process",
+                "error": "worker exited without returning a result (exit code {})".format(
+                    process.exitcode
+                ),
+            }
+        process.join()
+        if process.exitcode != 0 and result.get("passed"):
+            return {
+                "filename": item["filename"],
+                "passed": False,
+                "stage": "kernel-process",
+                "error": "worker exited with code {}".format(process.exitcode),
+            }
+        return result
+    finally:
+        parent_connection.close()
+        if process.is_alive():
+            process.terminate()
+            process.join()
 
 
 def main() -> int:
-    if len(sys.argv) == 5 and sys.argv[1] == "--worker":
-        return kernel_worker(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]))
     if len(sys.argv) != 4:
         raise SystemExit(
             "usage: test_upstream_kernel.py GATE1_RESULTS.json CATALOG.json RESULTS.json"
@@ -137,12 +185,16 @@ def main() -> int:
         raise SystemExit("Gate 2 cannot start: Gate 1 results are not completely green")
 
     results = []
-    with tempfile.TemporaryDirectory(prefix="build123d-gate2-") as temporary_dir:
+    # Native discovery and catalog hydration are expensive and deterministic.
+    # Initialize them once, then fork a fresh process for each graph. This keeps
+    # the native kernel kill boundary and clean per-example state without repeating
+    # full API discovery 67 times.
+    runtime = prepare_kernel_runtime(catalog_path)
+    context = multiprocessing.get_context("fork")
+    with __import__("tempfile").TemporaryDirectory(prefix="build123d-gate2-") as temporary_dir:
         temporary_root = Path(temporary_dir)
-        input_path = temporary_root / "example.json"
-        # Upstream examples use relative STL/3MF/DXF/image assets. Download
-        # the exact pinned source archive once and run each worker in its
-        # examples directory, preserving the upstream filesystem layout.
+        # Upstream examples use relative STL/3MF/DXF/image assets. Download the
+        # exact pinned source archive and preserve its examples directory layout.
         import urllib.request
         archive_url = "https://github.com/{}/archive/{}.tar.gz".format(
             gate1["upstream_repository"], gate1["upstream_commit"]
@@ -163,60 +215,13 @@ def main() -> int:
             raise RuntimeError(
                 "Pinned upstream archive must contain exactly one examples directory"
             )
-        example_root = example_roots[0]
+        os.chdir(example_roots[0])
         for item in gate1["results"]:
-            filename = item["filename"]
-            input_path.write_text(
-                json.dumps(item, allow_nan=False), encoding="utf-8"
-            )
             try:
-                completed = subprocess.run(
-                    [sys.executable, str(Path(__file__).resolve()), "--worker", str(input_path), str(catalog_path), str(example_root)],
-                    cwd=str(example_root),
-                    text=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    timeout=EXAMPLE_TIMEOUT_SECONDS,
-                    check=False,
-                )
-                output_lines = [
-                    line for line in completed.stdout.splitlines()
-                    if line.strip()
-                ]
-                if output_lines:
-                    result = json.loads(output_lines[-1])
-                else:
-                    result = {
-                        "filename": filename,
-                        "passed": False,
-                        "stage": "kernel-process",
-                        "error": "worker exited without a result (exit code {})".format(
-                            completed.returncode
-                        ),
-                        "stderr": completed.stderr[-12000:],
-                    }
-                if completed.returncode != 0 and result.get("passed"):
-                    result = {
-                        "filename": filename,
-                        "passed": False,
-                        "stage": "kernel-process",
-                        "error": "worker exited with code {}".format(completed.returncode),
-                        "stderr": completed.stderr[-12000:],
-                    }
-            except subprocess.TimeoutExpired as exc:
-                result = {
-                    "filename": filename,
-                    "passed": False,
-                    "stage": "kernel-timeout",
-                    "timeout_seconds": EXAMPLE_TIMEOUT_SECONDS,
-                    "error": "native kernel execution exceeded the per-example timeout; "
-                             "worker process was terminated",
-                    "stdout": (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else "",
-                    "stderr": (exc.stderr or "")[-8000:] if isinstance(exc.stderr, str) else "",
-                }
+                result = run_isolated_example(context, item, runtime)
             except Exception as exc:
                 result = {
-                    "filename": filename,
+                    "filename": item["filename"],
                     "passed": False,
                     "stage": "kernel-harness",
                     "error": str(exc),
@@ -228,14 +233,14 @@ def main() -> int:
                 geometry = result["geometry"]["native_topology"]
                 print(
                     "PASS {} ({} vertices, {} edges, {} faces)".format(
-                        filename, geometry["vertices"], geometry["edges"], geometry["faces"]
+                        item["filename"], geometry["vertices"], geometry["edges"], geometry["faces"]
                     ),
                     flush=True,
                 )
             else:
                 print(
                     "FAIL {} [{}]: {}".format(
-                        filename, result.get("stage"), result.get("error")
+                        item["filename"], result.get("stage"), result.get("error")
                     ),
                     flush=True,
                 )

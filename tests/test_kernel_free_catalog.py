@@ -169,12 +169,14 @@ result = box + cylinder
             }],
             "edges": [],
         }
-        from types import SimpleNamespace
         from unittest.mock import patch
 
-        # The Python Function helper exposes Vector in its restricted scope;
-        # a inert placeholder keeps this evaluator contract test kernel-free.
-        with patch.object(runtime, "b3d", SimpleNamespace(Vector=object)):
+        # The callable is inert; this test exercises only graph lowering and
+        # evaluator argument filtering, never the CAD kernel.
+        with patch.dict(
+            runtime._CATALOG_CALLABLES,
+            {"core.python.function": lambda code, a=None, b=None, c=None: 42},
+        ):
             result = json.loads(runtime.evaluate_graph_json(
                 json.dumps(graph), include_previews=False
             ))

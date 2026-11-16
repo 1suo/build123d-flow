@@ -94,6 +94,21 @@ box = Box(10, 10, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
             ["CENTER", "CENTER", "MIN"],
         )
 
+    def test_overloaded_value_constructor_resolves_from_catalog(self):
+        graph = json.loads(runtime.import_python_code("""
+from build123d import Location
+loc = Location((1, 2, 3))
+"""))
+        identities = [
+            node.get("data", {}).get("definition", {}).get("id", "")
+            for node in graph["nodes"]
+        ]
+        self.assertTrue(
+            any(identity.startswith("build123d.") and ".Location.overload-" in identity
+                for identity in identities),
+            identities,
+        )
+
     def test_all_discovered_type_node_references_resolve(self):
         for identity, record in self.catalog.types.items():
             references = (

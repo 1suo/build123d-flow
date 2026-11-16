@@ -4728,10 +4728,11 @@ def import_python_code(source):
                                 "outputs": [{"name": "result", "type": "List", "data_structure": "list", "item_type": "Number"}],
                             }
                             _INTERNAL_NODE_IDS.add(batch_id)
-                            def draw_random_batch(**values):
+                            batch_calls = tuple(calls)
+                            def draw_random_batch(_calls=batch_calls, **values):
                                 return [
                                     random_generator.randint(values["a_" + str(index)], values["b_" + str(index)])
-                                    for index in range(len(calls))
+                                    for index in range(len(_calls))
                                 ]
                             _CATALOG_CALLABLES[batch_id] = draw_random_batch
                             _CATALOG_SIGNATURES[batch_id] = inspect.Signature([

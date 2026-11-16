@@ -155,7 +155,10 @@ async function importExample(page: Page, source: string) {
   }
   await expect(sourceInput).toBeVisible({ timeout: 2_000 });
 
-  const evaluationBeforeImport = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
+  const previousLogId = await page.evaluate(() => {
+    const logs = (window as any).__build123dFlowTest.getActivityLogs();
+    return logs[0]?.id ?? 0;
+  });
   // Fill directly after opening the popover. A separate visibility/value
   // assertion introduced a race with the popover's transition lifecycle.
   await sourceInput.fill(source);
@@ -164,10 +167,21 @@ async function importExample(page: Page, source: string) {
 
   const importOutcome = await withTimeout((async () => {
     while (true) {
-      const state = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
-      if (state.errors.length) return { success: false as const, errors: state.errors };
-      if (state.revision > evaluationBeforeImport.revision && !state.running) {
-        return { success: true as const, state };
+      const snapshot = await page.evaluate(() => ({
+        state: (window as any).__build123dFlowTest.getEvaluationState(),
+        logs: (window as any).__build123dFlowTest.getActivityLogs(),
+      }));
+      const newLogs = snapshot.logs.filter((entry: any) => entry.id > previousLogId);
+      const failure = newLogs.find((entry: any) => entry.level === "error" || entry.message.startsWith("Python import failed"));
+      if (snapshot.state.errors.length || failure) {
+        return {
+          success: false as const,
+          errors: snapshot.state.errors.length ? snapshot.state.errors : [failure.message],
+        };
+      }
+      const completed = newLogs.some((entry: any) => entry.message.startsWith("Evaluation complete"));
+      if (completed && !snapshot.state.running) {
+        return { success: true as const, state: snapshot.state };
       }
       await page.waitForTimeout(50);
     }

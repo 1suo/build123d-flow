@@ -50,13 +50,14 @@ let discoveryPromise: Promise<void> | null = null;
 const contextSearch = ref("");
 const errors = ref<string[]>([]);
 const downloadStatus = ref("");
-const activityLogs = ref<Array<{ time: string; level: "info" | "success" | "warning" | "error"; message: string }>>([]);
+let activityLogSequence = 0;
+const activityLogs = ref<Array<{ id: number; time: string; level: "info" | "success" | "warning" | "error"; message: string }>>([]);
 let downloadStatusTimer: ReturnType<typeof setTimeout> | undefined;
 
 function logActivity(message: string, level: "info" | "success" | "warning" | "error" = "info") {
   const previous = activityLogs.value[0];
   if (previous?.message === message && previous.level === level) return;
-  activityLogs.value.unshift({ time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }), level, message });
+  activityLogs.value.unshift({ id: ++activityLogSequence, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }), level, message });
   if (activityLogs.value.length > 40) activityLogs.value.length = 40;
 }
 

@@ -78,6 +78,22 @@ with BuildPart() as part:
         self.assertEqual(scopes[0]["module"], manager["module"])
         self.assertIsNone(runtime.b3d)
 
+    def test_enum_arguments_translate_from_discovered_members(self):
+        align = self.catalog.resolve_type("Align")
+        self.assertTrue(align["is_enum"])
+        graph = json.loads(runtime.import_python_code("""
+from build123d import Box, Align
+box = Box(10, 10, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+"""))
+        box_node = next(
+            node for node in graph["nodes"]
+            if node.get("data", {}).get("definition", {}).get("id", "").endswith(".Box")
+        )
+        self.assertEqual(
+            box_node["data"]["params"]["align"],
+            ["CENTER", "CENTER", "MIN"],
+        )
+
     def test_all_discovered_type_node_references_resolve(self):
         for identity, record in self.catalog.types.items():
             references = (

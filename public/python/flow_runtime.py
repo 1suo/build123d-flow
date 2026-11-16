@@ -108,7 +108,8 @@ def _type_name(annotation):
                             return "Shape"
                         if (
                             getattr(base, "__module__", "").split(".")[0] == "build123d"
-                            and getattr(base, "__name__", "") in _GEOMETRY_INPUT_TYPES
+                            and inspect.isclass(shape_base)
+                            and issubclass(base, shape_base)
                         ):
                             return base.__name__
         except TypeError:

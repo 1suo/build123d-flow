@@ -28,6 +28,7 @@ _LAST_SHAPE = None
 _DISCOVERY_REPORT = {}
 _EVAL_CACHE = {}
 _PREVIEW_CACHE = {}
+_RANDOM_BATCH_COUNTER = 0
 _CACHE_LIMIT = 128
 # Optional curated presentation/eligibility overrides keyed by canonical node id.
 _NODE_METADATA_OVERRIDES = {}
@@ -4167,6 +4168,7 @@ def import_python_code(source):
         return ("ref", created, "result", output_socket["type"])
 
     def expression(node, expected_type=None):
+        global _RANDOM_BATCH_COUNTER
         nonlocal mapping_matching, random_state_node
         if isinstance(node, ast.Constant):
             return ("literal", node.value)
@@ -4719,7 +4721,8 @@ def import_python_code(source):
                             batch_inputs.append({"name": "state", "type": "Any", "required": False, "default": None, "data_access": "structure"})
                             if random_state_node is not None:
                                 batch_links.append(("state", random_state_node, "result"))
-                            batch_id = "core.python.random.batch." + str(len(graph_nodes) + 1)
+                            _RANDOM_BATCH_COUNTER += 1
+                            batch_id = "core.python.random.batch." + str(_RANDOM_BATCH_COUNTER)
                             definitions[batch_id] = {
                                 "id": batch_id, "name": "Python random batch",
                                 "source": "python", "kind": "operation", "category": "Internal",

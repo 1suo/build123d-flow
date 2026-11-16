@@ -4109,6 +4109,17 @@ def import_python_code(source):
             standard_value = resolve_safe_stdlib_name(node.id)
             if standard_value is not None and not callable(standard_value):
                 return ("literal", standard_value)
+            try:
+                symbol = type_catalog.resolve_symbol(imported.get(node.id, node.id))
+            except CatalogError:
+                symbol = None
+            if symbol is not None:
+                if symbol.get("kind") == "value":
+                    return ("literal", symbol["value"])
+                if symbol.get("kind") == "type":
+                    return ("literal", {"__flow_type__": symbol["type_id"]})
+                if symbol.get("kind") == "callable":
+                    return ("literal", {"__flow_callable__": symbol["id"]})
             build123d_value = getattr(b3d, imported.get(node.id, node.id), None)
             if b3d is not None and isinstance(build123d_value, (int, float, str, bool, enum.Enum,
                                              b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
@@ -4237,6 +4248,16 @@ def import_python_code(source):
                             pass
                         else:
                             return ("literal", class_value)
+                if root in aliases and aliases[root] == "b3d" and len(path) == 1:
+                    try:
+                        symbol = type_catalog.resolve_symbol(path[0])
+                    except CatalogError:
+                        symbol = None
+                    if symbol is not None:
+                        if symbol.get("kind") == "value":
+                            return ("literal", symbol["value"])
+                        if symbol.get("kind") == "type":
+                            return ("literal", {"__flow_type__": symbol["type_id"]})
                 if root in aliases and aliases[root] == "b3d":
                     path = list(reversed(path))
                     if path:

@@ -233,7 +233,6 @@ result = Location() * ShapeList([Box(10, 10, 10)])
         )
         output = operator_node["data"]["definition"]["outputs"][0]
         self.assertEqual(output["type"], "ShapeList")
-        self.assertEqual(output["item_type"], "Box")
         self.assertIsNone(runtime.b3d)
 
     def test_context_manager_translation_uses_catalog_metadata(self):

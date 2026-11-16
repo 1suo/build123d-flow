@@ -4564,14 +4564,15 @@ def import_python_code(source):
                     reducer = resolve_safe_stdlib_attribute(reducer_node)
                 elif isinstance(reducer_node, ast.Name):
                     reducer = resolve_safe_stdlib_name(reducer_node.id)
-                if getattr(reducer, "__module__", None) != "operator":
-                    raise ValueError("Graph-backed functools.reduce currently requires a native operator function (line {})".format(node.lineno))
-                reducer_name = getattr(reducer, "__name__", "")
-                if reducer_name not in {
-                    "add", "sub", "mul", "truediv", "floordiv", "mod",
-                    "pow", "and_", "or_", "xor", "matmul",
-                }:
-                    raise ValueError("Unsupported reduce operator '{}' (line {})".format(reducer_name, node.lineno))
+                reducer_name = next((
+                    name for name in (
+                        "add", "sub", "mul", "truediv", "floordiv", "mod",
+                        "pow", "and_", "or_", "xor", "matmul",
+                    )
+                    if reducer is getattr(operator, name, None)
+                ), None)
+                if reducer_name is None:
+                    raise ValueError("Graph-backed functools.reduce requires a supported operator function (line {})".format(node.lineno))
                 iterable = expression(node.args[1])
                 initial = expression(node.args[2]) if len(node.args) == 3 else None
                 if iterable[0] == "literal" and (initial is None or initial[0] == "literal"):

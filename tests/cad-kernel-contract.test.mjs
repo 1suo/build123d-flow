@@ -61,10 +61,13 @@ test("scalar and collection inputs retain distinct access and alignment semantic
     outputs: [{ name: "result", type: "Number", annotation: "float", required: true }],
     data_matching: undefined,
   }));
+  // A scalar-typed socket still consumes one item at a time; a connected
+  // stream of numbers therefore maps this operation without changing the
+  // underlying Number contract.
   assert.deepEqual(scalar.mapping, {
-    mode: "scalar",
+    mode: "map",
     preserveNesting: true,
-    alignment: "single",
+    alignment: "zip-longest",
   });
   assert.equal(scalar.inputs[0].collection, "item");
   assert.equal(scalar.inputs[0].access, "item");

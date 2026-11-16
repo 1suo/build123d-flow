@@ -4758,7 +4758,20 @@ def import_python_code(source):
                 "str", "int", "float", "bool", "list", "tuple", "sorted", "reversed",
                 "all", "any", "sum", "divmod", "pow"
             }:
-                builtin_args = [expression(argument) for argument in node.args]
+                builtin_args = []
+                for argument in node.args:
+                    if isinstance(argument, ast.Starred):
+                        expanded = expression(argument.value)
+                        if expanded[0] == "literal" and isinstance(expanded[1], (list, tuple)):
+                            builtin_args.extend(("literal", item) for item in expanded[1])
+                        elif node.func.id in {"max", "min"} and not builtin_args:
+                            # max(*iterable) and min(*iterable) are equivalent
+                            # to max(iterable) and min(iterable).
+                            builtin_args.append(expanded)
+                        else:
+                            raise ValueError("Expanded builtin arguments are unsupported at line {}".format(node.lineno))
+                    else:
+                        builtin_args.append(expression(argument))
                 builtin_kwargs = {
                     keyword.arg: expression(keyword.value) for keyword in node.keywords
                     if keyword.arg is not None

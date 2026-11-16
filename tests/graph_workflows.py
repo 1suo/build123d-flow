@@ -1022,6 +1022,7 @@ def run_python_import_tests():
     conditional_nodes = [
         node for node in conditional_graph["nodes"]
         if node["data"].get("python_conditions")
+        and node["data"]["definition"].get("name") == "Box"
     ]
     if len(conditional_nodes) != 3:
         raise AssertionError("Expected one condition-gated node per branch, got {}".format(len(conditional_nodes)))

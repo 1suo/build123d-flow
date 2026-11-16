@@ -1358,6 +1358,15 @@ def run_operator_overload_tests():
     return {"name": "operator overload selection", "scalar_shape_overload": True}
 
 
+def run_empty_shape_preview_tests():
+    empty_curve = runtime.b3d.Curve()
+    if not empty_curve.wrapped.IsNull():
+        raise AssertionError("Curve() should be represented by a null intermediate shape")
+    if runtime._mesh_preview(empty_curve) is not None:
+        raise AssertionError("An empty intermediate shape must not produce a mesh preview")
+    return {"name": "empty intermediate geometry preview", "null_shape_skipped": True}
+
+
 def run_constructor_overload_tests():
     graph = runtime.import_python_code(
         "from build123d import Curve, Line, Wire\n"
@@ -1396,7 +1405,7 @@ def run_constructor_overload_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_operator_overload_tests(), run_constructor_overload_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_operator_overload_tests(), run_empty_shape_preview_tests(), run_constructor_overload_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -34,6 +35,33 @@ class KernelFreeCatalogLoadTests(unittest.TestCase):
         box = self.catalog.resolve_type("Box")
         operator_id = self.catalog.resolve_operator(box["id"], "__add__")
         self.assertIn(operator_id, self.catalog.nodes)
+
+    def test_production_interpreter_translates_box_plus_cylinder_without_kernel(self):
+        source = """
+from build123d import Box, Cylinder
+box = Box(10, 10, 10)
+cylinder = Cylinder(2, 10)
+result = box + cylinder
+"""
+        graph = json.loads(runtime.import_python_code(source))
+        definitions = [
+            node.get("data", {}).get("definition", {}).get("id")
+            for node in graph.get("nodes", [])
+        ]
+        self.assertTrue(
+            any(identity and identity.endswith(".Box") for identity in definitions),
+            definitions,
+        )
+        self.assertTrue(
+            any(identity and identity.endswith(".Cylinder") for identity in definitions),
+            definitions,
+        )
+        self.assertTrue(
+            any(identity and identity.endswith(".operator.__add__") for identity in definitions),
+            definitions,
+        )
+        self.assertIsNone(runtime.b3d)
+        self.assertNotIn("build123d", sys.modules)
 
     def test_all_discovered_type_node_references_resolve(self):
         for identity, record in self.catalog.types.items():

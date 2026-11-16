@@ -251,6 +251,32 @@ result = Location() * ShapeList([Box(10, 10, 10)])
             "reflected result",
         )
 
+    def test_union_coercion_preserves_iterable_domain_object(self):
+        import collections.abc
+        import typing
+        from flow_runtime import _coerce_annotation
+
+        class IterableShape:
+            def __iter__(self):
+                return iter((1, 2, 3))
+
+            def __len__(self):
+                return 3
+
+            def __getitem__(self, index):
+                return (1, 2, 3)[index]
+
+        annotation = typing.Union[
+            IterableShape, collections.abc.Iterable[IterableShape]
+        ]
+        shape = IterableShape()
+        self.assertIs(_coerce_annotation(shape, annotation), shape)
+
+        values = [IterableShape(), IterableShape()]
+        converted = _coerce_annotation(values, annotation)
+        self.assertIsInstance(converted, list)
+        self.assertEqual(converted, values)
+
     def test_annotation_metadata_does_not_treat_iterable_domain_values_as_lists(self):
         from flow_runtime import _annotation_metadata
 

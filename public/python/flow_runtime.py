@@ -2388,8 +2388,8 @@ def evaluate_graph_json(payload, include_previews=True):
                         z_dir=restore_scope_value(value["z_dir"]),
                     )
                 if object_type == "Location":
-                    return constructor(value["value"])
-                return constructor(*value["value"])
+                    return constructor(restore_scope_value(value["value"]))
+                return constructor(*restore_scope_value(value["value"]))
             return {key: restore_scope_value(item) for key, item in value.items()}
         return value
 

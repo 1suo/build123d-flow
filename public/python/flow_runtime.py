@@ -1374,12 +1374,15 @@ def discover(include_full=True):
                     callable_obj = getattr(owner, member_name, None)
                     if not callable(callable_obj):
                         continue
+                    hint_target = raw_member.__func__
                     try:
-                        signature = inspect.signature(callable_obj)
+                        signature, hints, hint_target = _method_signature(hint_target)
                     except (TypeError, ValueError):
                         continue
-                    hint_target = raw_member.__func__
-                    hints = _resolve_hints(hint_target)
+                    if isinstance(raw_member, classmethod):
+                        parameters = list(signature.parameters.values())
+                        if parameters and parameters[0].name in ("self", "cls"):
+                            signature = signature.replace(parameters=parameters[1:])
                     inputs = []
                     for parameter in signature.parameters.values():
                         annotation = hints.get(parameter.name, parameter.annotation)

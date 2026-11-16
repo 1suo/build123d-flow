@@ -3787,51 +3787,51 @@ def import_python_code(source):
         return value
 
     def resolve_value_constructor(function_node, expected_type):
-        """Resolve a build123d value class against the destination socket contract."""
+        """Resolve value constructors from discovered type/socket metadata."""
+        class_name = None
         if isinstance(function_node, ast.Name):
             class_name = imported.get(function_node.id, function_node.id)
-            constructor = getattr(b3d, class_name, None)
         elif isinstance(function_node, ast.Attribute):
             parts = []
             current = function_node
             while isinstance(current, ast.Attribute):
                 parts.append(current.attr)
                 current = current.value
-            constructor = None
-            if isinstance(current, ast.Name) and current.id in aliases and aliases[current.id] == "b3d":
+            if (
+                isinstance(current, ast.Name)
+                and current.id in aliases
+                and aliases[current.id] == "b3d"
+            ):
                 path = list(reversed(parts))
-                constructor = getattr(b3d, path[0], None) if len(path) == 1 else None
-        else:
+                if len(path) == 1:
+                    class_name = path[0]
+        if not class_name:
             return None
-        if not inspect.isclass(constructor):
+        try:
+            type_record = type_catalog.resolve_type(class_name)
+        except CatalogError:
             return None
-        if getattr(constructor, "__module__", "").split(".")[0] != "build123d":
-            return None
-        # These are concrete wrapper/value classes named by their public
-        # build123d API contracts. Prefer the registered socket name over
-        # subclass-based shape inference (which can collapse wrappers to Shape).
-        constructor_type = (
-            constructor.__name__
-            if constructor.__name__ in _OBJECT_INPUT_TYPES
-            else _type_name(constructor)
-        )
+        constructor_type = type_record.get("socket_type", type_record["name"])
         if constructor_type not in _OBJECT_INPUT_TYPES:
             return None
-        geometry_types = {"Face", "Edge", "Vertex", "Wire", "Shell", "Solid", "Compound"}
-        # Geometry classes are real build123d operations when used as source
-        # expressions (Box(...), Face(...), Solid(...)). Treat them as literal
-        # value constructors only when a typed destination socket explicitly
-        # requests that geometry type; otherwise normal API-node resolution
-        # must retain the constructor and its graph dependencies.
+        # Geometry constructors remain graph nodes unless a typed socket
+        # explicitly requests a concrete geometry value. The exception for
+        # Face preserves the established value-socket contract.
         if (
-            constructor_type in geometry_types
+            type_record.get("is_geometry")
             and constructor_type != "Face"
             and expected_type in (None, "Any")
         ):
             return None
         if expected_type not in (None, "Any", constructor_type):
             return None
-        return constructor, constructor_type
+        constructor = (
+            getattr(b3d, type_record["name"], None)
+            if b3d is not None else None
+        )
+        if b3d is not None and not inspect.isclass(constructor):
+            return None
+        return constructor, constructor_type, type_record["name"]
 
     def resolve_build123d_class_callable(function_node):
         """Resolve a public class-level build123d callable without treating its class as a graph value."""
@@ -4402,7 +4402,7 @@ def import_python_code(source):
             # maintaining one importer exception per value class.
             value_constructor = resolve_value_constructor(node.func, expected_type)
             if value_constructor is not None:
-                constructor, constructor_type = value_constructor
+                constructor, constructor_type, constructor_name = value_constructor
                 value_arguments = [
                     (expression(argument.value), True)
                     if isinstance(argument, ast.Starred)
@@ -4429,7 +4429,7 @@ def import_python_code(source):
                         else:
                             positional_values.append(materialized)
                     return ("literal", {
-                        "__flow_object__": constructor.__name__,
+                        "__flow_object__": constructor_name,
                         "args": [literal_json_value(item) for item in positional_values],
                         "kwargs": {name: item[1] for name, item in kwargs.items()},
                     })
@@ -4443,7 +4443,7 @@ def import_python_code(source):
                 supplied_names = positional_names + list(kwargs)
                 if len(set(supplied_names)) != len(supplied_names):
                     raise ValueError("Duplicate constructor argument at line {}".format(node.lineno))
-                definition_id = "core.python.construct." + constructor.__name__ + "." + hashlib.sha1(
+                definition_id = "core.python.construct." + constructor_name + "." + hashlib.sha1(
                     ",".join(supplied_names).encode("utf-8")
                 ).hexdigest()[:10]
                 input_sockets = [
@@ -4451,7 +4451,7 @@ def import_python_code(source):
                     for name in supplied_names
                 ]
                 definitions[definition_id] = {
-                    "id": definition_id, "name": "Python " + constructor.__name__,
+                    "id": definition_id, "name": "Python " + constructor_name,
                     "source": "python", "kind": "operation", "category": "Internal",
                     "palette_category": "Internal", "palette_section": "Graph lowering",
                     "inputs": input_sockets,
@@ -4467,6 +4467,8 @@ def import_python_code(source):
                             positional.extend(value)
                         else:
                             positional.append(value)
+                    if constructor is None:
+                        raise RuntimeError("CAD kernel is required to execute value constructor " + constructor_name)
                     return constructor(*positional, **supplied_values)
 
                 _CATALOG_CALLABLES[definition_id] = construct_value

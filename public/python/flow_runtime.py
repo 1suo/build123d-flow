@@ -3199,6 +3199,11 @@ def import_python_code(source):
     graph_nodes, graph_edges = [], []
     variables = {}
     stream_variables = set()
+    # The imported random module is represented by an evaluator-owned RNG.
+    # Seed and draw nodes share this state explicitly through graph ordering.
+    random_module = importlib.import_module("random")
+    random_generator = random_module.Random()
+    random_state_node = None
     mapping_matching = "longest"
     active_loop_frames = []
     active_scope_ids = []
@@ -4617,6 +4622,72 @@ def import_python_code(source):
                         links.append(("initial", initial[1], initial[2]))
                 created = add_node(definition_id, params, links, node.lineno)
                 return ("ref", created, "result", output_type)
+            if safe_callable is not None and getattr(safe_callable, "__module__", "") == "random":
+                random_name = getattr(safe_callable, "__name__", "")
+                if random_name == "seed":
+                    if len(node.args) != 1 or node.keywords:
+                        raise ValueError("random.seed currently requires one positional seed (line {})".format(node.lineno))
+                    seed_value = expression(node.args[0])
+                    definition_id = "core.python.random.seed"
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "Python random.seed",
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Internal", "palette_section": "Graph lowering",
+                        "inputs": [{"name": "seed", "type": "Any", "required": True, "data_access": "structure"}],
+                        "outputs": [{"name": "result", "type": "Any"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    def seed_random(seed):
+                        random_generator.seed(seed)
+                        return None
+                    _CATALOG_CALLABLES[definition_id] = seed_random
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter("seed", inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    params, links = {}, []
+                    if seed_value[0] == "literal":
+                        params["seed"] = literal_json_value(seed_value[1])
+                    else:
+                        links.append(("seed", seed_value[1], seed_value[2]))
+                    random_state_node = add_node(definition_id, params, links, node.lineno)
+                    return ("ref", random_state_node, "result", "Any")
+                if random_name == "randint":
+                    if len(node.args) != 2 or node.keywords:
+                        raise ValueError("random.randint requires two positional bounds (line {})".format(node.lineno))
+                    bounds = [expression(argument) for argument in node.args]
+                    definition_id = "core.python.random.randint"
+                    inputs = [
+                        {"name": "a", "type": "Number", "required": True},
+                        {"name": "b", "type": "Number", "required": True},
+                        {"name": "state", "type": "Any", "required": False, "default": None, "data_access": "structure"},
+                    ]
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "Python random.randint",
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Internal", "palette_section": "Graph lowering",
+                        "inputs": inputs, "outputs": [{"name": "result", "type": "Number"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    def random_randint(a, b, state=None):
+                        return random_generator.randint(int(a), int(b))
+                    _CATALOG_CALLABLES[definition_id] = random_randint
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter("a", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                        inspect.Parameter("b", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                        inspect.Parameter("state", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    params, links = {}, []
+                    for name, value in zip(("a", "b"), bounds):
+                        if value[0] == "literal":
+                            params[name] = literal_json_value(value[1])
+                        else:
+                            links.append((name, value[1], value[2]))
+                    if random_state_node is not None:
+                        links.append(("state", random_state_node, "result"))
+                    created = add_node(definition_id, params, links, node.lineno)
+                    return ("ref", created, "result", "Number")
             if safe_callable is not None:
                 safe_args = [expression(argument) for argument in node.args]
                 safe_kwargs = {}

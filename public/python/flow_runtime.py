@@ -4130,7 +4130,11 @@ def import_python_code(source):
             return None
         return (
             constructor, constructor_type, type_record["name"],
-            bool(type_record.get("supports_iteration") or type_record.get("supports_context_manager")),
+            bool(
+                type_record.get("supports_iteration")
+                or type_record.get("supports_context_manager")
+                or type_record.get("member_node_ids")
+            ),
             type_record.get("iterable_item_type"),
         )
 

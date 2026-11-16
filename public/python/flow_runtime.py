@@ -5358,6 +5358,54 @@ def import_python_code(source):
                 supplied[keyword.arg] = keyword.value
             known = {socket["name"] for socket in sockets}
             unknown = set(supplied) - known
+            if unknown and isinstance(node.func, ast.Attribute) and receiver is not None:
+                method_name = node.func.attr
+                dynamic_values = [("arg_{}".format(i), expression(value), False)
+                                  for i, value in enumerate(node.args)]
+                dynamic_values.extend(
+                    (keyword.arg, expression(keyword.value), False)
+                    for keyword in node.keywords if keyword.arg is not None
+                )
+                dynamic_names = [name for name, _, _ in dynamic_values]
+                if len(dynamic_names) != len(set(dynamic_names)):
+                    raise ValueError("Duplicate dynamic method argument at line {}".format(node.lineno))
+                positional_names = [name for name in dynamic_names if name.startswith("arg_")]
+                def invoke_dynamic_method(self, **values):
+                    positional = [values.pop(name) for name in positional_names]
+                    return getattr(self, method_name)(*positional, **values)
+                dynamic_id = "core.python.method." + hashlib.sha1(
+                    (method_name + ":" + ",".join(dynamic_names)).encode("utf-8")
+                ).hexdigest()[:16]
+                definitions[dynamic_id] = {
+                    "id": dynamic_id, "name": "Python method " + method_name,
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Python", "palette_section": "Dynamic dispatch",
+                    "inputs": [
+                        {"name": "self", "type": "Any", "required": True},
+                        *[{"name": name, "type": "Any", "required": True, "kind": "keyword_only"}
+                          for name in dynamic_names],
+                    ],
+                    "outputs": [{"name": "result", "type": "Any"}],
+                }
+                _INTERNAL_NODE_IDS.add(dynamic_id)
+                _CATALOG_CALLABLES[dynamic_id] = invoke_dynamic_method
+                _CATALOG_SIGNATURES[dynamic_id] = inspect.Signature([
+                    inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    *[inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY) for name in dynamic_names],
+                ])
+                _CATALOG_HINT_TARGETS[dynamic_id] = False
+                dynamic_params, dynamic_links = {}, []
+                if receiver[0] == "literal":
+                    dynamic_params["self"] = literal_json_value(receiver[1])
+                else:
+                    dynamic_links.append(("self", receiver[1], receiver[2]))
+                for name, value, _ in dynamic_values:
+                    if value[0] == "literal":
+                        dynamic_params[name] = literal_json_value(value[1])
+                    else:
+                        dynamic_links.append((name, value[1], value[2]))
+                dynamic_node = add_node(dynamic_id, dynamic_params, dynamic_links, node.lineno)
+                return ("ref", dynamic_node, "result", "Any")
             if unknown:
                 raise ValueError("Unknown argument(s) for {} at line {}: {}".format(
                     definition.get("name"), node.lineno, ", ".join(sorted(unknown))))

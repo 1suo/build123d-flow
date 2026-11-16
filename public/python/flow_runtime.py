@@ -3019,8 +3019,14 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
             annotation = parameter.annotation if parameter else None
         globalns = (
             getattr(target, "__globals__", None)
-            or getattr(callable_obj, "__globals__", {})
+            or getattr(callable_obj, "__globals__", None)
         )
+        if not globalns:
+            annotation_module = (
+                inspect.getmodule(callable_obj)
+                or inspect.getmodule(getattr(callable_obj, "__objclass__", None))
+            )
+            globalns = vars(annotation_module) if annotation_module is not None else {}
         if isinstance(annotation, str):
             try:
                 annotation = eval(annotation, globalns)

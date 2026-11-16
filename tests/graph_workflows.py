@@ -980,9 +980,9 @@ def run_python_import_tests():
 
     math_graph = runtime.import_python_code(
         "from math import pi, sin\n"
-        "from build123d import Circle\n"
+        "from build123d import Box\n"
         "for index in [0, 1]:\n"
-        "    shape = Circle(sin(index * pi / 2) + 2)\n"
+        "    shape = Box(sin(index * pi / 2) + 2, 2, 2)\n"
     )
     math_result = json.loads(runtime.evaluate_graph_json(json.dumps(math_graph)))
     if math_result["errors"]:

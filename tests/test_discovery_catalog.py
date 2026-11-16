@@ -1,6 +1,5 @@
 import inspect
 import json
-import pkgutil
 import sys
 import unittest
 from pathlib import Path
@@ -17,7 +16,10 @@ class LiveDiscoveryCatalogTests(unittest.TestCase):
         cls.catalog = runtime._type_catalog()
 
     def test_discovery_contains_every_public_package_class(self):
-        modules = runtime._discover_modules({})
+        report = {}
+        modules = runtime._discover_modules(report)
+        self.assertIsNone(report.get("module_walk_error"))
+        self.assertEqual(report.get("module_import_failures"), [])
         expected = set()
         for module in modules:
             for obj in vars(module).values():

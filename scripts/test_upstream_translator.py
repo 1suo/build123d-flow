@@ -187,6 +187,7 @@ def main() -> int:
     passed = sum(1 for result in results if result["passed"])
     payload = {
         "gate": "interpreter-no-kernel",
+        "upstream_repository": repository,
         "upstream_commit": commit,
         "example_count": len(filenames),
         "passed": passed,

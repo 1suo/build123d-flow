@@ -4663,7 +4663,8 @@ def import_python_code(source):
                     if len(node.args) != 1 or node.keywords:
                         raise ValueError("random.seed currently requires one positional seed (line {})".format(node.lineno))
                     seed_value = expression(node.args[0])
-                    definition_id = "core.python.random.seed"
+                    _RANDOM_BATCH_COUNTER += 1
+                    definition_id = "core.python.random.seed." + str(_RANDOM_BATCH_COUNTER)
                     definitions[definition_id] = {
                         "id": definition_id, "name": "Python random.seed",
                         "source": "python", "kind": "operation", "category": "Internal",
@@ -4771,7 +4772,8 @@ def import_python_code(source):
                     if len(node.args) != 2 or node.keywords:
                         raise ValueError("random.randint requires two positional bounds (line {})".format(node.lineno))
                     bounds = [expression(argument) for argument in node.args]
-                    definition_id = "core.python.random.randint"
+                    _RANDOM_BATCH_COUNTER += 1
+                    definition_id = "core.python.random.randint." + str(_RANDOM_BATCH_COUNTER)
                     inputs = [
                         {"name": "a", "type": "Number", "required": True},
                         {"name": "b", "type": "Number", "required": True},

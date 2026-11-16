@@ -64,8 +64,6 @@ jobs:
         env:
           GITHUB_PAGES: "true"
           VITE_E2E_TEST_HOOKS: "true"
-      - name: Stage focused graph workflow tests for the browser runtime
-        run: cp tests/graph_workflows.py dist/python/graph_workflows.py
       - name: Typecheck
         run: npm run typecheck
       - name: Run kernel-free catalog contract tests
@@ -81,20 +79,21 @@ jobs:
       - name: Gate 1 - translate complete upstream corpus without CAD kernel
         run: python -S scripts/test_upstream_translator.py "$RUNNER_TEMP/build123d_catalog.json" "$RUNNER_TEMP/upstream-translator-results.json"
       - name: Compile Python sources
-        run: python -m py_compile public/python/flow_runtime.py public/python/type_catalog.py scripts/generate_type_catalog.py scripts/test_upstream_translator.py tests/graph_workflows.py tests/test_type_catalog.py tests/test_discovery_catalog.py tests/test_kernel_free_catalog.py
+        run: python -m py_compile public/python/flow_runtime.py public/python/type_catalog.py scripts/generate_type_catalog.py scripts/test_upstream_translator.py scripts/test_upstream_kernel.py tests/graph_workflows.py tests/test_type_catalog.py tests/test_discovery_catalog.py tests/test_kernel_free_catalog.py tests/test_graph_workflows_native.py
       - name: Run kernel-backed discovery tests
         run: python -m unittest discover -s tests -p 'test_discovery_catalog.py'
       - name: Run kernel-free catalog unit tests
         run: python -m unittest discover -s tests -p 'test_type_catalog.py'
+      - name: Gate 2 - execute Gate 1 graphs with native build123d kernel
+        run: python scripts/test_upstream_kernel.py "$RUNNER_TEMP/upstream-translator-results.json" "$RUNNER_TEMP/upstream-kernel-results.json"
+      - name: Run native graph workflow regression tests
+        run: python -m unittest discover -s tests -p 'test_graph_workflows_native.py'
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Run browser regression tests
         run: npm run test:e2e
         env:
           CI: "true"
-      - name: Remove browser-only test payload
-        if: always()
-        run: rm -f dist/python/graph_workflows.py
       - name: Rebuild deployment bundle without test hooks
         if: success()
         run: npm run build

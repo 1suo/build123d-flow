@@ -3702,8 +3702,17 @@ def import_python_code(source):
         definition_id = None
         if isinstance(node, ast.Name):
             name = imported.get(node.id, node.id)
-            definition_id = by_name.get(name) or by_name.get(node.id)
             symbol_name = name
+            try:
+                exported_symbol = type_catalog.resolve_symbol(name)
+            except CatalogError:
+                exported_symbol = None
+            if exported_symbol and exported_symbol.get("kind") == "callable":
+                exported_id = exported_symbol.get("id")
+                definition_id = exported_id if exported_id in definitions else None
+            else:
+                definition_id = None
+            definition_id = definition_id or by_name.get(name) or by_name.get(node.id)
         elif isinstance(node, ast.Attribute):
             path = []
             current = node
@@ -4646,6 +4655,17 @@ def import_python_code(source):
                             pass
                         else:
                             return ("literal", class_value)
+                if root in user_classes and len(path) == 1:
+                    for class_statement in user_classes[root].body:
+                        targets = (
+                            class_statement.targets if isinstance(class_statement, ast.Assign)
+                            else [class_statement.target] if isinstance(class_statement, ast.AnnAssign)
+                            else []
+                        )
+                        if any(isinstance(target, ast.Name) and target.id == path[0] for target in targets):
+                            class_value_node = class_statement.value
+                            if class_value_node is not None:
+                                return expression(class_value_node)
                 if root in aliases and aliases[root] == "b3d" and len(path) == 1:
                     try:
                         symbol = type_catalog.resolve_symbol(path[0])
@@ -6156,6 +6176,10 @@ def import_python_code(source):
                     target_name = call.func.value.id
                     receiver = expression(call.func.value)
                     value = expression(call.args[0])
+                    if active_loop_frames:
+                        active_loop_frames[-1]["written_names"].add(target_name)
+                        for outer_frame in active_loop_frames[:-1]:
+                            outer_frame.setdefault("nested_written_names", set()).add(target_name)
                     if receiver[0] == "literal" and value[0] == "literal" and isinstance(receiver[1], list):
                         updated = list(receiver[1])
                         if call.func.attr == "append":

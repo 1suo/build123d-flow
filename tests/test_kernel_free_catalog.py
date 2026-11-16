@@ -112,6 +112,38 @@ result = box + cylinder
         metrics = validate_graph(graph, "scope.py")
         self.assertEqual(metrics["node_count"], 1)
 
+    def test_upstream_graph_validator_accepts_generated_condition_socket(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        from test_upstream_translator import validate_graph
+
+        definition_id = next(
+            identity for identity in runtime._CATALOG
+            if identity.startswith("core.python.collect")
+        )
+        definition = runtime._CATALOG[definition_id]
+        embedded = dict(definition)
+        embedded["inputs"] = [
+            dict(socket) for socket in definition.get("inputs", [])
+        ] + [{
+            "name": "__flow_condition_0",
+            "type": "Boolean",
+            "required": True,
+            "data_access": "item",
+        }]
+        embedded["outputs"] = [
+            dict(socket) for socket in definition.get("outputs", [])
+        ]
+        graph = {
+            "nodes": [{
+                "id": "conditional-node",
+                "data": {"definition": embedded},
+            }],
+            "edges": [],
+        }
+        metrics = validate_graph(graph, "conditional.py")
+        self.assertEqual(metrics["node_count"], 1)
+
     def test_call_adapter_forwards_extra_keywords_to_variadic_constructor(self):
         import inspect
 

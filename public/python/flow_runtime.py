@@ -4587,8 +4587,8 @@ def import_python_code(source):
                 ) if initialized[0] == "ref" else initialized
                 return ("literal", None)
             class_name = None
-            if isinstance(node.func, ast.Name) and class_name in user_classes:
-                class_name = class_name
+            if isinstance(node.func, ast.Name) and node.func.id in user_classes:
+                class_name = node.func.id
             elif isinstance(node.func, ast.Subscript):
                 class_reference = expression(node.func)
                 if class_reference[0] == "user_class":

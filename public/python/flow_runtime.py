@@ -99,12 +99,17 @@ def _type_name(annotation):
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
-            for shape_name in ("Solid", "Compound", "Face", "Edge", "Wire", "Vertex", "Shell", "Sketch", "Part"):
-                shape_class = getattr(b3d, shape_name, None) if b3d is not None else None
-                if inspect.isclass(shape_class) and issubclass(annotation, shape_class):
-                    return shape_name
-            if b3d is not None and issubclass(annotation, getattr(b3d, "Shape", object)):
-                return "Shape"
+            if b3d is not None:
+                shape_base = getattr(b3d, "Shape", None)
+                if inspect.isclass(shape_base) and issubclass(annotation, shape_base):
+                    for base in getattr(annotation, "__mro__", (annotation,)):
+                        if base is shape_base:
+                            return "Shape"
+                        if (
+                            getattr(base, "__module__", "").split(".")[0] == "build123d"
+                            and getattr(base, "__name__", "") in _GEOMETRY_INPUT_TYPES
+                        ):
+                            return base.__name__
         except TypeError:
             pass
         if getattr(annotation, "__module__", "").split(".")[0] == "build123d":

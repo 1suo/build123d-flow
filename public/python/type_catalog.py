@@ -19,7 +19,7 @@ class CatalogError(ValueError):
 
 
 def _qualified_name(value: type) -> str:
-    return "{}.{}".format(value.__module__, value.__qualname__)
+    return "{}.{}".format(value.__module__, value.__name__)
 
 
 def build_type_registry(classes, nodes):
@@ -31,7 +31,7 @@ def build_type_registry(classes, nodes):
             continue
         module = getattr(cls, "__module__", "")
         name = getattr(cls, "__name__", "")
-        if not module.startswith("build123d") or not name or name.startswith("_"):
+        if module.split(".")[0] != "build123d" or not name or name.startswith("_"):
             continue
         identity = _qualified_name(cls)
         mro = [

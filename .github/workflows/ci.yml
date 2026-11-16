@@ -82,6 +82,8 @@ jobs:
         run: python -m py_compile public/python/flow_runtime.py public/python/type_catalog.py scripts/generate_type_catalog.py scripts/test_upstream_translator.py scripts/test_upstream_kernel.py tests/graph_workflows.py tests/test_type_catalog.py tests/test_discovery_catalog.py tests/test_kernel_free_catalog.py tests/test_graph_workflows_native.py
       - name: Run kernel-backed discovery tests
         run: python -m unittest discover -s tests -p 'test_discovery_catalog.py'
+        env:
+          BUILD123D_CATALOG_PATH: ${{ runner.temp }}/build123d_catalog.json
       - name: Run kernel-free catalog unit tests
         run: python -m unittest discover -s tests -p 'test_type_catalog.py'
       - name: Gate 2 - execute Gate 1 graphs with native build123d kernel

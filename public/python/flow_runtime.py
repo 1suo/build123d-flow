@@ -1819,9 +1819,10 @@ def _mesh_preview(value, style=None):
     # an otherwise valid graph evaluation into a node error.
     shapes = [
         shape for shape in _iter_shapes(value)
-        # build123d's is_empty predicate also catches an empty TopoDS_Compound.
-        # Such a value may have a non-null wrapper but has no topology to mesh.
-        if not shape.is_empty and not shape.wrapped.IsNull()
+        # Some build123d wrappers expose is_empty and some (for example Box)
+        # do not. When present, it catches empty TopoDS_Compounds whose wrapped
+        # handle is non-null but contains no topology.
+        if not shape.wrapped.IsNull() and not getattr(shape, "is_empty", False)
     ]
     if not shapes:
         return None

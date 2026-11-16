@@ -1643,7 +1643,12 @@ def load_catalog_bundle(payload):
                 socket.get("kind"), inspect.Parameter.POSITIONAL_OR_KEYWORD
             )
             default = (
-                socket.get("default", inspect.Signature.empty)
+                inspect.Signature.empty
+                if kind in (
+                    inspect.Parameter.VAR_POSITIONAL,
+                    inspect.Parameter.VAR_KEYWORD,
+                )
+                else socket.get("default", inspect.Signature.empty)
                 if not socket.get("required", False)
                 else inspect.Signature.empty
             )

@@ -924,7 +924,7 @@ def run_python_import_tests():
         raise AssertionError("Seeded random graph execution failed: " + json.dumps(random_result["errors"]))
     random_node = next(
         node for node in random_graph["nodes"]
-        if node["data"]["definition"]["id"] == "core.python.random.randint"
+        if node["data"]["definition"]["id"] == "core.python.random.batch_item"
     )
     random_values = random_result["socket_values"][random_node["id"]]["result"]
     if [item["value"] for item in random_values["items"]] != [2, 1, 5]:

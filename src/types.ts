@@ -39,6 +39,11 @@ export interface NodeDefinition {
   description: string;
   inputs: SocketDefinition[];
   outputs: SocketDefinition[];
+  /** Native execution/cache semantics surfaced by the provider adapter. */
+  execution?: {
+    purity?: "pure" | "stateful" | "effect" | "unknown";
+    cacheable?: boolean;
+  };
   /** How multiple item-access inputs are aligned during evaluation. */
   data_matching?: "longest" | "shortest" | "cross";
   /** Native Python special-method identity for discovered operator nodes. */

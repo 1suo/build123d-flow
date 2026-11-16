@@ -3777,6 +3777,18 @@ def import_python_code(source):
                 if b3d is None:
                     return value
                 constructor = getattr(b3d, value["__flow_object__"])
+                if all(key in value for key in ("origin", "x_dir", "z_dir")):
+                    return constructor(
+                        origin=materialize_literal(value["origin"]),
+                        x_dir=materialize_literal(value["x_dir"]),
+                        z_dir=materialize_literal(value["z_dir"]),
+                    )
+                if "value" in value:
+                    payload = materialize_literal(value["value"])
+                    try:
+                        return constructor(payload)
+                    except TypeError:
+                        return constructor(*payload)
                 args = [materialize_literal(item) for item in value.get("args", [])]
                 kwargs = {key: materialize_literal(item)
                           for key, item in value.get("kwargs", {}).items()}

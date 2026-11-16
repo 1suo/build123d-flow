@@ -4670,7 +4670,7 @@ def import_python_code(source):
                     }
                     _INTERNAL_NODE_IDS.add(definition_id)
                     def random_randint(a, b, state=None):
-                        return random_generator.randint(int(a), int(b))
+                        return random_generator.randint(a, b)
                     _CATALOG_CALLABLES[definition_id] = random_randint
                     _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
                         inspect.Parameter("a", inspect.Parameter.POSITIONAL_OR_KEYWORD),

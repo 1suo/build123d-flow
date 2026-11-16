@@ -3204,6 +3204,7 @@ def import_python_code(source):
     random_module = importlib.import_module("random")
     random_generator = random_module.Random()
     random_state_node = None
+    random_batch_contexts = []
     mapping_matching = "longest"
     active_loop_frames = []
     active_scope_ids = []
@@ -4170,6 +4171,22 @@ def import_python_code(source):
             saved_stream_variables = set(stream_variables)
             saved_matching = mapping_matching
             generator_streams = []
+            random_calls = sorted(
+                (
+                    item for item in ast.walk(node.elt)
+                    if isinstance(item, ast.Call)
+                    and isinstance(item.func, ast.Attribute)
+                    and item.func.attr == "randint"
+                    and isinstance(item.func.value, ast.Name)
+                    and stdlib_modules.get(item.func.value.id) == "random"
+                ),
+                key=lambda item: (getattr(item, "lineno", 0), getattr(item, "col_offset", 0)),
+            )
+            random_batch_contexts.append({
+                "calls": random_calls,
+                "indices": {id(item): index for index, item in enumerate(random_calls)},
+                "batch_node": None,
+            })
             saved_loop_depth = len(active_loop_frames)
             def graph_depends_on(node_id, ancestors):
                 pending = [node_id]
@@ -4278,6 +4295,7 @@ def import_python_code(source):
                 return result
             finally:
                 del active_loop_frames[saved_loop_depth:]
+                random_batch_contexts.pop()
                 variables.clear()
                 variables.update(saved_variables)
                 stream_variables.clear()
@@ -4654,6 +4672,84 @@ def import_python_code(source):
                     random_state_node = add_node(definition_id, params, links, node.lineno)
                     return ("ref", random_state_node, "result", "Any")
                 if random_name == "randint":
+                    batch_context = (
+                        random_batch_contexts[-1]
+                        if random_batch_contexts
+                        and id(node) in random_batch_contexts[-1]["indices"]
+                        else None
+                    )
+                    if batch_context is not None:
+                        if batch_context["batch_node"] is None:
+                            calls = batch_context["calls"]
+                            batch_inputs = []
+                            batch_params = {}
+                            batch_links = []
+                            for call_index, random_call in enumerate(calls):
+                                if len(random_call.args) != 2 or random_call.keywords:
+                                    raise ValueError("Mapped random.randint calls require two positional bounds (line {})".format(random_call.lineno))
+                                for bound_index, bound_node in enumerate(random_call.args):
+                                    if any(
+                                        isinstance(child, ast.Call)
+                                        and isinstance(child.func, ast.Attribute)
+                                        and child.func.attr == "randint"
+                                        for child in ast.walk(bound_node)
+                                    ):
+                                        raise ValueError("Nested random calls in random bounds are unsupported (line {})".format(bound_node.lineno))
+                                    input_name = ("a_" if bound_index == 0 else "b_") + str(call_index)
+                                    batch_inputs.append({"name": input_name, "type": "Number", "required": True})
+                                    bound_value = expression(bound_node)
+                                    if bound_value[0] == "literal":
+                                        batch_params[input_name] = literal_json_value(bound_value[1])
+                                    else:
+                                        batch_links.append((input_name, bound_value[1], bound_value[2]))
+                            batch_inputs.append({"name": "state", "type": "Any", "required": False, "default": None, "data_access": "structure"})
+                            if random_state_node is not None:
+                                batch_links.append(("state", random_state_node, "result"))
+                            batch_id = "core.python.random.batch"
+                            definitions[batch_id] = {
+                                "id": batch_id, "name": "Python random batch",
+                                "source": "python", "kind": "operation", "category": "Internal",
+                                "palette_category": "Internal", "palette_section": "Graph lowering",
+                                "inputs": batch_inputs,
+                                "outputs": [{"name": "result", "type": "List", "data_structure": "list", "item_type": "Number"}],
+                            }
+                            _INTERNAL_NODE_IDS.add(batch_id)
+                            def draw_random_batch(**values):
+                                return [
+                                    random_generator.randint(values["a_" + str(index)], values["b_" + str(index)])
+                                    for index in range(len(calls))
+                                ]
+                            _CATALOG_CALLABLES[batch_id] = draw_random_batch
+                            _CATALOG_SIGNATURES[batch_id] = inspect.Signature([
+                                inspect.Parameter(socket["name"], inspect.Parameter.KEYWORD_ONLY)
+                                for socket in batch_inputs
+                            ])
+                            _CATALOG_HINT_TARGETS[batch_id] = False
+                            batch_context["batch_node"] = add_node(
+                                batch_id, batch_params, batch_links, node.lineno
+                            )
+                        item_id = "core.python.random.batch_item"
+                        definitions[item_id] = {
+                            "id": item_id, "name": "Python random batch item",
+                            "source": "python", "kind": "operation", "category": "Internal",
+                            "palette_category": "Internal", "palette_section": "Graph lowering",
+                            "inputs": [
+                                {"name": "value", "type": "List", "data_structure": "list", "item_type": "Number", "required": True, "data_access": "item"},
+                                {"name": "index", "type": "Number", "required": True},
+                            ],
+                            "outputs": [{"name": "result", "type": "Number"}],
+                        }
+                        _INTERNAL_NODE_IDS.add(item_id)
+                        _CATALOG_CALLABLES[item_id] = _python_getitem
+                        _CATALOG_SIGNATURES[item_id] = inspect.signature(_python_getitem)
+                        _CATALOG_HINT_TARGETS[item_id] = False
+                        item_node = add_node(
+                            item_id,
+                            {"index": batch_context["indices"][id(node)]},
+                            [("value", batch_context["batch_node"], "result")],
+                            node.lineno,
+                        )
+                        return ("ref", item_node, "result", "Number")
                     if len(node.args) != 2 or node.keywords:
                         raise ValueError("random.randint requires two positional bounds (line {})".format(node.lineno))
                     bounds = [expression(argument) for argument in node.args]

@@ -4097,8 +4097,12 @@ def import_python_code(source):
             def compile_generator(index):
                 nonlocal mapping_matching
                 generator = node.generators[index]
-                if generator.is_async or not isinstance(generator.target, ast.Name):
-                    raise ValueError("Only synchronous simple-name comprehension targets are supported (line {})".format(node.lineno))
+                if generator.is_async or not (
+                    isinstance(generator.target, ast.Name)
+                    or isinstance(generator.target, (ast.Tuple, ast.List))
+                    and all(isinstance(item, ast.Name) for item in generator.target.elts)
+                ):
+                    raise ValueError("Comprehension targets must be simple names or tuples of names (line {})".format(node.lineno))
                 iterable = expression(generator.iter)
                 if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple)):
                     iterable = add_collection_node(
@@ -4112,14 +4116,20 @@ def import_python_code(source):
                 if outer_ids:
                     select_loop_mapping(iterable[1], outer_ids, generator.iter.lineno)
                 item_type, item_types = iterable_item_metadata(iterable)
-                variables[generator.target.id] = (
+                typed_iterable = (
                     "ref", iterable[1], iterable[2], item_type, item_types
                 )
-                stream_variables.add(generator.target.id)
+                if isinstance(generator.target, ast.Name):
+                    variables[generator.target.id] = typed_iterable
+                    target_names = [generator.target.id]
+                else:
+                    assign_target(generator.target, typed_iterable, node.lineno)
+                    target_names = [item.id for item in generator.target.elts]
+                stream_variables.update(target_names)
                 generator_streams.append(iterable)
                 active_loop_frames.append({
                     "node_id": iterable[1], "output_name": iterable[2],
-                    "written_names": {generator.target.id},
+                    "written_names": set(target_names),
                     "matching": mapping_matching,
                 })
                 for condition in generator.ifs:
@@ -4481,7 +4491,11 @@ def import_python_code(source):
                         "outputs": [{"name": "result", "type": "Any"}],
                     }
                     _INTERNAL_NODE_IDS.add(definition_id)
-                    _CATALOG_CALLABLES[definition_id] = safe_callable
+                    positional_names = [name for name, _ in supplied if name.startswith("arg_")]
+                    def invoke_safe(**values):
+                        positional = [values.pop(name) for name in positional_names]
+                        return safe_callable(*positional, **values)
+                    _CATALOG_CALLABLES[definition_id] = invoke_safe
                     _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
                         inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY)
                         for name, _ in supplied
@@ -4521,11 +4535,13 @@ def import_python_code(source):
                 definition_id = "core.python.external." + hashlib.sha1(
                     (module_name + "." + attribute_name).encode("utf-8")
                 ).hexdigest()[:16]
-                def external_call(*args, __module=module_name, __attribute=attribute_name, **kwargs):
+                positional_names = [name for name, _ in supplied if name.startswith("arg_")]
+                def external_call(__module=module_name, __attribute=attribute_name, **kwargs):
                     target = importlib.import_module(__module)
                     for part in __attribute.split("."):
                         target = getattr(target, part)
-                    return target(*args, **kwargs)
+                    positional = [kwargs.pop(name) for name in positional_names]
+                    return target(*positional, **kwargs)
                 definitions[definition_id] = {
                     "id": definition_id, "name": "External " + attribute_name,
                     "source": "python", "kind": "operation", "category": "External",
@@ -5093,7 +5109,7 @@ def import_python_code(source):
                     {"name": "left", "type": "Any", "required": True},
                     {"name": "right", "type": "Any", "required": True},
                 ],
-                "outputs": [{"name": "result", "type": "Boolean"}],
+                "outputs": [{"name": "result", "type": "Any"}],
             }
             _INTERNAL_NODE_IDS.add(definition_id)
             _CATALOG_CALLABLES[definition_id] = boolean_operation
@@ -5111,7 +5127,7 @@ def import_python_code(source):
                     else:
                         links.append((name, operand[1], operand[2]))
                 created = add_node(definition_id, params, links, node.lineno)
-                result = ("ref", created, "result", "Boolean")
+                result = ("ref", created, "result", "Any")
             return result
         if isinstance(node, ast.UnaryOp):
             methods = {
@@ -5474,6 +5490,40 @@ def import_python_code(source):
             if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self":
                 variables[ast.unparse(target)] = assigned
                 return
+            if isinstance(target, ast.Attribute):
+                receiver = expression(target.value)
+                if receiver[0] != "ref":
+                    raise ValueError("Attribute assignment requires a graph-backed receiver (line {})".format(line))
+                definition_id = "core.python.setattr"
+                def set_attribute(value, name, assigned_value):
+                    setattr(value, name, assigned_value)
+                    return value
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "Python Set Attribute",
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Python", "palette_section": "Assignments",
+                    "inputs": [
+                        {"name": "value", "type": "Any", "required": True},
+                        {"name": "name", "type": "String", "required": True},
+                        {"name": "assigned", "type": "Any", "required": True},
+                    ],
+                    "outputs": [{"name": "result", "type": reference_type(receiver)}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+                _CATALOG_CALLABLES[definition_id] = set_attribute
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("name", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("assigned", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {"name": target.attr}, [("value", receiver[1], receiver[2])]
+                if assigned[0] == "literal":
+                    params["assigned"] = literal_json_value(assigned[1])
+                else:
+                    links.append(("assigned", assigned[1], assigned[2]))
+                add_node(definition_id, params, links, line)
+                return
             if isinstance(target, (ast.Tuple, ast.List)):
                 if assigned[0] == "literal" and isinstance(assigned[1], (list, tuple)):
                     values = [("literal", item) for item in assigned[1]]
@@ -5813,7 +5863,7 @@ def import_python_code(source):
                 _INTERNAL_NODE_IDS.add(definition_id)
                 _CATALOG_CALLABLES[definition_id] = assert_condition
                 _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
-                    inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("condition", inspect.Parameter.POSITIONAL_OR_KEYWORD),
                     inspect.Parameter("message", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
                 ])
                 _CATALOG_HINT_TARGETS[definition_id] = False

@@ -109,6 +109,22 @@ loc = Location((1, 2, 3))
             identities,
         )
 
+    def test_class_level_api_call_translates_without_kernel(self):
+        graph = json.loads(runtime.import_python_code("""
+from build123d import Wire
+wire = Wire.make_circle(5)
+"""))
+        identities = [
+            node.get("data", {}).get("definition", {}).get("id", "")
+            for node in graph["nodes"]
+        ]
+        self.assertTrue(
+            any(".make_circle" in identity and
+                (".static." in identity or ".classmethod." in identity)
+                for identity in identities),
+            identities,
+        )
+
     def test_all_discovered_type_node_references_resolve(self):
         for identity, record in self.catalog.types.items():
             references = (

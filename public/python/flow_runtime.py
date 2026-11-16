@@ -196,6 +196,7 @@ def _receiver_socket(owner):
         }
     return {
         "name": "self", "label": "object", "type": receiver_type,
+        "kind": "positional_or_keyword",
         "annotation": str(owner), "required": True, "data_access": "item",
     }
 
@@ -1353,6 +1354,10 @@ def discover(include_full=True):
                     property_id = node_prefix + ".property." + member_name
                     if property_id in found:
                         continue
+                    property_receiver = _receiver_socket(owner)
+                    getter_parameters = list(getter_signature.parameters.values())
+                    if getter_parameters:
+                        property_receiver["kind"] = getter_parameters[0].kind.name.lower()
                     getter = lambda self, name=member_name: getattr(self, name)
                     property_output = _type_name(return_annotation)
                     property_socket = {
@@ -1366,7 +1371,7 @@ def discover(include_full=True):
                         "category": owner.__name__ + " Properties",
                         "palette_category": "API", "palette_section": "Discovered properties",
                         "description": (inspect.getdoc(getter_fn) or "").split("\n")[0][:180],
-                        "inputs": [_receiver_socket(owner)],
+                        "inputs": [property_receiver],
                         "outputs": [property_socket],
                     }
                     callables[property_id] = getter
@@ -1468,6 +1473,7 @@ def discover(include_full=True):
                     continue
                 receiver_socket = _receiver_socket(owner)
                 receiver_socket["name"] = parameters[0].name
+                receiver_socket["kind"] = parameters[0].kind.name.lower()
                 inputs = [receiver_socket]
                 for parameter in parameters[1:]:
                     annotation = _resolve_self_annotation(

@@ -6390,9 +6390,44 @@ def import_python_code(source):
                 continue
             if isinstance(statement, ast.If):
                 condition = expression(statement.test)
-                if condition[0] != "literal" or not isinstance(condition[1], bool):
-                    raise ValueError("if conditions must be statically known booleans (line {})".format(statement.lineno))
-                process_statements(statement.body if condition[1] else statement.orelse)
+                if condition[0] == "literal" and isinstance(condition[1], bool):
+                    process_statements(statement.body if condition[1] else statement.orelse)
+                    continue
+                if condition[0] != "ref":
+                    raise ValueError("if conditions must resolve to booleans (line {})".format(statement.lineno))
+                before = dict(variables)
+                active_conditions.append((condition, True))
+                try:
+                    process_statements(statement.body)
+                finally:
+                    active_conditions.pop()
+                if set(variables) != set(before) or any(
+                    variables.get(name) is not value for name, value in before.items()
+                ):
+                    variables.clear()
+                    variables.update(before)
+                    raise ValueError("Assignments in graph-dependent if branches require an explicit merge (line {})".format(statement.lineno))
+                active_conditions.append((condition, False))
+                try:
+                    process_statements(statement.orelse)
+                finally:
+                    active_conditions.pop()
+                if set(variables) != set(before) or any(
+                    variables.get(name) is not value for name, value in before.items()
+                ):
+                    variables.clear()
+                    variables.update(before)
+                    raise ValueError("Assignments in graph-dependent if branches require an explicit merge (line {})".format(statement.lineno))
+                continue
+            if isinstance(statement, ast.Try):
+                # Lower the valid path through try blocks. Runtime exceptions
+                # remain graph evaluation errors; dynamic exception recovery
+                # requires a first-class exceptional control-flow node.
+                process_statements(statement.body)
+                if statement.orelse:
+                    process_statements(statement.orelse)
+                if statement.finalbody:
+                    process_statements(statement.finalbody)
                 continue
             if isinstance(statement, ast.Pass):
                 continue

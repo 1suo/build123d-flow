@@ -3595,6 +3595,19 @@ def import_python_code(source):
                         result_output[key] = output_socket[key]
         elif inplace_fallbacks.get(method, method) == "__add__" and left_type == right_type == "String":
             result_output["type"] = "String"
+        elif method in {"__add__", "__iadd__"} and left_structure == right_structure and left_structure in {"list", "tuple"}:
+            # Python sequence addition consumes whole collections and
+            # concatenates them; it is not item-wise CAD stream mapping.
+            left_access = right_access = "structure"
+            result_output["data_structure"] = left_structure
+            left_output = reference_output(left)
+            right_output = reference_output(right)
+            item_types = {
+                output.get("item_type", "Any")
+                for output in (left_output, right_output) if output is not None
+            }
+            if len(item_types) == 1:
+                result_output["item_type"] = item_types.pop()
         elif left_type in {"Number", "Integer", "Float"} and right_type in {"Number", "Integer", "Float"}:
             result_output["type"] = "Number"
 
@@ -4563,6 +4576,43 @@ def import_python_code(source):
                         return ("literal", result)
                     except Exception as exc:
                         raise ValueError("Standard-library call failed at line {}: {}".format(node.lineno, exc))
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id in {"min", "max"}
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.Starred)
+                and not node.keywords
+            ):
+                starred_value = expression(node.args[0].value)
+                if starred_value[0] == "literal":
+                    try:
+                        values = materialize_literal(starred_value[1])
+                        return ("literal", (max if node.func.id == "max" else min)(*values))
+                    except Exception as exc:
+                        raise ValueError("Expanded {} call failed at line {}: {}".format(node.func.id, node.lineno, exc))
+                builtin_name = node.func.id + "_star"
+                definition_id = "core.python.builtin." + builtin_name
+                callable_obj = (lambda values: max(*values)) if node.func.id == "max" else (lambda values: min(*values))
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "Python " + node.func.id,
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Internal", "palette_section": "Graph lowering",
+                    "inputs": [{"name": "values", "type": "Any", "required": True, "data_access": "structure"}],
+                    "outputs": [{"name": "result", "type": "Any"}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+                _CATALOG_CALLABLES[definition_id] = callable_obj
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter("values", inspect.Parameter.POSITIONAL_ONLY)
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {}, []
+                if starred_value[0] == "literal":
+                    params["values"] = literal_json_value(starred_value[1])
+                else:
+                    links.append(("values", starred_value[1], starred_value[2]))
+                created = add_node(definition_id, params, links, node.lineno)
+                return ("ref", created, "result")
             if isinstance(node.func, ast.Name) and node.func.id in {
                 "range", "enumerate", "zip", "len", "min", "max", "abs", "round",
                 "str", "int", "float", "bool", "list", "tuple", "sorted", "reversed",

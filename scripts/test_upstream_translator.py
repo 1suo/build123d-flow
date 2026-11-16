@@ -70,12 +70,23 @@ def validate_graph(graph, filename):
         if node_id in node_map:
             raise ValueError("{}: duplicate graph node id {}".format(filename, node_id))
         node_map[node_id] = node
-        definition_id = node.get("data", {}).get("definition", {}).get("id")
-        if definition_id not in runtime._CATALOG:
+        definition = node.get("data", {}).get("definition")
+        definition_id = definition.get("id") if isinstance(definition, dict) else None
+        if (
+            not isinstance(definition_id, str)
+            or definition_id not in runtime._CATALOG
+            and (not isinstance(definition, dict) or definition.get("id") != definition_id)
+        ):
             raise ValueError(
-                "{}: node {} references unknown definition {}".format(
+                "{}: node {} has no catalog or embedded definition {}".format(
                     filename, node_id, definition_id
                 )
+            )
+        if not isinstance(definition.get("inputs", []), list) or not isinstance(
+            definition.get("outputs", []), list
+        ):
+            raise ValueError(
+                "{}: node {} has malformed socket definitions".format(filename, node_id)
             )
     incoming, outgoing, order = runtime._graph_plan(node_map, edges)
     if len(order) != len(nodes):
@@ -163,6 +174,7 @@ def main() -> int:
                 "stage": "translation",
                 "error": str(exc),
                 "traceback": traceback.format_exc(),
+                "source": fetched[filename],
             })
             print("FAIL {}: {}".format(filename, exc))
 

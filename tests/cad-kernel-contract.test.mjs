@@ -373,3 +373,38 @@ test("build123d provider publishes only validated operation catalogs", async () 
   // A rejected catalog must not partially replace the last valid catalog.
   assert.equal((await provider.discoverOperations()).length, 1);
 });
+
+test("build123d provider exposes the declared geometry kind through opaque handles", async () => {
+  const definition = runtimeDefinition({
+    outputs: [{ name: "result", type: "Solid", annotation: "Solid", required: true }],
+  });
+  const runtime = {
+    async evaluate() {
+      return {
+        previews: { "solid-1": { vertices: [], triangles: [] } },
+        socket_values: { "solid-1": { result: { type: "Solid" } } },
+        errors: {},
+        order: ["solid-1"],
+        cache: { hits: 0, misses: 1 },
+      };
+    },
+  };
+  const provider = new Build123dKernelProvider(runtime);
+  provider.setDefinitions([definition]);
+  const result = await provider.evaluate({
+    graph: {
+      nodes: [{
+        id: "solid-1",
+        operationId: definition.id,
+        parameters: {},
+        position: { x: 0, y: 0 },
+      }],
+      connections: [],
+    },
+  });
+  assert.deepEqual(result.geometry["solid-1"], {
+    provider: "build123d",
+    handle: "solid-1",
+    kind: "solid",
+  });
+});

@@ -72,16 +72,28 @@ def validate_graph(graph, filename):
         node_map[node_id] = node
         definition = node.get("data", {}).get("definition")
         definition_id = definition.get("id") if isinstance(definition, dict) else None
-        if (
-            not isinstance(definition_id, str)
-            or definition_id not in runtime._CATALOG
-            and (not isinstance(definition, dict) or definition.get("id") != definition_id)
-        ):
+        if not isinstance(definition_id, str) or definition_id not in runtime._CATALOG:
             raise ValueError(
-                "{}: node {} has no catalog or embedded definition {}".format(
+                "{}: node {} references an unregistered definition {}".format(
                     filename, node_id, definition_id
                 )
             )
+        registered_definition = runtime._CATALOG[definition_id]
+        if not isinstance(definition, dict) or definition.get("id") != definition_id:
+            raise ValueError(
+                "{}: node {} has a malformed embedded definition {}".format(
+                    filename, node_id, definition_id
+                )
+            )
+        for socket_group in ("inputs", "outputs"):
+            embedded_sockets = definition.get(socket_group, [])
+            registered_sockets = registered_definition.get(socket_group, [])
+            if embedded_sockets != registered_sockets:
+                raise ValueError(
+                    "{}: node {} has {} that differ from registered definition {}".format(
+                        filename, node_id, socket_group, definition_id
+                    )
+                )
         if not isinstance(definition.get("inputs", []), list) or not isinstance(
             definition.get("outputs", []), list
         ):

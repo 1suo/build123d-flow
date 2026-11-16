@@ -1693,7 +1693,7 @@ def load_catalog_bundle(payload):
 
 
 def _iter_shapes(value):
-    if isinstance(value, b3d.Shape):
+    if b3d is not None and isinstance(value, b3d.Shape):
         yield value
     elif isinstance(value, (list, tuple)):
         for item in value:
@@ -1755,7 +1755,7 @@ def _inspect_value(value, depth=0):
     value_type = type(value).__name__
     if value is None or isinstance(value, (bool, int, float, str)):
         return {"type": value_type, "value": value}
-    if isinstance(value, b3d.Shape):
+    if b3d is not None and isinstance(value, b3d.Shape):
         # OCP-backed shapes expose lazy properties; walking dir()/getattr() can
         # trigger expensive kernel work and freeze the browser UI.
         return {"type": value_type, "repr": "<geometry value>"}
@@ -1869,7 +1869,7 @@ def _stream_item_kind(value):
         return "scalar"
     if isinstance(value, str):
         return "scalar"
-    if isinstance(value, b3d.Shape):
+    if b3d is not None and isinstance(value, b3d.Shape):
         return "geometry"
     if isinstance(value, (list, tuple, set, frozenset,
                           collections.abc.Mapping, collections.abc.Sequence, collections.abc.Set)):
@@ -3605,14 +3605,14 @@ def import_python_code(source):
     def literal_json_value(value):
         if isinstance(value, enum.Enum):
             return value.name
-        if isinstance(value, b3d.Axis):
+        if b3d is not None and isinstance(value, b3d.Axis):
             return [list(value.position), list(value.direction)]
-        if isinstance(value, b3d.Plane):
+        if b3d is not None and isinstance(value, b3d.Plane):
             return {"origin": list(value.origin), "x_dir": list(value.x_dir),
                     "z_dir": list(value.z_dir)}
-        if isinstance(value, b3d.Location):
+        if b3d is not None and isinstance(value, b3d.Location):
             return list(value.to_tuple())
-        if isinstance(value, b3d.Vector):
+        if b3d is not None and isinstance(value, b3d.Vector):
             return list(value)
         if isinstance(value, dict):
             if "__flow_object__" in value:
@@ -3971,8 +3971,8 @@ def import_python_code(source):
             if standard_value is not None and not callable(standard_value):
                 return ("literal", standard_value)
             build123d_value = getattr(b3d, imported.get(node.id, node.id), None)
-            if isinstance(build123d_value, (int, float, str, bool, enum.Enum,
-                                             b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
+            if b3d is not None and isinstance(build123d_value, (int, float, str, bool, enum.Enum,
+                                             b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
                 return ("literal", build123d_value)
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
@@ -4078,13 +4078,13 @@ def import_python_code(source):
                         value = getattr(b3d, path[0], None)
                         for part in path[1:]:
                             value = getattr(value, part, None)
-                        if isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
+                        if b3d is not None and isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
                             return ("literal", value)
                 elif hasattr(b3d, root):
                     value = getattr(b3d, root, None)
                     for part in reversed(path):
                         value = getattr(value, part, None)
-                    if isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
+                    if b3d is not None and isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
@@ -4722,17 +4722,17 @@ def import_python_code(source):
         if isinstance(value, enum.Enum):
             return {"__flow_enum__": [value.__class__.__module__,
                                       value.__class__.__name__, value.name]}
-        if isinstance(value, b3d.Plane):
+        if b3d is not None and isinstance(value, b3d.Plane):
             return {
                 "__flow_object__": "Plane",
                 "origin": list(value.origin), "x_dir": list(value.x_dir),
                 "z_dir": list(value.z_dir),
             }
-        if isinstance(value, b3d.Location):
+        if b3d is not None and isinstance(value, b3d.Location):
             return {"__flow_object__": "Location", "value": list(value.to_tuple())}
-        if isinstance(value, b3d.Vector):
+        if b3d is not None and isinstance(value, b3d.Vector):
             return {"__flow_object__": "Vector", "value": list(value)}
-        if isinstance(value, b3d.Axis):
+        if b3d is not None and isinstance(value, b3d.Axis):
             return {"__flow_object__": "Axis",
                     "args": [list(value.position), list(value.direction)], "kwargs": {}}
         if isinstance(value, tuple):

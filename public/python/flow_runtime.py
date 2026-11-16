@@ -3896,7 +3896,7 @@ def import_python_code(source):
         return constructor, constructor_type, type_record["name"]
 
     def resolve_build123d_class_callable(function_node):
-        """Resolve class-level API calls from the discovered catalog, never live introspection."""
+        """Resolve class-level API calls from discovered node metadata."""
         if not isinstance(function_node, ast.Attribute):
             return None
         member_name = function_node.attr
@@ -3919,66 +3919,44 @@ def import_python_code(source):
             return None
         candidates = []
         for node_id in owner.get("member_node_ids", []):
-            if not (
-                node_id.endswith(".static." + member_name)
-                or node_id.endswith(".classmethod." + member_name)
-            ):
+            if not (node_id.endswith(".static." + member_name)
+                    or node_id.endswith(".classmethod." + member_name)):
                 continue
             definition = definitions.get(node_id)
-            if definition is None:
-                continue
-            if any(socket.get("name") in {"self", "cls"} for socket in definition.get("inputs", [])):
-                continue
-            candidates.append(node_id)
+            if definition and not any(
+                socket.get("name") in {"self", "cls"}
+                for socket in definition.get("inputs", [])
+            ):
+                candidates.append(node_id)
         if len(candidates) > 1:
-            raise ValueError(
-                "Ambiguous discovered class method {}.{}: {}".format(
-                    owner["name"], member_name, ", ".join(sorted(candidates))
-                )
-            )
+            raise ValueError("Ambiguous discovered class method {}.{}: {}".format(
+                owner["name"], member_name, ", ".join(sorted(candidates))))
         return candidates[0] if candidates else None
 
     def add_build123d_class_call(definition_id, call_node):
-        """Lower a discovered static/class method using its serialized socket contract."""
+        """Lower a discovered class method from its serialized socket contract."""
         definition = definitions[definition_id]
         sockets = definition.get("inputs", [])
-        positional_sockets = [
-            socket for socket in sockets
-            if socket.get("kind", "positional_or_keyword")
-            in {"positional_only", "positional_or_keyword"}
-        ]
-        var_positional = next(
-            (socket for socket in sockets if socket.get("kind") == "var_positional"),
-            None,
-        )
-        var_keyword = next(
-            (socket for socket in sockets if socket.get("kind") == "var_keyword"),
-            None,
-        )
+        positional = [s for s in sockets if s.get("kind", "positional_or_keyword")
+                      in {"positional_only", "positional_or_keyword"}]
+        var_positional = next((s for s in sockets if s.get("kind") == "var_positional"), None)
+        var_keyword = next((s for s in sockets if s.get("kind") == "var_keyword"), None)
         params, links, supplied = {}, [], set()
-        positional_index = 0
+        index = 0
         for argument in call_node.args:
             if isinstance(argument, ast.Starred):
                 if var_positional is None:
-                    raise ValueError(
-                        "Expanded positional arguments require a variadic parameter at line {}".format(
-                            call_node.lineno
-                        )
-                    )
-                socket = var_positional
-                value_node = argument.value
+                    raise ValueError("Expanded positional arguments require *args at line {}".format(call_node.lineno))
+                socket, value_node = var_positional, argument.value
             else:
-                if positional_index >= len(positional_sockets):
+                if index >= len(positional):
                     if var_positional is None:
-                        raise ValueError(
-                            "Too many positional arguments for {} at line {}".format(
-                                definition.get("name"), call_node.lineno
-                            )
-                        )
+                        raise ValueError("Too many positional arguments for {} at line {}".format(
+                            definition.get("name"), call_node.lineno))
                     socket = var_positional
                 else:
-                    socket = positional_sockets[positional_index]
-                    positional_index += 1
+                    socket = positional[index]
+                    index += 1
                 value_node = argument
             name = socket["name"]
             if name in supplied and socket is not var_positional:
@@ -3992,19 +3970,13 @@ def import_python_code(source):
         for keyword in call_node.keywords:
             if keyword.arg is None:
                 if var_keyword is None:
-                    raise ValueError(
-                        "Expanded keyword arguments require **kwargs at line {}".format(call_node.lineno)
-                    )
+                    raise ValueError("Expanded keyword arguments require **kwargs at line {}".format(call_node.lineno))
                 socket = var_keyword
             else:
-                socket = next((item for item in sockets if item.get("name") == keyword.arg), None)
+                socket = next((s for s in sockets if s.get("name") == keyword.arg), None)
                 if socket is None:
                     if var_keyword is None:
-                        raise ValueError(
-                            "Unknown keyword argument '{}' for {} at line {}".format(
-                                keyword.arg, definition.get("name"), call_node.lineno
-                            )
-                        )
+                        raise ValueError("Unknown keyword argument '{}' at line {}".format(keyword.arg, call_node.lineno))
                     socket = var_keyword
             name = socket["name"]
             if name in supplied and socket is not var_keyword:
@@ -4015,18 +3987,12 @@ def import_python_code(source):
                 params[name] = literal_json_value(value[1])
             else:
                 links.append((name, value[1], value[2]))
-        required = [
-            socket["name"] for socket in sockets
-            if socket.get("required", False)
-            and socket.get("kind") not in {"var_positional", "var_keyword"}
-            and socket["name"] not in supplied
-        ]
-        if required:
-            raise ValueError(
-                "Missing required arguments for {} at line {}: {}".format(
-                    definition.get("name"), call_node.lineno, ", ".join(required)
-                )
-            )
+        missing = [s["name"] for s in sockets if s.get("required")
+                   and s.get("kind") not in {"var_positional", "var_keyword"}
+                   and s["name"] not in supplied]
+        if missing:
+            raise ValueError("Missing required arguments for {} at line {}: {}".format(
+                definition.get("name"), call_node.lineno, ", ".join(missing)))
         created = add_node(definition_id, params, links, call_node.lineno)
         output = next(iter(definition.get("outputs", [])), {})
         return ("ref", created, output.get("name", "result"), output.get("type", "Any"))

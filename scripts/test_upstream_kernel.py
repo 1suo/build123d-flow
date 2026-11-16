@@ -90,7 +90,25 @@ def kernel_worker(item, runtime, result_connection):
         )
         errors = evaluation.get("errors") or {}
         if errors:
-            raise ValueError("graph execution errors: {}".format(errors))
+            socket_values = evaluation.get("socket_values") or {}
+            graph_edges = item["graph"].get("edges", [])
+            input_diagnostics = {}
+            for failed_node_id in list(errors)[:3]:
+                input_diagnostics[failed_node_id] = {}
+                for edge in graph_edges:
+                    if edge.get("target") != failed_node_id:
+                        continue
+                    source_id = edge.get("source")
+                    source_output = edge.get("sourceHandle", "result")
+                    source_values = socket_values.get(source_id, {})
+                    input_diagnostics[failed_node_id][edge.get("targetHandle")] = (
+                        source_values.get(source_output)
+                    )
+            raise ValueError(
+                "graph execution errors: {}; failed-node input values: {}".format(
+                    errors, input_diagnostics
+                )
+            )
 
         shape = runtime._LAST_SHAPE
         if shape is None:

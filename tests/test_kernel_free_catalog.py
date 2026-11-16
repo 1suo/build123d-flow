@@ -170,7 +170,7 @@ result = box + cylinder
             "edges": [],
         }
         result = json.loads(runtime.evaluate_graph_json(json.dumps(graph), include_previews=False))
-        self.assertEqual(result["errors"], {})
+        self.assertEqual(result["errors"], {}, result["errors"])
         self.assertIn("conditional-function", result["socket_values"])
 
     def test_call_adapter_forwards_extra_keywords_to_variadic_constructor(self):

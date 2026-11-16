@@ -43,7 +43,7 @@ box = Box(10, 10, 10)
 cylinder = Cylinder(2, 10)
 result = box + cylinder
 """
-        graph = json.loads(runtime.import_python_code(source))
+        graph = runtime.import_python_code(source)
         definitions = [
             node.get("data", {}).get("definition", {}).get("id")
             for node in graph.get("nodes", [])
@@ -81,11 +81,11 @@ with BuildPart() as part:
     def test_plane_class_constant_translates_without_kernel(self):
         plane = self.catalog.resolve_class_value("Plane", "XY")
         self.assertEqual(plane.get("__flow_object__"), "Plane")
-        graph = json.loads(runtime.import_python_code("""
+        graph = runtime.import_python_code("""
 from build123d import BuildSketch, Circle, Plane
 with BuildSketch(Plane.XY):
     Circle(5)
-"""))
+""")
         scopes = graph.get("execution_scopes", [])
         self.assertTrue(scopes)
         self.assertEqual(

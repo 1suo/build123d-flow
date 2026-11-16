@@ -4441,6 +4441,7 @@ def import_python_code(source):
                 saved_variables = dict(variables)
                 saved_stream_variables = set(stream_variables)
                 saved_matching = mapping_matching
+                variables.pop("self", None)
                 variables.update(bound)
                 active_user_classes.append(class_info)
                 try:

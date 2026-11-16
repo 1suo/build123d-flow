@@ -162,6 +162,19 @@ class TypeCatalog:
         expected_record = self.resolve_type(expected)
         return expected_record["id"] in candidate_record["mro"]
 
+    def resolve_enum_member(self, enum_type: str, member_name: str) -> dict:
+        """Return a serializable enum reference using discovered enum metadata."""
+        record = self.resolve_type(enum_type)
+        if not record.get("is_enum"):
+            raise CatalogError("Discovered type is not an enum: " + record["id"])
+        if member_name not in record.get("enum_members", {}):
+            raise CatalogError(
+                "Unknown enum member {}.{}".format(record["id"], member_name)
+            )
+        return {
+            "__flow_enum__": [record["module"], record["name"], member_name]
+        }
+
     def resolve_operator(self, receiver_type: str, method: str) -> str:
         """Resolve a dunder node in the receiver's actual discovered MRO order."""
         record = self.resolve_type(receiver_type)

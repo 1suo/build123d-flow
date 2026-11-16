@@ -9,10 +9,10 @@ from __future__ import annotations
 import enum
 import inspect
 import math
-from typing import Any, Mapping
+from typing import Any, Mapping, get_args
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class CatalogError(ValueError):
@@ -182,6 +182,18 @@ def build_type_registry(classes, nodes):
             "__enter__" in vars(owner) and "__exit__" in vars(owner)
             for owner in getattr(cls, "__mro__", ())
         )
+        iterator = getattr(cls, "__iter__", None)
+        iterable_item_type = None
+        if callable(iterator):
+            try:
+                iterator_signature = inspect.signature(iterator)
+                item_candidates = get_args(iterator_signature.return_annotation)
+                if item_candidates:
+                    candidate = item_candidates[0]
+                    if inspect.isclass(candidate) and getattr(candidate, "__module__", "").startswith("build123d"):
+                        iterable_item_type = candidate.__name__
+            except (TypeError, ValueError):
+                pass
         registry[identity] = {
             "id": identity,
             "name": name,
@@ -191,6 +203,8 @@ def build_type_registry(classes, nodes):
             "mro": mro,
             "is_abstract": inspect.isabstract(cls),
             "supports_context_manager": supports_context_manager,
+            "supports_iteration": callable(iterator),
+            "iterable_item_type": iterable_item_type,
             "is_enum": is_enum,
             "enum_members": enum_members,
             "class_values": class_values,

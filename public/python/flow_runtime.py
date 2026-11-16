@@ -5668,7 +5668,25 @@ def import_python_code(source):
                     if positional_index < len(positional):
                         raise TypeError("Too many positional arguments for {}".format(_constructor_name))
                     mapped_values.update(supplied_values)
-                    return _call_with_coercion(_constructor, mapped_values, signature=constructor_signature)
+                    try:
+                        return _call_with_coercion(
+                            _constructor, mapped_values, signature=constructor_signature
+                        )
+                    except Exception as exc:
+                        diagnostic_inputs = {
+                            name: {
+                                "type": type(value).__name__,
+                                "value": repr(value)[:240]
+                                if isinstance(value, (type(None), bool, int, float, str, tuple, list, dict))
+                                else None,
+                            }
+                            for name, value in mapped_values.items()
+                        }
+                        raise TypeError(
+                            "Python {} constructor inputs {}: {}".format(
+                                _constructor_name, diagnostic_inputs, exc
+                            )
+                        ) from exc
 
                 _CATALOG_CALLABLES[definition_id] = construct_value
                 _CATALOG_SIGNATURES[definition_id] = inspect.Signature([

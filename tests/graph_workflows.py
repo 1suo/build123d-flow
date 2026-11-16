@@ -1566,12 +1566,24 @@ def run_empty_shape_preview_tests():
     if runtime._mesh_preview(empty_wire) is not None:
         raise AssertionError("An empty compound must not be sent to tessellation")
 
+    wire_with_edges = runtime.b3d.Wire.make_polygon([
+        runtime.b3d.Vector(0, 0, 0),
+        runtime.b3d.Vector(2, 0, 0),
+        runtime.b3d.Vector(2, 2, 0),
+    ])
+    wire_preview = runtime._mesh_preview(wire_with_edges)
+    if wire_preview is None or not wire_preview["edges"]:
+        raise AssertionError("A non-empty wire must preview its edges without face tessellation")
+    if wire_preview["triangles"]:
+        raise AssertionError("A wire-only preview must not invent face triangles")
+
     solid_box = runtime.b3d.Box(1, 1, 1)
     if runtime._mesh_preview(solid_box) is None:
         raise AssertionError("A non-empty Box must still produce a mesh preview")
     return {
         "name": "empty intermediate geometry preview",
         "null_and_empty_shapes_skipped": True,
+        "wire_edges_preserved_without_face_tessellation": True,
         "non_empty_box_preserved": True,
     }
 

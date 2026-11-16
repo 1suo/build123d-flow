@@ -6079,7 +6079,15 @@ def import_python_code(source):
                     target_name = call.func.value.id
                     receiver = expression(call.func.value)
                     value = expression(call.args[0])
-                    if receiver[0] != "ref" or value[0] != "ref":
+                    if receiver[0] == "literal" and value[0] == "literal" and isinstance(receiver[1], list):
+                        updated = list(receiver[1])
+                        if call.func.attr == "append":
+                            updated.append(materialize_literal(value[1]))
+                        else:
+                            updated.extend(materialize_literal(value[1]))
+                        variables[target_name] = ("literal", updated)
+                        continue
+                    if receiver[0] not in {"ref", "literal"} or value[0] not in {"ref", "literal"}:
                         expression(statement.value)
                         continue
                     definition_id = (
@@ -6087,11 +6095,17 @@ def import_python_code(source):
                         else "core.list.extend"
                     )
                     value_socket = "value" if call.func.attr == "append" else "values"
+                    params, links = {}, []
+                    if receiver[0] == "literal":
+                        params["items"] = literal_json_value(receiver[1])
+                    else:
+                        links.append(("items", receiver[1], receiver[2]))
+                    if value[0] == "literal":
+                        params[value_socket] = literal_json_value(value[1])
+                    else:
+                        links.append((value_socket, value[1], value[2]))
                     updated_list = add_node(
-                        definition_id, {},
-                        [("items", receiver[1], receiver[2]),
-                         (value_socket, value[1], value[2])],
-                        statement.lineno,
+                        definition_id, params, links, statement.lineno,
                     )
                     variables[target_name] = ("ref", updated_list, "result", "List")
                     continue

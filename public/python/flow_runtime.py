@@ -1753,10 +1753,24 @@ def load_catalog_bundle(payload):
         if definition.get("source") == "flow":
             continue
         parameters = []
-        for socket in definition.get("inputs", []):
+        input_sockets = definition.get("inputs", [])
+        for index, socket in enumerate(input_sockets):
             kind = parameter_kinds.get(
                 socket.get("kind"), inspect.Parameter.POSITIONAL_OR_KEYWORD
             )
+            # A receiver socket is part of the unbound callable signature.
+            # Some extension-backed methods expose a positional-only argument
+            # after an implicit self/cls parameter whose metadata omits kind.
+            # Python requires the receiver to be positional-only in that case.
+            if (
+                index == 0
+                and socket.get("name") in ("self", "cls")
+                and any(
+                    parameter_kinds.get(item.get("kind")) == inspect.Parameter.POSITIONAL_ONLY
+                    for item in input_sockets[index + 1:]
+                )
+            ):
+                kind = inspect.Parameter.POSITIONAL_ONLY
             if kind in (
                 inspect.Parameter.VAR_POSITIONAL,
                 inspect.Parameter.VAR_KEYWORD,

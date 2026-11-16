@@ -4137,19 +4137,49 @@ def import_python_code(source):
                 typed_iterable = (
                     "ref", iterable[1], iterable[2], item_type, item_types
                 )
-                if isinstance(generator.target, ast.Name):
-                    variables[generator.target.id] = typed_iterable
-                    target_names = [generator.target.id]
-                else:
-                    assign_target(generator.target, typed_iterable, node.lineno)
-                    target_names = [item.id for item in generator.target.elts]
-                stream_variables.update(target_names)
+                target_names = (
+                    [generator.target.id] if isinstance(generator.target, ast.Name)
+                    else [item.id for item in generator.target.elts]
+                )
                 generator_streams.append(iterable)
                 active_loop_frames.append({
                     "node_id": iterable[1], "output_name": iterable[2],
                     "written_names": set(target_names),
                     "matching": mapping_matching,
                 })
+                if isinstance(generator.target, ast.Name):
+                    variables[generator.target.id] = typed_iterable
+                else:
+                    unpack_id = "core.python.unpack"
+                    definitions[unpack_id] = {
+                        "id": unpack_id, "name": "Python Tuple Unpack",
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Python", "palette_section": "Assignments",
+                        "inputs": [
+                            {"name": "value", "type": "Any", "required": True, "data_access": "item"},
+                            {"name": "index", "type": "Number", "required": True},
+                        ],
+                        "outputs": [{"name": "result", "type": "Any"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(unpack_id)
+                    _CATALOG_CALLABLES[unpack_id] = _python_getitem
+                    _CATALOG_SIGNATURES[unpack_id] = inspect.Signature([
+                        inspect.Parameter("value", inspect.Parameter.POSITIONAL_ONLY),
+                        inspect.Parameter("index", inspect.Parameter.POSITIONAL_ONLY),
+                    ])
+                    _CATALOG_HINT_TARGETS[unpack_id] = False
+                    for element_index, name in enumerate(target_names):
+                        element_type = (
+                            item_types[element_index]
+                            if item_types and element_index < len(item_types) else "Any"
+                        )
+                        unpack_node = add_node(
+                            unpack_id, {"index": element_index},
+                            [("value", iterable[1], iterable[2])],
+                            generator.lineno,
+                        )
+                        variables[name] = ("ref", unpack_node, "result", element_type)
+                stream_variables.update(target_names)
                 for condition in generator.ifs:
                     resolved = expression(condition)
                     if resolved[0] != "literal" or not isinstance(resolved[1], bool):

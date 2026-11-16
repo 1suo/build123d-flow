@@ -1565,7 +1565,15 @@ def run_empty_shape_preview_tests():
         raise AssertionError("Wire() should be represented by an empty geometry value")
     if runtime._mesh_preview(empty_wire) is not None:
         raise AssertionError("An empty compound must not be sent to tessellation")
-    return {"name": "empty intermediate geometry preview", "null_and_empty_shapes_skipped": True}
+
+    solid_box = runtime.b3d.Box(1, 1, 1)
+    if runtime._mesh_preview(solid_box) is None:
+        raise AssertionError("A non-empty Box must still produce a mesh preview")
+    return {
+        "name": "empty intermediate geometry preview",
+        "null_and_empty_shapes_skipped": True,
+        "non_empty_box_preserved": True,
+    }
 
 
 def run_constructor_overload_tests():

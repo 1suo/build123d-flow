@@ -4709,11 +4709,6 @@ def import_python_code(source):
                     if keyword.arg is None:
                         raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
                     safe_kwargs[keyword.arg] = expression(keyword.value)
-                if (
-                    safe_callable in {copy.copy, copy.deepcopy}
-                    and len(safe_args) == 1 and not safe_kwargs
-                ):
-                    return safe_args[0]
                 if all(item[0] == "literal" for item in safe_args) and all(item[0] == "literal" for item in safe_kwargs.values()):
                     try:
                         result = safe_callable(

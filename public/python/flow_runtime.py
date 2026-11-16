@@ -4300,6 +4300,66 @@ def import_python_code(source):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
+            if (
+                isinstance(node.func, ast.Name) and node.func.id == "filter"
+                and len(node.args) == 2 and isinstance(node.args[0], ast.Lambda)
+                and not node.keywords
+            ):
+                iterable = expression(node.args[1])
+                if iterable[0] != "ref":
+                    iterable = add_collection_node(
+                        [("literal", item) for item in iterable[1]],
+                        "list", node.lineno, map_over_active_loops=False,
+                    )
+                item_type, item_types = iterable_item_metadata(iterable)
+                lambda_node = node.args[0]
+                if len(lambda_node.args.args) != 1 or lambda_node.args.vararg or lambda_node.args.kwarg:
+                    raise ValueError("filter lambda must have one simple parameter (line {})".format(node.lineno))
+                parameter_name = lambda_node.args.args[0].arg
+                saved_variables = dict(variables)
+                saved_stream = set(stream_variables)
+                frame = {
+                    "node_id": iterable[1], "output_name": iterable[2],
+                    "written_names": {parameter_name}, "matching": "longest",
+                }
+                variables[parameter_name] = ("ref", iterable[1], iterable[2], item_type)
+                stream_variables.add(parameter_name)
+                active_loop_frames.append(frame)
+                try:
+                    predicate = expression(lambda_node.body)
+                finally:
+                    active_loop_frames.pop()
+                    variables.clear()
+                    variables.update(saved_variables)
+                    stream_variables.clear()
+                    stream_variables.update(saved_stream)
+                definition_id = "core.python.filter"
+                def filter_values(items, predicates):
+                    return [item for item, keep in zip(items, predicates) if keep]
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "Python filter",
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Python", "palette_section": "Collections",
+                    "inputs": [
+                        {"name": "items", "type": "List", "required": True, "data_access": "structure"},
+                        {"name": "predicates", "type": "List", "required": True, "data_access": "structure"},
+                    ],
+                    "outputs": [{"name": "result", "type": "List", "data_structure": "list", "item_type": item_type}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+                _CATALOG_CALLABLES[definition_id] = filter_values
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter("items", inspect.Parameter.KEYWORD_ONLY),
+                    inspect.Parameter("predicates", inspect.Parameter.KEYWORD_ONLY),
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {}, [("items", iterable[1], iterable[2])]
+                if predicate[0] == "literal":
+                    params["predicates"] = [bool(predicate[1])]
+                else:
+                    links.append(("predicates", predicate[1], predicate[2]))
+                created = add_node(definition_id, params, links, node.lineno, map_over_active_loops=False)
+                return ("ref", created, "result", "List")
             if isinstance(node.func, ast.Name) and node.func.id in user_functions:
                 return inline_user_function(user_functions[node.func.id], node)
             if isinstance(node.func, ast.Name) and node.func.id == "locals":

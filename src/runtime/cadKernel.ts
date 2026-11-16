@@ -49,6 +49,8 @@ export interface CadOperationDefinition {
   readonly inputs: readonly CadPortDefinition[];
   readonly outputs: readonly CadPortDefinition[];
   readonly execution: CadExecutionMode;
+  /** Whether provider evaluation may reuse this operation's result. */
+  readonly cacheable?: boolean;
   readonly mapping: {
     /** One operation node maps over a stream; it is not duplicated per item. */
     readonly mode: "scalar" | "map";
@@ -146,7 +148,7 @@ const RUNTIME_TYPE_MAP: Readonly<Record<string, CadValueType>> = {
   Number: "number", Boolean: "boolean", String: "string", Vector2: "vector2",
   Vector3: "vector3", Rotation: "transform", Location: "transform", Plane: "plane",
   Axis: "axis", Shape: "geometry", Solid: "solid", Compound: "geometry",
-  Face: "face", Edge: "edge", Wire: "wire", Shell: "shell", Part: "solid",
+  Face: "face", Edge: "edge", Wire: "wire", Shell: "shell", Part: "geometry",
   Sketch: "geometry", Curve: "curve", Surface: "surface", Mesh: "mesh",
   Color: "material", Enum: "enum", Any: "any", Code: "string",
 };
@@ -207,7 +209,12 @@ export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationD
     description: definition.description,
     inputs: definition.inputs.map(cadPort),
     outputs: definition.outputs.map(cadPort),
-    execution: "unspecified",
+    execution: definition.execution?.purity === "pure"
+      || definition.execution?.purity === "stateful"
+      || definition.execution?.purity === "effect"
+      ? definition.execution.purity
+      : "unspecified",
+    cacheable: definition.execution?.cacheable === true,
     mapping: {
       mode: mapped ? "map" : "scalar",
       preserveNesting: true,

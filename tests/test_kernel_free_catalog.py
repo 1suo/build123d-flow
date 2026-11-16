@@ -78,6 +78,23 @@ with BuildPart() as part:
         self.assertEqual(scopes[0]["module"], manager["module"])
         self.assertIsNone(runtime.b3d)
 
+    def test_plane_class_constant_translates_without_kernel(self):
+        plane = self.catalog.resolve_class_value("Plane", "XY")
+        self.assertEqual(plane.get("__flow_object__"), "Plane")
+        graph = json.loads(runtime.import_python_code("""
+from build123d import BuildSketch, Circle, Plane
+with BuildSketch(Plane.XY):
+    Circle(5)
+"""))
+        scopes = graph.get("execution_scopes", [])
+        self.assertTrue(scopes)
+        self.assertEqual(
+            scopes[0]["args"][0]["__flow_object__"],
+            "Plane",
+        )
+        self.assertIn("origin", scopes[0]["args"][0])
+        self.assertIsNone(runtime.b3d)
+
     def test_enum_arguments_translate_from_discovered_members(self):
         align = self.catalog.resolve_type("Align")
         self.assertTrue(align["is_enum"])

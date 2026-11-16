@@ -162,13 +162,21 @@ async function importExample(page: Page, source: string) {
   await expect(page.getByRole("button", { name: "Import pasted code" })).toBeEnabled();
   await page.getByRole("button", { name: "Import pasted code" }).click();
 
-  await expect.poll(async () => {
-    const state = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
-    if (state.revision <= evaluationBeforeImport.revision || state.running) return null;
-    return state;
-  }, { timeout: 30_000, intervals: [50, 100, 150, 250] }).not.toBeNull();
+  const importOutcome = await withTimeout((async () => {
+    while (true) {
+      const state = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
+      if (state.errors.length) return { success: false as const, errors: state.errors };
+      if (state.revision > evaluationBeforeImport.revision && !state.running) {
+        return { success: true as const, state };
+      }
+      await page.waitForTimeout(50);
+    }
+  })(), 30_000, "Python import and graph evaluation");
+  if (!importOutcome.success) {
+    throw new Error("Python import/evaluation failed: " + importOutcome.errors.join("\\n"));
+  }
 
-  const evaluation = await page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState());
+  const evaluation = importOutcome.state;
   expect(evaluation.errors, "graph evaluation errors").toEqual([]);
   expect(evaluation.geometryCount, "visible geometry count").toBeGreaterThan(0);
 

@@ -3256,7 +3256,26 @@ def import_python_code(source):
         for output_socket in node_definition["outputs"]:
             if output_socket.get("type") == "GroupBy":
                 output_socket.setdefault("item_type", "ShapeList")
-            elif output_socket.get("item_type") in (None, "", "Any") and receiver_output:
+            if receiver_output and output_socket.get("variants"):
+                receiver_type = receiver_output.get("type", "Any")
+                variants = output_socket["variants"]
+                if receiver_type in variants:
+                    output_socket["type"] = receiver_type
+                else:
+                    try:
+                        receiver_record = type_catalog.resolve_type(receiver_type)
+                        compatible = [
+                            variant for variant in variants
+                            if variant != "Any" and discovered_subtype(receiver_type, variant)
+                        ]
+                        if compatible:
+                            output_socket["type"] = min(
+                                compatible,
+                                key=lambda variant: len(type_catalog.resolve_type(variant)["mro"]),
+                            )
+                    except CatalogError:
+                        pass
+            if output_socket.get("item_type") in (None, "", "Any") and receiver_output:
                 inherited_item_type = receiver_output.get("item_type")
                 if inherited_item_type and inherited_item_type != "Any":
                     output_socket["item_type"] = inherited_item_type
@@ -3933,11 +3952,10 @@ def import_python_code(source):
         except CatalogError:
             return None
         constructor_type = type_record.get("socket_type", type_record["name"])
-        if constructor_type not in _OBJECT_INPUT_TYPES:
+        if type_record.get("is_abstract") or type_record.get("is_enum"):
             return None
-        # Geometry constructors remain graph nodes unless a typed socket
-        # explicitly requests a concrete geometry value. The exception for
-        # Face preserves the established value-socket contract.
+        # Geometry-producing constructors remain ordinary discovered API nodes
+        # unless a typed value socket explicitly requires a concrete geometry.
         if (
             type_record.get("is_geometry")
             and constructor_type != "Face"
@@ -4186,6 +4204,8 @@ def import_python_code(source):
         if isinstance(node, ast.Name):
             if node.id in variables:
                 return variables[node.id]
+            if node.id == "__name__":
+                return ("literal", "__main__")
             if node.id in {"True", "False", "None"}:
                 return ("literal", {"True": True, "False": False, "None": None}[node.id])
             standard_value = resolve_safe_stdlib_name(node.id)
@@ -4845,7 +4865,7 @@ def import_python_code(source):
                         if upstream:
                             receiver_type = reference_type(receiver)
                     elif receiver[0] == "literal":
-                        receiver_type = _type_name(type(materialize_literal(receiver[1])))
+                        receiver_type = reference_type(receiver)
                     if not definition_id:
                         definition_id, candidates = resolve_member(node.func.attr, receiver_type)
                         if candidates and definition_id is None:

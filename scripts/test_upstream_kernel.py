@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import collections
+import io
 import json
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 import traceback
 from pathlib import Path
@@ -23,7 +25,7 @@ def definition_ids(graph):
     )
 
 
-def kernel_worker(item_path: Path, catalog_path: Path) -> int:
+def kernel_worker(item_path: Path, catalog_path: Path, example_root: Path) -> int:
     """Run one example in a disposable process so a stuck native call is killable."""
     import flow_runtime as runtime
 
@@ -122,8 +124,8 @@ def kernel_worker(item_path: Path, catalog_path: Path) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) == 4 and sys.argv[1] == "--worker":
-        return kernel_worker(Path(sys.argv[2]), Path(sys.argv[3]))
+    if len(sys.argv) == 5 and sys.argv[1] == "--worker":
+        return kernel_worker(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]))
     if len(sys.argv) != 4:
         raise SystemExit(
             "usage: test_upstream_kernel.py GATE1_RESULTS.json CATALOG.json RESULTS.json"
@@ -136,7 +138,32 @@ def main() -> int:
 
     results = []
     with tempfile.TemporaryDirectory(prefix="build123d-gate2-") as temporary_dir:
-        input_path = Path(temporary_dir) / "example.json"
+        temporary_root = Path(temporary_dir)
+        input_path = temporary_root / "example.json"
+        # Upstream examples use relative STL/3MF/DXF/image assets. Download
+        # the exact pinned source archive once and run each worker in its
+        # examples directory, preserving the upstream filesystem layout.
+        import urllib.request
+        archive_url = "https://github.com/{}/archive/{}.tar.gz".format(
+            gate1["upstream_repository"], gate1["upstream_commit"]
+        )
+        request = urllib.request.Request(
+            archive_url, headers={"User-Agent": "build123d-flow-acceptance/1"}
+        )
+        with urllib.request.urlopen(request, timeout=120) as response:
+            archive_bytes = response.read()
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
+            members = [
+                member for member in archive.getmembers()
+                if member.name.endswith("/examples") or "/examples/" in member.name
+            ]
+            archive.extractall(temporary_root, members=members, filter="data")
+        example_roots = list(temporary_root.glob("*/examples"))
+        if len(example_roots) != 1:
+            raise RuntimeError(
+                "Pinned upstream archive must contain exactly one examples directory"
+            )
+        example_root = example_roots[0]
         for item in gate1["results"]:
             filename = item["filename"]
             input_path.write_text(
@@ -144,8 +171,8 @@ def main() -> int:
             )
             try:
                 completed = subprocess.run(
-                    [sys.executable, str(Path(__file__).resolve()), "--worker", str(input_path), str(catalog_path)],
-                    cwd=str(ROOT),
+                    [sys.executable, str(Path(__file__).resolve()), "--worker", str(input_path), str(catalog_path), str(example_root)],
+                    cwd=str(example_root),
                     text=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,

@@ -268,9 +268,13 @@ for (const shard of SHARDS) {
               body: JSON.stringify(graph, null, 2), contentType: "application/json"
             });
             try {
-              const evaluation = await withTimeout(page.evaluate(() => (window as any).__build123dFlowTest.evaluateCurrentGraph()), 5_000, "evaluation diagnostics");
-              await test.info().attach(safeName + "-evaluation.json", {
-                body: JSON.stringify(evaluation, null, 2), contentType: "application/json"
+              const state = await withTimeout(page.evaluate(() => (window as any).__build123dFlowTest.getEvaluationState()), 5_000, "evaluation state diagnostics");
+              await test.info().attach(safeName + "-evaluation-state.json", {
+                body: JSON.stringify(state, null, 2), contentType: "application/json"
+              });
+              const logs = await withTimeout(page.evaluate(() => (window as any).__build123dFlowTest.getActivityLogs()), 5_000, "full activity log diagnostics");
+              await test.info().attach(safeName + "-activity-logs.json", {
+                body: JSON.stringify(logs, null, 2), contentType: "application/json"
               });
             } catch (evaluationError) {
               await test.info().attach("evaluation-diagnostics-error.txt", { body: String(evaluationError) });

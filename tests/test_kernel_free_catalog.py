@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "public" / "python"))
 
 from type_catalog import TypeCatalog
+import flow_runtime as runtime
 
 
 class KernelFreeCatalogLoadTests(unittest.TestCase):
@@ -18,6 +19,16 @@ class KernelFreeCatalogLoadTests(unittest.TestCase):
     def test_loading_catalog_does_not_import_kernel(self):
         self.assertNotIn("build123d", sys.modules)
         self.assertNotIn("OCP", sys.modules)
+
+    def test_production_runtime_loads_catalog_without_kernel(self):
+        self.assertIsNone(runtime.b3d)
+        result = runtime.load_catalog_bundle(
+            Path(os.environ["BUILD123D_CATALOG_PATH"]).read_text(encoding="utf-8")
+        )
+        self.assertEqual(result["type_count"], len(self.catalog.types))
+        self.assertEqual(result["node_count"], len(self.catalog.nodes))
+        self.assertIsNone(runtime.b3d)
+        self.assertNotIn("build123d", sys.modules)
 
     def test_discovered_box_operator_resolves_from_serialized_mro(self):
         box = self.catalog.resolve_type("Box")

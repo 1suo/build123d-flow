@@ -251,6 +251,45 @@ result = Location() * ShapeList([Box(10, 10, 10)])
             "reflected result",
         )
 
+    def test_discovered_operator_preserves_nonstandard_operand_parameter_name(self):
+        import inspect
+        from flow_runtime import _invoke_discovered_operator_callable
+
+        def edge_matmul(self, position):
+            return ("position", position)
+
+        result = _invoke_discovered_operator_callable(
+            lambda mapped: edge_matmul(mapped["self"], mapped["position"]),
+            "__matmul__",
+            {"self": object(), "position": 0.375},
+            inspect.signature(edge_matmul),
+        )
+        self.assertEqual(result, ("position", 0.375))
+
+    def test_discovered_operator_falls_back_only_after_not_implemented(self):
+        import inspect
+        from flow_runtime import _invoke_discovered_operator_callable
+
+        class Left:
+            def __mul__(self, other):
+                return NotImplemented
+
+        class Right:
+            def __rmul__(self, other):
+                return "reflected result"
+
+        def multiply(self, other):
+            return self.__mul__(other)
+
+        left, right = Left(), Right()
+        result = _invoke_discovered_operator_callable(
+            lambda mapped: multiply(mapped["self"], mapped["other"]),
+            "__mul__",
+            {"self": left, "other": right},
+            inspect.signature(multiply),
+        )
+        self.assertEqual(result, "reflected result")
+
     def test_kernel_timeout_escalates_from_terminate_to_kill(self):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))

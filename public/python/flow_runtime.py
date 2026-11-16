@@ -4705,7 +4705,7 @@ def import_python_code(source):
                             batch_inputs.append({"name": "state", "type": "Any", "required": False, "default": None, "data_access": "structure"})
                             if random_state_node is not None:
                                 batch_links.append(("state", random_state_node, "result"))
-                            batch_id = "core.python.random.batch"
+                            batch_id = "core.python.random.batch." + str(len(graph_nodes) + 1)
                             definitions[batch_id] = {
                                 "id": batch_id, "name": "Python random batch",
                                 "source": "python", "kind": "operation", "category": "Internal",

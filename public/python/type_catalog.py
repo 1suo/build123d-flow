@@ -95,28 +95,27 @@ def build_symbol_registry(module, modules=()):
     for candidate_module in candidates:
         for exported_name, value in vars(candidate_module).items():
             if exported_name.startswith("_"):
-            continue
+                continue
             module_name = getattr(value, "__module__", "")
             if inspect.isclass(value) and module_name.split(".")[0] == "build123d":
-                symbols.setdefault(exported_name = {
-                "kind": "type",
-                "type_id": _qualified_name(value),
-            }
-            continue
+                symbols.setdefault(exported_name, {
+                    "kind": "type",
+                    "type_id": _qualified_name(value),
+                })
+                continue
             if callable(value) and module_name.split(".")[0] == "build123d":
-                symbols.setdefault(exported_name = {
-                "kind": "callable",
-                "id": module_name + "." + getattr(value, "__name__", exported_name),
-            }
-            continue
+                symbols.setdefault(exported_name, {
+                    "kind": "callable",
+                    "id": module_name + "." + getattr(value, "__name__", exported_name),
+                })
+                continue
             serialized = _serialize_discovered_value(value)
             if serialized is not None:
-                symbols.setdefault(exported_name = {
-                "kind": "value",
-                "value": serialized,
-            }
+                symbols.setdefault(exported_name, {
+                    "kind": "value",
+                    "value": serialized,
+                })
     return symbols
-
 
 def build_type_registry(classes, nodes, geometry_base=None):
     """Serialize every discovered public build123d class, independently of node eligibility."""

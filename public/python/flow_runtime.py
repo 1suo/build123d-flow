@@ -1741,6 +1741,11 @@ def load_catalog_bundle(payload):
         "var_keyword": inspect.Parameter.VAR_KEYWORD,
     }
     for node_id, definition in definitions.items():
+        # Flow palette nodes intentionally use graph socket contracts that are
+        # not Python-call signatures (for example optional condition followed by
+        # required branch values). Their socket metadata is authoritative.
+        if definition.get("source") == "flow":
+            continue
         parameters = []
         for socket in definition.get("inputs", []):
             kind = parameter_kinds.get(

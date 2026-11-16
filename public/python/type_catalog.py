@@ -124,7 +124,11 @@ def build_type_registry(classes, nodes):
             # descriptors (for example Plane.XY) are discovered as values.
             # Ordinary instance properties return a descriptor on class access
             # and are rejected by the serializer; methods remain callable.
-            for member_name in dir(cls):
+            # Class properties may live on the metaclass rather than in
+            # dir(cls) (Plane.XY is a PlaneMeta property). Discover both
+            # namespaces, then resolve each name through the actual class.
+            member_names = set(dir(cls)) | set(dir(type(cls)))
+            for member_name in sorted(member_names):
                 if member_name.startswith("_"):
                     continue
                 try:

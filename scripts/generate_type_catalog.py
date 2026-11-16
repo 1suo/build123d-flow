@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 
@@ -21,6 +22,11 @@ def main() -> int:
     import flow_runtime
 
     payload = json.loads(flow_runtime.catalog_bundle_json())
+    ocp_version = version("cadquery-ocp-novtk")
+    if ocp_version != "8.0.1.1.0":
+        raise SystemExit("Expected cadquery-ocp-novtk 8.0.1.1.0, discovered " + ocp_version)
+    payload["ocp_distribution_version"] = ocp_version
+    payload["python_version"] = sys.version.split()[0]
     if payload.get("build123d_version") != "0.13.0":
         raise SystemExit(
             "Expected build123d 0.13.0, discovered {}".format(

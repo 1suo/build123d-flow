@@ -1367,7 +1367,85 @@ def discover(include_full=True):
                     continue
 
                 if isinstance(raw_member, (staticmethod, classmethod)):
-                    # Static/class methods are module/class API, not receiver members.
+                    # Discover class-level callables as ordinary graph operations.
+                    # Their signatures are obtained from the bound descriptor, so
+                    # classmethod's implicit cls parameter is not exposed as a socket.
+                    callable_obj = getattr(owner, member_name, None)
+                    if not callable(callable_obj):
+                        continue
+                    try:
+                        signature = inspect.signature(callable_obj)
+                    except (TypeError, ValueError):
+                        continue
+                    hint_target = raw_member.__func__
+                    hints = _resolve_hints(hint_target)
+                    inputs = []
+                    for parameter in signature.parameters.values():
+                        annotation = hints.get(parameter.name, parameter.annotation)
+                        if parameter.kind == parameter.VAR_POSITIONAL:
+                            default, default_repr, required, has_default = [], "()", False, True
+                            socket_type = "List"
+                        elif parameter.kind == parameter.VAR_KEYWORD:
+                            default, default_repr, required, has_default = {}, "{}", False, True
+                            socket_type = "Dict"
+                        else:
+                            default, default_repr, required, has_default = _safe_default(parameter.default)
+                            socket_type = _type_name(annotation)
+                        socket = {
+                            "name": parameter.name,
+                            "kind": parameter.kind.name.lower(),
+                            "type": socket_type,
+                            "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
+                            "required": required,
+                            "default_repr": default_repr,
+                        }
+                        if has_default:
+                            socket["default"] = default
+                        if inspect.isclass(annotation):
+                            try:
+                                if issubclass(annotation, enum.Enum):
+                                    socket["options"] = [member.name for member in annotation]
+                            except TypeError:
+                                pass
+                        if typing.get_origin(annotation) is typing.Literal:
+                            socket["options"] = list(typing.get_args(annotation))
+                        socket.update(_annotation_metadata(annotation))
+                        if parameter.kind == parameter.VAR_POSITIONAL:
+                            socket.update({"data_structure": "list", "item_type": _type_name(annotation)})
+                        elif parameter.kind == parameter.VAR_KEYWORD:
+                            socket.update({"data_structure": "dict", "key_type": "String", "value_type": "Any"})
+                        socket.setdefault(
+                            "data_access",
+                            "structure" if socket.get("data_structure") else "item",
+                        )
+                        _populate_editor_default(socket)
+                        inputs.append(socket)
+                    descriptor_kind = (
+                        "classmethod" if isinstance(raw_member, classmethod) else "static"
+                    )
+                    member_id = node_prefix + "." + descriptor_kind + "." + member_name
+                    return_annotation = hints.get("return", signature.return_annotation)
+                    output_socket = {
+                        "name": "result",
+                        "type": _type_name(return_annotation),
+                        "annotation": str(return_annotation) if return_annotation is not inspect.Signature.empty else "",
+                        **_annotation_metadata(return_annotation),
+                    }
+                    found[member_id] = {
+                        "id": member_id,
+                        "source": "build123d",
+                        "kind": "operation",
+                        "name": owner.__name__ + "." + member_name,
+                        "category": owner.__name__ + " Methods",
+                        "palette_category": "API",
+                        "palette_section": "Discovered methods",
+                        "description": (inspect.getdoc(hint_target) or "").split("\n")[0][:180],
+                        "inputs": inputs,
+                        "outputs": [output_socket],
+                    }
+                    callables[member_id] = callable_obj
+                    signatures[member_id] = signature
+                    hint_targets[member_id] = hint_target
                     continue
                 if not (inspect.isfunction(raw_member) or inspect.ismethoddescriptor(raw_member)
                         or inspect.isbuiltin(raw_member)):

@@ -5636,7 +5636,7 @@ def import_python_code(source):
                         mapped_values[parameter.name] = positional[positional_index]
                         positional_index += 1
                     if positional_index < len(positional):
-                        raise TypeError("Too many positional arguments for {}".format(constructor_name))
+                        raise TypeError("Too many positional arguments for {}".format(_constructor_name))
                     mapped_values.update(supplied_values)
                     return _call_with_coercion(_constructor, mapped_values, signature=constructor_signature)
 
@@ -5894,9 +5894,14 @@ def import_python_code(source):
                 if len(dynamic_names) != len(set(dynamic_names)):
                     raise ValueError("Duplicate dynamic method argument at line {}".format(node.lineno))
                 positional_names = [name for name in dynamic_names if name.startswith("arg_")]
-                def invoke_dynamic_method(self, **values):
-                    positional = [values.pop(name) for name in positional_names]
-                    return getattr(self, method_name)(*positional, **values)
+                def invoke_dynamic_method(
+                    self,
+                    _method_name=method_name,
+                    _positional_names=tuple(positional_names),
+                    **values
+                ):
+                    positional = [values.pop(name) for name in _positional_names]
+                    return getattr(self, _method_name)(*positional, **values)
                 dynamic_id = "core.python.method." + hashlib.sha1(
                     (method_name + ":" + ",".join(dynamic_names)).encode("utf-8")
                 ).hexdigest()[:16]
@@ -6198,15 +6203,3 @@ def import_python_code(source):
                 receiver_type = reference_type(left)
             else:
                 encoded_value = left[1]
-                if isinstance(encoded_value, dict) and isinstance(encoded_value.get("__flow_object__"), str):
-                    receiver_type = encoded_value["__flow_object__"]
-                else:
-                    try:
-                        receiver_type = _type_name(type(materialize_literal(encoded_value)))
-                    except Exception:
-                        receiver_type = None
-            if receiver_type in {
-                "Number", "Integer", "Float", "String", "Boolean",
-                "Location", "Vector", "Vector2", "Vector3", "Rotation",
-                "Plane", "Axis", "Color", "Matrix", "Any", None,
-            }:

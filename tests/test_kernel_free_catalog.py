@@ -74,6 +74,28 @@ result = box + cylinder
         self.assertIsNone(runtime.b3d)
         self.assertNotIn("build123d", sys.modules)
 
+    def test_call_adapter_forwards_extra_keywords_to_variadic_constructor(self):
+        import inspect
+
+        def overloaded_constructor(*args, **kwargs):
+            return args, kwargs
+
+        signature = inspect.signature(overloaded_constructor)
+        result = runtime._call_with_coercion(
+            overloaded_constructor,
+            {
+                "args": (),
+                "origin": (0, 0, 142.0),
+                "z_dir": (0, 0, 1),
+            },
+            signature=signature,
+            hint_target=False,
+        )
+        self.assertEqual(result, ((), {
+            "origin": (0, 0, 142.0),
+            "z_dir": (0, 0, 1),
+        }))
+
     def test_context_manager_translation_uses_catalog_metadata(self):
         manager = self.catalog.resolve_type("BuildPart")
         self.assertTrue(manager["supports_context_manager"])

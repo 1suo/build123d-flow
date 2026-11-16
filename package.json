@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "vue-tsc -b",
+    "test:contracts": "tsc --target ES2022 --module ES2022 --moduleResolution bundler --rootDir src --outDir node_modules/.cache/cad-contract-tests --skipLibCheck src/runtime/cadKernel.ts src/types.ts && node --test tests/cad-kernel-contract.test.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

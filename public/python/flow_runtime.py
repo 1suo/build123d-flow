@@ -4494,8 +4494,8 @@ def import_python_code(source):
             if all_literal:
                 return ("literal", template)
             definition_id = "core.python.format"
-            def format_python_string(template, **values):
-                ordered = [values["arg_{}".format(i)] for i in range(len(formatted_values))]
+            def format_python_string(template, _value_count=len(formatted_values), **values):
+                ordered = [values["arg_{}".format(i)] for i in range(_value_count)]
                 return template.format(*ordered)
             supplied = [("template", ("literal", template))]
             supplied.extend(("arg_{}".format(i), value) for i, value in enumerate(formatted_values))
@@ -5603,20 +5603,26 @@ def import_python_code(source):
                 }
                 _INTERNAL_NODE_IDS.add(definition_id)
 
-                def construct_value(**supplied_values):
+                def construct_value(
+                    _constructor=constructor,
+                    _constructor_name=constructor_name,
+                    _positional_names=tuple(positional_names),
+                    _starred_flags=tuple(starred_flags),
+                    **supplied_values
+                ):
                     positional = []
-                    for name, starred in zip(positional_names, starred_flags):
+                    for name, starred in zip(_positional_names, _starred_flags):
                         value = supplied_values.pop(name)
                         if starred:
                             positional.extend(value)
                         else:
                             positional.append(value)
-                    if constructor is None:
-                        raise RuntimeError("CAD kernel is required to execute value constructor " + constructor_name)
+                    if _constructor is None:
+                        raise RuntimeError("CAD kernel is required to execute value constructor " + _constructor_name)
                     try:
-                        constructor_signature = _api_signature(constructor)
+                        constructor_signature = _api_signature(_constructor)
                     except (TypeError, ValueError):
-                        constructor_signature = inspect.signature(constructor)
+                        constructor_signature = inspect.signature(_constructor)
                     constructor_parameters = list(constructor_signature.parameters.values())
                     mapped_values = {}
                     positional_index = 0
@@ -5632,7 +5638,7 @@ def import_python_code(source):
                     if positional_index < len(positional):
                         raise TypeError("Too many positional arguments for {}".format(constructor_name))
                     mapped_values.update(supplied_values)
-                    return _call_with_coercion(constructor, mapped_values, signature=constructor_signature)
+                    return _call_with_coercion(_constructor, mapped_values, signature=constructor_signature)
 
                 _CATALOG_CALLABLES[definition_id] = construct_value
                 _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
@@ -5707,15 +5713,21 @@ def import_python_code(source):
                     (method_name + ":" + ",".join(names)).encode("utf-8")
                 ).hexdigest()[:16]
                 positional_names = [name for name in names if name.startswith("arg_")]
-                def invoke_dynamic_method(self, **values):
+                def invoke_dynamic_method(
+                    self,
+                    _method_name=method_name,
+                    _positional_names=tuple(positional_names),
+                    _starred_flags=tuple(starred_flags),
+                    **values
+                ):
                     positional = []
-                    for name, starred in zip(positional_names, starred_flags):
+                    for name, starred in zip(_positional_names, _starred_flags):
                         value = values.pop(name)
                         if starred:
                             positional.extend(value)
                         else:
                             positional.append(value)
-                    return getattr(self, method_name)(*positional, **values)
+                    return getattr(self, _method_name)(*positional, **values)
                 definitions[definition_id] = {
                     "id": definition_id, "name": "Python method " + method_name,
                     "source": "python", "kind": "operation", "category": "Internal",
@@ -6198,4 +6210,3 @@ def import_python_code(source):
                 "Location", "Vector", "Vector2", "Vector3", "Rotation",
                 "Plane", "Axis", "Color", "Matrix", "Any", None,
             }:
-                return add_python_binary_node(method, left, right, node.lineno)

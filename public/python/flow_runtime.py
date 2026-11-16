@@ -2481,13 +2481,15 @@ def evaluate_graph_json(payload, include_previews=True):
 
         definition_id = data.get("definition", {}).get("id")
         node_definition = data.get("definition", {})
-        has_loop_inputs = any(
-            str(socket.get("name", "")).startswith("__flow_iteration_")
+        has_graph_lowering_inputs = any(
+            str(socket.get("name", "")).startswith((
+                "__flow_iteration_", "__flow_condition_"
+            ))
             for socket in node_definition.get("inputs", [])
         )
         definition = (
             node_definition
-            if has_loop_inputs or str(definition_id).startswith("core.python.")
+            if has_graph_lowering_inputs or str(definition_id).startswith("core.python.")
             else _CATALOG.get(definition_id)
         )
         if definition is None:

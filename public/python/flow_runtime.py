@@ -1569,14 +1569,14 @@ def discover_full():
 
 def type_catalog_json():
     """Return the complete discovery-generated type registry as kernel-free JSON."""
-    if not _TYPE_REGISTRY:
+    if not _DISCOVERY_REPORT.get("include_full"):
         discover(include_full=True)
     return json.dumps(_json_clean(list(_TYPE_REGISTRY.values())), allow_nan=False)
 
 
 def catalog_bundle_json():
     """Return versioned type and node registries for the kernel-free interpreter."""
-    if not _CATALOG:
+    if not _DISCOVERY_REPORT.get("include_full"):
         discover(include_full=True)
     try:
         distribution_version = importlib.metadata.version("build123d")
@@ -1595,7 +1595,7 @@ def catalog_bundle_json():
 
 def _type_catalog():
     """Create the pure-data resolver over the most recently discovered API."""
-    if not _TYPE_REGISTRY or not _CATALOG:
+    if not _DISCOVERY_REPORT.get("include_full"):
         discover(include_full=True)
     return TypeCatalog({
         "schema_version": _CATALOG_SCHEMA_VERSION,

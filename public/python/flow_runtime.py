@@ -1817,8 +1817,8 @@ def _mesh_preview(value, style=None):
     # are legitimate intermediate values. OCCT represents them as null
     # TopoDS shapes; they have no tessellation to preview, but must not turn
     # an otherwise valid graph evaluation into a node error.
-    shapes = [
-        shape for shape in _iter_shapes(value)
+    shapes = []
+    for shape in _iter_shapes(value):
         # Check is_empty before accessing wrapped: empty Wire instances can
         # have no wrapped handle, while wrappers such as Box do not expose
         # is_empty at all.
@@ -1833,8 +1833,7 @@ def _mesh_preview(value, style=None):
             continue
         if wrapped.IsNull():
             continue
-        yield shape
-    ]
+        shapes.append(shape)
     if not shapes:
         return None
     flat_vertices, flat_triangles, edge_segments, vertex_points = [], [], [], []

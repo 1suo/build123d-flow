@@ -1811,7 +1811,14 @@ def _point_xyz(point):
 
 
 def _mesh_preview(value, style=None):
-    shapes = list(_iter_shapes(value))
+    # Empty build123d accumulators (for example Curve() before adding edges)
+    # are legitimate intermediate values. OCCT represents them as null
+    # TopoDS shapes; they have no tessellation to preview, but must not turn
+    # an otherwise valid graph evaluation into a node error.
+    shapes = [
+        shape for shape in _iter_shapes(value)
+        if not shape.wrapped.IsNull()
+    ]
     if not shapes:
         return None
     flat_vertices, flat_triangles, edge_segments, vertex_points = [], [], [], []

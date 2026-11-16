@@ -3896,6 +3896,12 @@ def import_python_code(source):
 
     def materialize_literal(value):
         if isinstance(value, dict):
+            if "__flow_callable__" in value:
+                module_name, qualified_name = value["__flow_callable__"]
+                target = importlib.import_module(module_name)
+                for part in qualified_name.split("."):
+                    target = getattr(target, part)
+                return target
             if "__flow_object__" in value:
                 if b3d is None:
                     return value
@@ -4239,7 +4245,14 @@ def import_python_code(source):
             if node.id in {"True", "False", "None"}:
                 return ("literal", {"True": True, "False": False, "None": None}[node.id])
             standard_value = resolve_safe_stdlib_name(node.id)
-            if standard_value is not None and not callable(standard_value):
+            if standard_value is not None:
+                if callable(standard_value):
+                    return ("literal", {
+                        "__flow_callable__": [
+                            getattr(standard_value, "__module__", ""),
+                            getattr(standard_value, "__qualname__", getattr(standard_value, "__name__", "")),
+                        ]
+                    })
                 return ("literal", standard_value)
             try:
                 symbol = type_catalog.resolve_symbol(imported.get(node.id, node.id))
@@ -4262,7 +4275,14 @@ def import_python_code(source):
             if stored_attribute is not None:
                 return stored_attribute
             standard_value = resolve_safe_stdlib_attribute(node)
-            if standard_value is not None and not callable(standard_value):
+            if standard_value is not None:
+                if callable(standard_value):
+                    return ("literal", {
+                        "__flow_callable__": [
+                            getattr(standard_value, "__module__", ""),
+                            getattr(standard_value, "__qualname__", getattr(standard_value, "__name__", "")),
+                        ]
+                    })
                 return ("literal", standard_value)
             receiver_root = node.value
             while isinstance(receiver_root, ast.Attribute):
@@ -4520,7 +4540,7 @@ def import_python_code(source):
                             *[materialize_literal(item[1]) for item in safe_args],
                             **{name: materialize_literal(item[1]) for name, item in safe_kwargs.items()}
                         )
-                        if isinstance(result, range):
+                        if isinstance(result, range) or hasattr(result, "__next__"):
                             result = list(result)
                         return ("literal", result)
                     except Exception as exc:
@@ -5280,7 +5300,7 @@ def import_python_code(source):
             if receiver_type in {
                 "Number", "Integer", "Float", "String", "Boolean",
                 "Location", "Vector", "Vector2", "Vector3", "Rotation",
-                "Plane", "Axis", "Color", "Matrix",
+                "Plane", "Axis", "Color", "Matrix", "Any", None,
             }:
                 return add_python_binary_node(method, left, right, node.lineno)
             receiver_identity = None
@@ -5319,14 +5339,11 @@ def import_python_code(source):
                 if len(candidates) == 1:
                     definition_id = candidates[0]
                 elif candidates:
-                    raise ValueError(
-                        "Cannot resolve operator {} for receiver type {} (line {}); "
-                        "candidates: {}".format(method, receiver_type, node.lineno, candidates)
-                    )
+                    # Keep Python's own operator dispatch when the static
+                    # receiver annotation is too broad to select one MRO owner.
+                    return add_python_binary_node(method, left, right, node.lineno)
             if not definition_id:
-                raise ValueError("No graph node registered for operator {} on {} (line {})".format(
-                    method, receiver_type or "unknown receiver", node.lineno
-                ))
+                return add_python_binary_node(method, left, right, node.lineno)
             definition = definitions[definition_id]
             params, links = {}, []
             operands = [left, right]
@@ -5653,8 +5670,13 @@ def import_python_code(source):
                     execution_scopes.append(descriptor)
                     dependencies = scope_reference_ids([args, kwargs])
                     active_scope_ids.append(scope_id)
+                    binding_type = {
+                        "BuildPart": "BuildPart", "BuildSketch": "BuildSketch",
+                        "BuildLine": "BuildLine",
+                    }.get(manager_name, manager_name)
                     binding_node = add_scope_node(
                         scope_id, "binding", statement.lineno,
+                        output_type=binding_type,
                         dependencies=dependencies,
                     )
                     if optional is not None:
@@ -5725,6 +5747,28 @@ def import_python_code(source):
                 continue
             if isinstance(statement, ast.For):
                 iterable = expression(statement.iter)
+                if (
+                    iterable[0] == "literal"
+                    and isinstance(iterable[1], (list, tuple, range))
+                    and not active_loop_frames
+                    and len(iterable[1]) <= 32
+                    and any(
+                        isinstance(child, ast.If)
+                        for body_statement in statement.body
+                        for child in ast.walk(body_statement)
+                    )
+                ):
+                    saved_variables = dict(variables)
+                    for loop_value in iterable[1]:
+                        if isinstance(statement.target, ast.Name):
+                            variables[statement.target.id] = ("literal", loop_value)
+                        else:
+                            assign_target(statement.target, ("literal", loop_value), statement.lineno)
+                        process_statements(statement.body)
+                    if not iterable[1]:
+                        variables.clear()
+                        variables.update(saved_variables)
+                    continue
                 if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple, range)):
                     iterable = add_collection_node(
                         [("literal", item) for item in iterable[1]], "list",

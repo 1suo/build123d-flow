@@ -4007,40 +4007,45 @@ def import_python_code(source):
         if isinstance(value, dict) and "__flow_enum__" in value:
             return value["__flow_enum__"][2]
         if b3d is not None and isinstance(value, b3d.Axis):
-            return [list(value.position), list(value.direction)]
+            return {
+                "__flow_object__": "Axis",
+                "value": [list(value.position), list(value.direction)],
+            }
         if b3d is not None and isinstance(value, b3d.Plane):
-            return {"origin": list(value.origin), "x_dir": list(value.x_dir),
-                    "z_dir": list(value.z_dir)}
+            return {
+                "__flow_object__": "Plane",
+                "origin": list(value.origin),
+                "x_dir": list(value.x_dir),
+                "z_dir": list(value.z_dir),
+            }
         if b3d is not None and isinstance(value, b3d.Location):
-            return list(value.to_tuple())
+            return {"__flow_object__": "Location", "value": list(value.to_tuple())}
         if b3d is not None and isinstance(value, b3d.Vector):
-            return list(value)
+            return {"__flow_object__": "Vector", "value": list(value)}
         if isinstance(value, dict):
             if "__flow_object__" in value:
+                object_type = value["__flow_object__"]
                 if all(key in value for key in ("origin", "x_dir", "z_dir")):
                     return {
-                        key: literal_json_value(value[key])
-                        for key in ("origin", "x_dir", "z_dir")
+                        "__flow_object__": object_type,
+                        **{
+                            key: literal_json_value(value[key])
+                            for key in ("origin", "x_dir", "z_dir")
+                        },
                     }
                 if "value" in value:
-                    return literal_json_value(value["value"])
+                    return {
+                        "__flow_object__": object_type,
+                        "value": literal_json_value(value["value"]),
+                    }
                 args = [literal_json_value(item) for item in value.get("args", [])]
                 kwargs = {key: literal_json_value(item)
                           for key, item in value.get("kwargs", {}).items()}
-                if kwargs and value["__flow_object__"] in {"Plane", "Location"}:
-                    return kwargs
-                # Matrix accepts its row-major storage as one positional
-                # argument; the graph socket stores that value, not a wrapper
-                # list containing the constructor argument.
-                if value["__flow_object__"] == "Matrix" and len(args) == 1:
-                    return args[0]
-                # Preserve zero-argument value constructors such as Vector().
-                # An empty kwargs dict is not the same value as the constructed
-                # object; the evaluator restores this tagged form before calling
-                # an Any-typed consumer such as sum(iterable, Vector()).
-                if not args and not kwargs:
-                    return {"__flow_object__": value["__flow_object__"], "args": [], "kwargs": {}}
-                return args if args else kwargs
+                return {
+                    "__flow_object__": object_type,
+                    "args": args,
+                    "kwargs": kwargs,
+                }
             return {key: literal_json_value(item) for key, item in value.items()}
         if isinstance(value, tuple):
             return {"__flow_tuple__": [literal_json_value(item) for item in value]}

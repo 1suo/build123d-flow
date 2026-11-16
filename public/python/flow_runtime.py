@@ -3217,6 +3217,7 @@ def import_python_code(source):
     random_batch_contexts = []
     mapping_matching = "longest"
     active_loop_frames = []
+    active_conditions = []
     active_scope_ids = []
     execution_scopes = []
     scope_counter = 0
@@ -3240,6 +3241,17 @@ def import_python_code(source):
         # not explicitly read the target execute once per iteration.
         node_definition = dict(definition)
         node_definition["inputs"] = list(definition.get("inputs", []))
+        condition_links = []
+        condition_metadata = []
+        for condition_index, (condition, expected) in enumerate(active_conditions):
+            input_name = "__flow_condition_" + str(condition_index)
+            node_definition["inputs"].append({
+                "name": input_name, "type": "Boolean", "required": True,
+                "data_access": "item",
+            })
+            condition_links.append((input_name, condition[1], condition[2]))
+            condition_metadata.append({"input": input_name, "expected": expected})
+        all_links = list(links) + condition_links
         iteration_links = []
         for index, frame in enumerate(active_loop_frames if map_over_active_loops else []):
             # Only an item-access input triggers this loop's mapping. A
@@ -3248,7 +3260,7 @@ def import_python_code(source):
             # value must stay intact while the collection node executes once
             # per enclosing iteration.
             has_mapped_dependency = False
-            for input_name, source_id, _ in links:
+            for input_name, source_id, _ in all_links:
                 input_socket = next(
                     (socket for socket in node_definition["inputs"]
                      if socket.get("name") == input_name),
@@ -3298,6 +3310,8 @@ def import_python_code(source):
                     socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
                     for socket in definition.get("outputs", [])
                 )}
+        if condition_metadata:
+            data["python_conditions"] = condition_metadata
         if active_loop_frames and map_over_active_loops:
             data["python_loop_sources"] = [
                 {
@@ -3314,7 +3328,7 @@ def import_python_code(source):
             "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
             "data": data
         })
-        for input_name, source_id, output_name in list(links) + iteration_links:
+        for input_name, source_id, output_name in all_links + iteration_links:
             graph_edges.append({
                 "id": "import_edge_{}".format(len(graph_edges) + 1),
                 "source": source_id, "target": node_id,

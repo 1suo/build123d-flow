@@ -1557,7 +1557,15 @@ def run_empty_shape_preview_tests():
         raise AssertionError("Curve() should be represented by a null intermediate shape")
     if runtime._mesh_preview(empty_curve) is not None:
         raise AssertionError("An empty intermediate shape must not produce a mesh preview")
-    return {"name": "empty intermediate geometry preview", "null_shape_skipped": True}
+
+    # Wire() wraps an empty TopoDS_Compound: wrapped.IsNull() is false even
+    # though build123d correctly reports the geometry as empty.
+    empty_wire = runtime.b3d.Wire()
+    if not empty_wire.is_empty:
+        raise AssertionError("Wire() should be represented by an empty geometry value")
+    if runtime._mesh_preview(empty_wire) is not None:
+        raise AssertionError("An empty compound must not be sent to tessellation")
+    return {"name": "empty intermediate geometry preview", "null_and_empty_shapes_skipped": True}
 
 
 def run_constructor_overload_tests():

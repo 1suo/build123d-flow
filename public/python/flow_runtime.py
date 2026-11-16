@@ -1177,7 +1177,21 @@ def discover(include_full=True):
         "accepted": [],
     }
     modules = _discover_modules(report) if include_full else [b3d]
-    if not include_full:
+    if include_full:
+        import sys
+        loaded_modules = [
+            module for name, module in tuple(sys.modules.items())
+            if name.startswith("build123d.") and inspect.ismodule(module)
+        ]
+        seen_modules = {getattr(module, "__name__", None) for module in modules}
+        modules.extend(
+            module for module in loaded_modules
+            if getattr(module, "__name__", None) not in seen_modules
+        )
+        report["modules_visited"] = [
+            getattr(module, "__name__", str(module)) for module in modules
+        ]
+    else:
         report["modules_visited"] = [b3d.__name__]
     for module in modules:
         module_name = getattr(module, "__name__", "build123d")

@@ -63,6 +63,21 @@ result = box + cylinder
         self.assertIsNone(runtime.b3d)
         self.assertNotIn("build123d", sys.modules)
 
+    def test_context_manager_translation_uses_catalog_metadata(self):
+        manager = self.catalog.resolve_type("BuildPart")
+        self.assertTrue(manager["supports_context_manager"])
+        source = """
+from build123d import BuildPart, Box
+with BuildPart() as part:
+    Box(10, 10, 10)
+"""
+        graph = json.loads(runtime.import_python_code(source))
+        scopes = graph.get("execution_scopes", [])
+        self.assertTrue(scopes)
+        self.assertEqual(scopes[0]["name"], "BuildPart")
+        self.assertEqual(scopes[0]["module"], manager["module"])
+        self.assertIsNone(runtime.b3d)
+
     def test_all_discovered_type_node_references_resolve(self):
         for identity, record in self.catalog.types.items():
             references = (

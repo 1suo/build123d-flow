@@ -2904,12 +2904,20 @@ def _coerce_annotation(value, annotation):
         # coercion. Otherwise an overloaded method silently receives a list
         # of its faces/solids instead of the original shape.
         for candidate in candidates:
+            candidate_types = []
             if inspect.isclass(candidate):
-                try:
-                    if isinstance(value, candidate):
-                        return value
-                except TypeError:
-                    pass
+                candidate_types.append(candidate)
+            elif isinstance(candidate, typing.TypeVar):
+                candidate_types.extend(candidate.__constraints__)
+                if candidate.__bound__ is not None:
+                    candidate_types.append(candidate.__bound__)
+            for candidate_type in candidate_types:
+                if inspect.isclass(candidate_type):
+                    try:
+                        if isinstance(value, candidate_type):
+                            return value
+                    except TypeError:
+                        continue
         for candidate in candidates:
             try:
                 converted = _coerce_annotation(value, candidate)

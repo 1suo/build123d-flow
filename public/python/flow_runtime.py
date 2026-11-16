@@ -4439,6 +4439,37 @@ def import_python_code(source):
                     if isinstance(result, (range, enumerate, zip, reversed)):
                         result = list(result)
                     return ("literal", result)
+                elif node.func.id in {"abs", "round", "pow", "str", "int", "float", "bool"}:
+                    functions = {
+                        "abs": abs, "round": round, "pow": pow, "str": str,
+                        "int": int, "float": float, "bool": bool,
+                    }
+                    function = functions[node.func.id]
+                    supplied = [("arg_{}".format(i), value) for i, value in enumerate(builtin_args)]
+                    supplied.extend(builtin_kwargs.items())
+                    definition_id = "core.python.builtin." + node.func.id
+                    definitions[definition_id] = {
+                        "id": definition_id, "name": "Python " + node.func.id,
+                        "source": "python", "kind": "operation", "category": "Internal",
+                        "palette_category": "Python", "palette_section": "Builtins",
+                        "inputs": [{"name": name, "type": "Any", "required": True} for name, _ in supplied],
+                        "outputs": [{"name": "result", "type": "Any"}],
+                    }
+                    _INTERNAL_NODE_IDS.add(definition_id)
+                    _CATALOG_CALLABLES[definition_id] = function
+                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                        inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY)
+                        for name, _ in supplied
+                    ])
+                    _CATALOG_HINT_TARGETS[definition_id] = False
+                    params, links = {}, []
+                    for name, value in supplied:
+                        if value[0] == "literal":
+                            params[name] = literal_json_value(value[1])
+                        else:
+                            links.append((name, value[1], value[2]))
+                    created = add_node(definition_id, params, links, node.lineno)
+                    return ("ref", created, "result", "Any")
             # Reduction builtins consume a complete collection rather than
             # mapping over it. Lower graph-backed sum/max/min/len explicitly
             # so they cannot be mistaken for build123d's capitalized Sum node.
@@ -5566,6 +5597,44 @@ def import_python_code(source):
                 if condition[0] != "literal" or not isinstance(condition[1], bool):
                     raise ValueError("if conditions must be statically known booleans (line {})".format(statement.lineno))
                 process_statements(statement.body if condition[1] else statement.orelse)
+                continue
+            if isinstance(statement, ast.Assert):
+                condition = expression(statement.test)
+                message = (
+                    ("literal", ast.unparse(statement.msg))
+                    if statement.msg is not None and isinstance(statement.msg, ast.JoinedStr)
+                    else expression(statement.msg) if statement.msg is not None
+                    else ("literal", None)
+                )
+                definition_id = "core.python.assert"
+                def assert_condition(value, message=None):
+                    if not value:
+                        raise AssertionError(message)
+                    return True
+                definitions[definition_id] = {
+                    "id": definition_id, "name": "Python Assert",
+                    "source": "python", "kind": "operation", "category": "Internal",
+                    "palette_category": "Python", "palette_section": "Control flow",
+                    "inputs": [
+                        {"name": "condition", "type": "Boolean", "required": True},
+                        {"name": "message", "type": "Any", "required": False, "default": None},
+                    ],
+                    "outputs": [{"name": "result", "type": "Boolean"}],
+                }
+                _INTERNAL_NODE_IDS.add(definition_id)
+                _CATALOG_CALLABLES[definition_id] = assert_condition
+                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
+                    inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                    inspect.Parameter("message", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
+                ])
+                _CATALOG_HINT_TARGETS[definition_id] = False
+                params, links = {}, []
+                for name, value in (("condition", condition), ("message", message)):
+                    if value[0] == "literal":
+                        params[name] = literal_json_value(value[1])
+                    else:
+                        links.append((name, value[1], value[2]))
+                add_node(definition_id, params, links, statement.lineno)
                 continue
             if isinstance(statement, ast.Pass):
                 continue

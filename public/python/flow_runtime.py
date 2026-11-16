@@ -2898,10 +2898,24 @@ def _coerce_annotation(value, annotation):
                     return candidate(value)
                 except Exception:
                     continue
+        # A CAD value may itself be iterable (Shape, Sketch, Compound).
+        # When a union accepts both that domain object and Iterable[Domain],
+        # preserve an already-correct object before considering collection
+        # coercion. Otherwise an overloaded method silently receives a list
+        # of its faces/solids instead of the original shape.
+        for candidate in candidates:
+            if inspect.isclass(candidate):
+                try:
+                    if isinstance(value, candidate):
+                        return value
+                except TypeError:
+                    pass
         for candidate in candidates:
             try:
                 converted = _coerce_annotation(value, candidate)
-                if converted is not value or isinstance(value, candidate):
+                if converted is not value or (
+                    inspect.isclass(candidate) and isinstance(value, candidate)
+                ):
                     return converted
             except Exception:
                 continue

@@ -2313,7 +2313,8 @@ def _graph_plan(nodes, edges):
     return incoming, outgoing, order
 
 
-def evaluate_graph_json(payload):
+def evaluate_graph_json(payload, include_previews=True):
+    """Evaluate a graph; optionally skip viewport tessellation for kernel acceptance."""
     global _LAST_SHAPE
     _LAST_SHAPE = None
     graph = json.loads(payload)
@@ -2672,37 +2673,49 @@ def evaluate_graph_json(payload):
             errors["scope_cleanup"] = type(exc).__name__ + ": " + str(exc)
             break
 
-    source_nodes = {edge.get("source") for edge in edges}
-    # Preview Style replaces the upstream viewport representation to avoid coplanar z-fighting.
-    styled_sources = {
-        edge.get("source") for edge in edges
-        if nodes.get(edge.get("target"), {}).get("data", {}).get("definition", {}).get("id") == "core.preview.style"
-        and nodes.get(edge.get("target"), {}).get("data", {}).get("visible") is not False
-    }
-    for node_id in order:
-        if node_id not in values:
-            continue
-        visible = nodes[node_id].get("data", {}).get("visible")
-        if node_id in styled_sources or visible is False or (visible is not True and node_id in source_nodes):
-            continue
-        result = values[node_id].get("result")
-        key = node_keys.get(node_id)
-        try:
-            preview = _PREVIEW_CACHE.get(key) if key else None
-            if preview is None:
-                style = evaluated_params.get(node_id, {}) if nodes[node_id].get("data", {}).get("definition", {}).get("id") == "core.preview.style" else None
-                preview = _mesh_preview(result, style)
-                if preview is not None and key:
+    if include_previews:
+        source_nodes = {edge.get("source") for edge in edges}
+        # Preview Style replaces the upstream viewport representation to avoid coplanar z-fighting.
+        styled_sources = {
+            edge.get("source") for edge in edges
+            if nodes.get(edge.get("target"), {}).get("data", {}).get("definition", {}).get("id") == "core.preview.style"
+            and nodes.get(edge.get("target"), {}).get("data", {}).get("visible") is not False
+        }
+        for node_id in order:
+            if node_id not in values:
+                continue
+            visible = nodes[node_id].get("data", {}).get("visible")
+            if node_id in styled_sources or visible is False or (visible is not True and node_id in source_nodes):
+                continue
+            result = values[node_id].get("result")
+            key = node_keys.get(node_id)
+            try:
+                preview = _PREVIEW_CACHE.get(key) if key else None
+                if preview is None:
+                    style = evaluated_params.get(node_id, {}) if nodes[node_id].get("data", {}).get("definition", {}).get("id") == "core.preview.style" else None
+                    preview = _mesh_preview(result, style)
+                    if preview is not None and key:
+                        _PREVIEW_CACHE[key] = preview
+                        _trim_cache(_PREVIEW_CACHE)
+                elif key:
+                    _PREVIEW_CACHE.pop(key, None)
                     _PREVIEW_CACHE[key] = preview
-                    _trim_cache(_PREVIEW_CACHE)
-            elif key:
-                _PREVIEW_CACHE.pop(key, None)
-                _PREVIEW_CACHE[key] = preview
-            if preview is not None:
-                previews[node_id] = preview
-                _LAST_SHAPE = _as_export_shape(result)
-        except Exception as exc:
-            errors[node_id] = "Preview: " + str(exc)
+                if preview is not None:
+                    previews[node_id] = preview
+                    _LAST_SHAPE = _as_export_shape(result)
+            except Exception as exc:
+                errors[node_id] = "Preview: " + str(exc)
+    
+    else:
+        # Kernel acceptance validates native topology directly. Tessellating every
+        # intermediate node is viewport work and obscures execution performance.
+        for node_id in reversed(order):
+            if node_id not in values:
+                continue
+            shape = _as_export_shape(values[node_id].get("result"))
+            if shape is not None:
+                _LAST_SHAPE = shape
+                break
 
     return json.dumps(_json_clean({
         "previews": previews, "errors": errors, "order": order,

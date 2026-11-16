@@ -6111,8 +6111,13 @@ def import_python_code(source):
             if function_return_stack and function_return_stack[-1] is not no_function_return:
                 break
             if isinstance(statement, ast.ClassDef):
-                if statement.name in user_classes:
-                    prepare_user_class_attributes(statement.name)
+                if statement.name not in user_classes:
+                    raise ValueError(
+                        "Unsupported class definition '{}' at line {}: expected a single "
+                        "build123d Shape subclass with one statically lowerable __init__ "
+                        "and no additional methods".format(statement.name, statement.lineno)
+                    )
+                prepare_user_class_attributes(statement.name)
                 continue
             if isinstance(statement, (ast.Import, ast.ImportFrom, ast.ClassDef, ast.FunctionDef)):
                 continue

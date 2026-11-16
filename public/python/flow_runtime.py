@@ -588,6 +588,14 @@ _PYTHON_BINARY_OPERATORS = {
 }
 
 
+def _invoke_discovered_operator(method, left, right):
+    """Run a discovered binary operator through Python's complete dispatch protocol."""
+    operation = _PYTHON_BINARY_OPERATORS.get(method)
+    if operation is None:
+        raise ValueError("Unsupported discovered binary operator: " + str(method))
+    return operation(left, right)
+
+
 def _register_kernel_discovery_overrides():
     """Register presentation overrides only when the real kernel is available."""
     if b3d is None:
@@ -2675,14 +2683,11 @@ def evaluate_graph_json(payload, include_previews=True):
                         if name not in condition_names
                     })
             operator_method = definition.get("operator", {}).get("method")
-            python_operator = _PYTHON_BINARY_OPERATORS.get(operator_method)
-            if python_operator is not None:
-                native_invoke = invoke
+            if operator_method in _PYTHON_BINARY_OPERATORS:
                 def invoke(mapped):
-                    result = native_invoke(mapped)
-                    if result is not NotImplemented:
-                        return result
-                    return python_operator(mapped.get("self"), mapped.get("other"))
+                    return _invoke_discovered_operator(
+                        operator_method, mapped.get("self"), mapped.get("other")
+                    )
             stream_shapes = {}
             shape_memo = {}
             # Python for-loops and comprehensions explicitly declare their

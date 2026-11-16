@@ -1358,6 +1358,29 @@ def run_operator_overload_tests():
     return {"name": "operator overload selection", "scalar_shape_overload": True}
 
 
+def run_geometry_subclass_constructor_tests():
+    graph = runtime.import_python_code(
+        "from build123d import *\\n"
+        "class ProceduralPart(Part):\\n"
+        "    def __init__(self, length, width, height, radius=0.0):\\n"
+        "        obj = extrude(Rectangle(length, width), amount=height)\\n"
+        "        if radius != 0.0:\\n"
+        "            obj = fillet(obj.edges(), radius=radius)\\n"
+        "        obj -= Rot(0, 90, 0) * Cylinder(width / 4, length)\\n"
+        "        super().__init__(obj.wrapped)\\n"
+        "part = ProceduralPart(10, 8, 6, 0.2)\\n"
+    )
+    evaluated = json.loads(runtime.evaluate_graph_json(json.dumps(graph)))
+    if evaluated["errors"]:
+        raise AssertionError("A statically lowered geometry subclass failed: " + json.dumps(evaluated["errors"]))
+    if not graph["nodes"]:
+        raise AssertionError("Geometry subclass lowering produced no native graph operations")
+    terminal = graph["nodes"][-1]["id"]
+    if terminal not in evaluated["previews"]:
+        raise AssertionError("Geometry subclass base initialization produced no geometry preview")
+    return {"name": "geometry subclass constructor lowering", "native_base_initialized": True}
+
+
 def run_empty_shape_preview_tests():
     empty_curve = runtime.b3d.Curve()
     if not empty_curve.wrapped.IsNull():
@@ -1405,7 +1428,7 @@ def run_constructor_overload_tests():
 
 
 def run_graph_workflow_tests():
-    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_operator_overload_tests(), run_empty_shape_preview_tests(), run_constructor_overload_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
+    results = [run_graph_plan_validation_tests(), run_catalog_metadata_tests(), run_annotation_resolution_tests(), run_collection_workflow_tests(), run_data_mapping_tests(), run_dataflow_shape_inference_tests(), run_operator_mro_resolution_tests(), run_operator_overload_tests(), run_geometry_subclass_constructor_tests(), run_empty_shape_preview_tests(), run_constructor_overload_tests(), run_shape_collection_workflow_test(), run_preview_style_test(), run_python_import_tests(), run_python_loop_lowering_tests(), run_python_value_constructor_tests(), run_instance_method_receiver_tests(), run_python_scope_tests(), run_python_export_tests()]
 
     box = _definition("Box")
     results.append(_run("Box", [_node(box, "box", {"length": 20, "width": 15, "height": 10})], [], "box"))

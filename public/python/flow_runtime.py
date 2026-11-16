@@ -4920,11 +4920,26 @@ def import_python_code(source):
                 if socket is not receiver_socket
                 and socket.get("kind") not in {"keyword_only", "var_keyword", "var_positional"}
             ]
-            if len(node.args) > len(argument_sockets) and var_positional_socket is None:
+            positional_arguments = []
+            deferred_starred = None
+            for argument in node.args:
+                if isinstance(argument, ast.Starred):
+                    expanded = expression(argument.value)
+                    if expanded[0] == "literal" and isinstance(expanded[1], (list, tuple)):
+                        positional_arguments.extend(
+                            ast.Constant(value=item) for item in expanded[1]
+                        )
+                    elif var_positional_socket is not None and deferred_starred is None:
+                        deferred_starred = expanded
+                    else:
+                        raise ValueError("Expanded positional arguments must be literal or a single variadic input (line {})".format(node.lineno))
+                else:
+                    positional_arguments.append(argument)
+            if len(positional_arguments) > len(argument_sockets) and var_positional_socket is None:
                 raise ValueError("Too many positional arguments for {} at line {}".format(
                     definition.get("name"), node.lineno))
             supplied = {}
-            for index, value in enumerate(node.args[:len(argument_sockets)]):
+            for index, value in enumerate(positional_arguments[:len(argument_sockets)]):
                 supplied[argument_sockets[index]["name"]] = value
 
             # Python constructors such as Bezier(*points) expose a single
@@ -4932,7 +4947,11 @@ def import_python_code(source):
             # structural list; the evaluator expands that list back into
             # positional arguments when invoking the native callable.
             var_positional_value = None
-            extra_positional = node.args[len(argument_sockets):]
+            extra_positional = positional_arguments[len(argument_sockets):]
+            if deferred_starred is not None:
+                if extra_positional:
+                    raise ValueError("Mixed expanded and additional variadic positional arguments are unsupported (line {})".format(node.lineno))
+                var_positional_value = deferred_starred
             if extra_positional:
                 if var_positional_socket is None:
                     raise ValueError("Too many positional arguments for {} at line {}".format(

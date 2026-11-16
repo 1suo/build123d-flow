@@ -316,17 +316,28 @@ def _annotation_metadata(annotation):
     # still denoting one value. The declared collection ABC is the contract.
     collection_class = origin if origin is not None else annotation
     if inspect.isclass(collection_class) and collection_class not in mapping_origins:
-        try:
-            if issubclass(collection_class, collections.abc.Collection):
-                if issubclass(collection_class, (set, frozenset, collections.abc.Set)):
-                    origin = set
-                elif issubclass(collection_class, (tuple,)):
-                    origin = tuple
-                else:
-                    origin = list
-                args = args or (typing.Any,)
-        except TypeError:
-            pass
+        # Use declared collection inheritance, not structural issubclass checks.
+        # CAD domain objects often implement __iter__/__len__/__getitem__ for
+        # traversal while still representing one value (Sketch, Compound, etc.).
+        # Built-in/custom collections and explicit ABC subclasses remain
+        # structural because their collection base appears in the real MRO.
+        declared_bases = set(getattr(collection_class, "__mro__", ()))
+        collection_bases = {
+            list, tuple, set, frozenset,
+            collections.abc.Sequence, collections.abc.MutableSequence,
+            collections.abc.Iterable, collections.abc.Collection,
+            collections.abc.Set, collections.abc.MutableSet,
+        }
+        if declared_bases & collection_bases:
+            if declared_bases & {
+                set, frozenset, collections.abc.Set, collections.abc.MutableSet,
+            }:
+                origin = set
+            elif tuple in declared_bases:
+                origin = tuple
+            else:
+                origin = list
+            args = args or (typing.Any,)
     if origin in collection_origins:
         item_annotation = args[0] if args else typing.Any
         item_metadata = _annotation_metadata(item_annotation) if item_annotation is not typing.Any else {}

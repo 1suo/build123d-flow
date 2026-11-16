@@ -3102,9 +3102,21 @@ def import_python_code(source):
             base_class = getattr(b3d, base_node.attr, None)
         else:
             base_class = None
+        # Build123d's native geometry hierarchy is not rooted exclusively
+        # at Shape: Sketch and BaseSketchObject are first-class CAD geometry
+        # bases too. Accept those native geometry roots while continuing to
+        # reject arbitrary Python classes and non-geometry build123d helpers.
+        geometry_base_types = tuple(
+            candidate for candidate in (
+                getattr(b3d, "Shape", None),
+                getattr(b3d, "Sketch", None),
+                getattr(b3d, "BaseSketchObject", None),
+            )
+            if inspect.isclass(candidate)
+        )
         if (
             not inspect.isclass(base_class)
-            or not issubclass(base_class, getattr(b3d, "Shape", object))
+            or not any(issubclass(base_class, geometry_type) for geometry_type in geometry_base_types)
             or getattr(base_class, "__module__", "").split(".")[0] != "build123d"
         ):
             continue

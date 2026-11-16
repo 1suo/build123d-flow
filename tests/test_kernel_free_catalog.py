@@ -21,6 +21,7 @@ class KernelFreeCatalogLoadTests(unittest.TestCase):
         self.load_result = runtime.load_catalog_bundle(payload)
 
     def test_loading_catalog_does_not_import_kernel(self):
+        self.assertEqual(self.bundle["schema_version"], TypeCatalog.SCHEMA_VERSION)
         self.assertNotIn("build123d", sys.modules)
         self.assertNotIn("OCP", sys.modules)
 

@@ -115,6 +115,25 @@ def build_symbol_registry(module, modules=()):
                     "kind": "value",
                     "value": serialized,
                 })
+    for exported_name in getattr(module, "__all__", ()):
+        if exported_name in symbols:
+            continue
+        value = getattr(module, exported_name, None)
+        module_name = getattr(value, "__module__", "")
+        if callable(value) and module_name.split(".")[0] == "build123d":
+            symbols[exported_name] = {
+                "kind": "callable",
+                "id": module_name + "." + getattr(value, "__name__", exported_name),
+            }
+        elif inspect.isclass(value) and module_name.split(".")[0] == "build123d":
+            symbols[exported_name] = {
+                "kind": "type",
+                "type_id": _qualified_name(value),
+            }
+        else:
+            serialized = _serialize_discovered_value(value)
+            if serialized is not None:
+                symbols[exported_name] = {"kind": "value", "value": serialized}
     return symbols
 
 def build_type_registry(classes, nodes, geometry_base=None):

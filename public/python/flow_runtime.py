@@ -3068,8 +3068,14 @@ def import_python_code(source):
             return False
 
     def resolve_member(member_name, receiver_type, property_only=False):
-        """Resolve one catalog method/property using its receiver socket contract."""
+        """Resolve a member by the receiver's discovered Python MRO order."""
         candidates = []
+        receiver_mro = []
+        if receiver_type and receiver_type != "Any":
+            try:
+                receiver_mro = type_catalog.resolve_type(receiver_type)["mro"]
+            except CatalogError:
+                receiver_mro = []
         for candidate_id, candidate in definitions.items():
             is_property = ".property." + member_name in candidate_id or ".field." + member_name in candidate_id
             if property_only:
@@ -3084,36 +3090,35 @@ def import_python_code(source):
             accepted = receiver.get("variants") or [receiver.get("type", "Any")]
             if receiver_type in accepted:
                 score = 3
+            elif any(discovered_subtype(receiver_type, accepted_type) for accepted_type in accepted):
+                score = 2
+            elif "Any" in accepted:
+                score = 1
             else:
-                compatible = any(
-                    discovered_subtype(receiver_type, accepted_type)
-                    for accepted_type in accepted
-                )
-                if compatible:
-                    score = 2
-                elif "Any" in accepted:
-                    score = 1
-                else:
+                continue
+            mro_rank = len(receiver_mro) + 1
+            for accepted_type in accepted:
+                try:
+                    owner_id = type_catalog.resolve_type(accepted_type)["id"]
+                except CatalogError:
                     continue
-            candidates.append((score, candidate_id))
-        # Type inference is necessarily incomplete for chained collection
-        # expressions and generic return annotations. If no receiver-compatible
-        # method was found, permit a uniquely named discovered method. The graph
-        # evaluator binds it to the actual receiver at runtime, so Python's own
-        # attribute lookup remains the final compatibility check. Multiple
-        # implementations remain ambiguous and are rejected.
-        if not candidates:
+                if owner_id in receiver_mro:
+                    mro_rank = min(mro_rank, receiver_mro.index(owner_id))
+            candidates.append((score, -mro_rank, candidate_id))
+        if not candidates and receiver_type in (None, "Any"):
             for candidate_id, candidate in definitions.items():
                 if candidate_id.rsplit(".", 1)[-1] != member_name:
                     continue
                 if any(item.get("name") in {"self", "cls"}
                        for item in candidate.get("inputs", [])):
-                    candidates.append((0, candidate_id))
+                    candidates.append((0, 0, candidate_id))
         if not candidates:
             return None, ()
-        best_score = max(score for score, _ in candidates)
+        best_score = max(score for score, _, _ in candidates)
+        best_rank = max(rank for score, rank, _ in candidates if score == best_score)
         winners = tuple(sorted(
-            candidate_id for score, candidate_id in candidates if score == best_score
+            candidate_id for score, rank, candidate_id in candidates
+            if score == best_score and rank == best_rank
         ))
         return (winners[0], winners) if len(winners) == 1 else (None, winners)
 
@@ -3224,7 +3229,34 @@ def import_python_code(source):
         # Synthetic iteration sockets make even loop-body operations that do
         # not explicitly read the target execute once per iteration.
         node_definition = dict(definition)
-        node_definition["inputs"] = list(definition.get("inputs", []))
+        node_definition["inputs"] = [dict(socket) for socket in definition.get("inputs", [])]
+        node_definition["outputs"] = [dict(socket) for socket in definition.get("outputs", [])]
+        receiver_socket = next(
+            (socket for socket in node_definition["inputs"] if socket.get("name") in {"self", "cls"}),
+            None,
+        )
+        receiver_link = next(
+            (link for link in links if receiver_socket and link[0] == receiver_socket["name"]),
+            None,
+        )
+        receiver_output = None
+        if receiver_link:
+            source_node = next((item for item in graph_nodes if item["id"] == receiver_link[1]), None)
+            if source_node:
+                receiver_output = next(
+                    (socket for socket in source_node.get("data", {}).get("definition", {}).get("outputs", [])
+                     if socket.get("name") == receiver_link[2]),
+                    None,
+                )
+        for output_socket in node_definition["outputs"]:
+            if output_socket.get("type") == "GroupBy":
+                output_socket.setdefault("item_type", "ShapeList")
+            elif output_socket.get("item_type") in (None, "", "Any") and receiver_output:
+                inherited_item_type = receiver_output.get("item_type")
+                if inherited_item_type and inherited_item_type != "Any":
+                    output_socket["item_type"] = inherited_item_type
+                    if receiver_output.get("item_types"):
+                        output_socket["item_types"] = receiver_output["item_types"]
         iteration_links = []
         for index, frame in enumerate(active_loop_frames if map_over_active_loops else []):
             # Only an item-access input triggers this loop's mapping. A
@@ -3435,6 +3467,15 @@ def import_python_code(source):
 
     def reference_type(value):
         if value[0] == "literal":
+            tagged = value[1]
+            if isinstance(tagged, dict):
+                if isinstance(tagged.get("__flow_object__"), str):
+                    return tagged["__flow_object__"]
+                if isinstance(tagged.get("__flow_type__"), str):
+                    try:
+                        return type_catalog.resolve_type(tagged["__flow_type__"])["name"]
+                    except CatalogError:
+                        pass
             return _type_name(type(materialize_literal(value[1])))
         if len(value) > 3 and value[3] and value[3] != "Any":
             return value[3]

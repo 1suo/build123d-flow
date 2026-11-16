@@ -144,6 +144,35 @@ result = box + cylinder
         metrics = validate_graph(graph, "conditional.py")
         self.assertEqual(metrics["node_count"], 1)
 
+    def test_evaluator_preserves_generated_condition_socket_contract(self):
+        definition = dict(runtime._CATALOG["core.python.function"])
+        definition["inputs"] = [
+            dict(socket) for socket in definition["inputs"]
+        ] + [{
+            "name": "__flow_condition_0",
+            "type": "Boolean",
+            "required": True,
+            "data_access": "item",
+        }]
+        graph = {
+            "nodes": [{
+                "id": "conditional-function",
+                "type": "api",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "definition": definition,
+                    "params": {
+                        "code": "result = 42",
+                        "__flow_condition_0": True,
+                    },
+                },
+            }],
+            "edges": [],
+        }
+        result = json.loads(runtime.evaluate_graph_json(json.dumps(graph), include_previews=False))
+        self.assertEqual(result["errors"], {})
+        self.assertIn("conditional-function", result["socket_values"])
+
     def test_call_adapter_forwards_extra_keywords_to_variadic_constructor(self):
         import inspect
 

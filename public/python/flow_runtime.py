@@ -5085,7 +5085,7 @@ def import_python_code(source):
                         "id": definition_id, "name": "Python abs",
                         "source": "python", "kind": "operation", "category": "Internal",
                         "palette_category": "Internal", "palette_section": "Graph lowering",
-                        "inputs": [{"name": "value", "type": "Number", "required": True, "data_access": "structure"}],
+                        "inputs": [{"name": "value", "type": "Number", "required": True, "data_access": "item"}],
                         "outputs": [{"name": "result", "type": "Number"}],
                     }
                     _INTERNAL_NODE_IDS.add(definition_id)
@@ -6070,7 +6070,7 @@ def import_python_code(source):
                     "source": "python", "kind": "operation", "category": "Internal",
                     "palette_category": "Internal", "palette_section": "Graph lowering",
                     "inputs": [
-                        {"name": "condition", "type": "Boolean", "required": True, "data_access": "structure"},
+                        {"name": "condition", "type": "Boolean", "required": True, "data_access": "item"},
                         {"name": "message", "type": "String", "required": False, "default": "", "data_access": "structure"},
                     ],
                     "outputs": [{"name": "result", "type": "Any"}],

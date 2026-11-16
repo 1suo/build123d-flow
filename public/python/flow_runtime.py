@@ -6399,8 +6399,13 @@ def import_python_code(source):
                 if source_is_collection and created_output.get(
                     "generic_type_collection", {}
                 ).get(typevar_name):
+                    source_container_type = source_output.get("type", "List")
                     created_output.update({
-                        "type": "List",
+                        "type": (
+                            source_container_type
+                            if source_container_type not in {"List", "Any"}
+                            else "List"
+                        ),
                         "data_structure": "list",
                         "item_type": source_output.get("item_type", "Any"),
                         "data_access": "structure",

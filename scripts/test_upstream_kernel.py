@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Execute Gate 1's exact graphs with the real build123d kernel, without a browser."""
+"""Execute Gate 1 graphs with the native kernel, isolating every example."""
 from __future__ import annotations
 
 import collections
 import json
+import os
+import subprocess
 import sys
+import tempfile
 import traceback
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "public" / "python"))
-
-import flow_runtime as runtime
+EXAMPLE_TIMEOUT_SECONDS = int(os.environ.get("BUILD123D_EXAMPLE_TIMEOUT_SECONDS", "120"))
 
 
 def definition_ids(graph):
@@ -21,94 +23,177 @@ def definition_ids(graph):
     )
 
 
-def validate_geometry(evaluation, filename):
-    shape = runtime._LAST_SHAPE
-    if shape is None:
-        raise ValueError("{}: evaluator did not retain a terminal CAD shape".format(filename))
-    vertex_count = len(shape.vertices())
-    edge_count = len(shape.edges())
-    face_count = len(shape.faces())
-    if not (vertex_count or edge_count or face_count):
-        raise ValueError("{}: evaluation produced an empty native CAD shape".format(filename))
-    validity = getattr(shape, "is_valid", None)
-    if callable(validity):
-        validity = validity()
-    if validity is False:
-        raise ValueError("{}: terminal CAD shape is invalid".format(filename))
-    bounds = shape.bounding_box()
-    size = bounds.size
-    dimensions = [float(size.X), float(size.Y), float(size.Z)]
-    if any(value < 0 for value in dimensions):
-        raise ValueError("{}: invalid negative bounding-box dimension".format(filename))
-    return {
-        "preview_count": len(evaluation.get("previews") or {}),
-        "native_topology": {
-            "vertices": vertex_count,
-            "edges": edge_count,
-            "faces": face_count,
-        },
-        "bounds_size": dimensions,
-        "valid": validity is not False,
-    }
+def kernel_worker(item_path: Path) -> int:
+    """Run one example in a disposable process so a stuck native call is killable."""
+    import flow_runtime as runtime
+
+    item = json.loads(item_path.read_text(encoding="utf-8"))
+    filename = item["filename"]
+    try:
+        if runtime.b3d is None:
+            raise RuntimeError("Gate 2 requires the real build123d kernel")
+        runtime.discover(include_full=True)
+
+        # Register graph-lowering callables in this process, then evaluate the
+        # exact graph produced by Gate 1.
+        kernel_translation = runtime.import_python_code(item["source"])
+        expected_ids = definition_ids(item["graph"])
+        actual_ids = definition_ids(kernel_translation)
+        if expected_ids != actual_ids:
+            raise ValueError(
+                "kernel-backed translation differs from Gate 1 graph definitions; "
+                "kernel-only={} interpreter-only={}".format(
+                    list((actual_ids - expected_ids).elements()),
+                    list((expected_ids - actual_ids).elements()),
+                )
+            )
+
+        evaluation = json.loads(
+            runtime.evaluate_graph_json(
+                json.dumps(item["graph"]), include_previews=False
+            )
+        )
+        errors = evaluation.get("errors") or {}
+        if errors:
+            raise ValueError("graph execution errors: {}".format(errors))
+
+        shape = runtime._LAST_SHAPE
+        if shape is None:
+            raise ValueError("evaluator did not retain a terminal CAD shape")
+        vertex_count = len(shape.vertices())
+        edge_count = len(shape.edges())
+        face_count = len(shape.faces())
+        if not (vertex_count or edge_count or face_count):
+            raise ValueError("evaluation produced an empty native CAD shape")
+        validity = getattr(shape, "is_valid", None)
+        if callable(validity):
+            validity = validity()
+        if validity is False:
+            raise ValueError("terminal CAD shape is invalid")
+        size = shape.bounding_box().size
+        dimensions = [float(size.X), float(size.Y), float(size.Z)]
+        if any(value < 0 for value in dimensions):
+            raise ValueError("invalid negative bounding-box dimension")
+
+        result = {
+            "filename": filename,
+            "passed": True,
+            "geometry": {
+                "preview_count": len(evaluation.get("previews") or {}),
+                "native_topology": {
+                    "vertices": vertex_count,
+                    "edges": edge_count,
+                    "faces": face_count,
+                },
+                "bounds_size": dimensions,
+                "valid": validity is not False,
+            },
+        }
+        print(json.dumps(result, allow_nan=False), flush=True)
+        return 0
+    except Exception as exc:
+        result = {
+            "filename": filename,
+            "passed": False,
+            "stage": "kernel-execution",
+            "error": str(exc),
+            "traceback": traceback.format_exc(),
+        }
+        print(json.dumps(result, allow_nan=False), flush=True)
+        return 1
 
 
 def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--worker":
+        return kernel_worker(Path(sys.argv[2]))
     if len(sys.argv) != 3:
-        raise SystemExit("usage: test_upstream_kernel.py GATE1_RESULTS.json RESULTS.json")
+        raise SystemExit(
+            "usage: test_upstream_kernel.py GATE1_RESULTS.json RESULTS.json"
+        )
+
     gate1_path, results_path = map(Path, sys.argv[1:])
     gate1 = json.loads(gate1_path.read_text(encoding="utf-8"))
     if gate1.get("failed") != 0 or gate1.get("passed") != gate1.get("example_count"):
         raise SystemExit("Gate 2 cannot start: Gate 1 results are not completely green")
-    if runtime.b3d is None:
-        raise SystemExit("Gate 2 requires the real build123d kernel")
 
-    runtime.discover(include_full=True)
     results = []
-    for item in gate1["results"]:
-        filename = item["filename"]
-        try:
-            # Re-run translation only to register the production graph-lowering
-            # callables in this kernel process. Evaluation below consumes Gate 1's
-            # saved graph, not the graph produced by this registration pass.
-            kernel_translation = runtime.import_python_code(item["source"])
-            expected_ids = definition_ids(item["graph"])
-            actual_ids = definition_ids(kernel_translation)
-            if expected_ids != actual_ids:
-                raise ValueError(
-                    "{}: kernel-backed translation differs from Gate 1 graph definitions; "
-                    "kernel-only={} interpreter-only={}".format(
-                        filename,
-                        list((actual_ids - expected_ids).elements()),
-                        list((expected_ids - actual_ids).elements()),
-                    )
-                )
-            evaluation = json.loads(
-                runtime.evaluate_graph_json(json.dumps(item["graph"]), include_previews=False)
+    with tempfile.TemporaryDirectory(prefix="build123d-gate2-") as temporary_dir:
+        input_path = Path(temporary_dir) / "example.json"
+        for item in gate1["results"]:
+            filename = item["filename"]
+            input_path.write_text(
+                json.dumps(item, allow_nan=False), encoding="utf-8"
             )
-            errors = evaluation.get("errors") or {}
-            if errors:
-                raise ValueError("{}: graph execution errors: {}".format(filename, errors))
-            geometry = validate_geometry(evaluation, filename)
-            results.append({
-                "filename": filename,
-                "passed": True,
-                "geometry": geometry,
-            })
-            print("PASS {} ({} vertices, {} edges, {} faces)".format(
-                filename,
-                geometry["native_topology"]["vertices"],
-                geometry["native_topology"]["edges"],
-                geometry["native_topology"]["faces"],
-            ), flush=True)
-        except Exception as exc:
-            results.append({
-                "filename": filename,
-                "passed": False,
-                "stage": "kernel-execution",
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-            })
-            print("FAIL {}: {}".format(filename, exc), flush=True)
+            try:
+                completed = subprocess.run(
+                    [sys.executable, str(Path(__file__).resolve()), "--worker", str(input_path)],
+                    cwd=str(ROOT),
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=EXAMPLE_TIMEOUT_SECONDS,
+                    check=False,
+                )
+                output_lines = [
+                    line for line in completed.stdout.splitlines()
+                    if line.strip()
+                ]
+                if output_lines:
+                    result = json.loads(output_lines[-1])
+                else:
+                    result = {
+                        "filename": filename,
+                        "passed": False,
+                        "stage": "kernel-process",
+                        "error": "worker exited without a result (exit code {})".format(
+                            completed.returncode
+                        ),
+                        "stderr": completed.stderr[-12000:],
+                    }
+                if completed.returncode != 0 and result.get("passed"):
+                    result = {
+                        "filename": filename,
+                        "passed": False,
+                        "stage": "kernel-process",
+                        "error": "worker exited with code {}".format(completed.returncode),
+                        "stderr": completed.stderr[-12000:],
+                    }
+            except subprocess.TimeoutExpired as exc:
+                result = {
+                    "filename": filename,
+                    "passed": False,
+                    "stage": "kernel-timeout",
+                    "timeout_seconds": EXAMPLE_TIMEOUT_SECONDS,
+                    "error": "native kernel execution exceeded the per-example timeout; "
+                             "worker process was terminated",
+                    "stdout": (exc.stdout or "")[-4000:] if isinstance(exc.stdout, str) else "",
+                    "stderr": (exc.stderr or "")[-8000:] if isinstance(exc.stderr, str) else "",
+                }
+            except Exception as exc:
+                result = {
+                    "filename": filename,
+                    "passed": False,
+                    "stage": "kernel-harness",
+                    "error": str(exc),
+                    "traceback": traceback.format_exc(),
+                }
+
+            results.append(result)
+            if result.get("passed"):
+                geometry = result["geometry"]["native_topology"]
+                print(
+                    "PASS {} ({} vertices, {} edges, {} faces)".format(
+                        filename, geometry["vertices"], geometry["edges"], geometry["faces"]
+                    ),
+                    flush=True,
+                )
+            else:
+                print(
+                    "FAIL {} [{}]: {}".format(
+                        filename, result.get("stage"), result.get("error")
+                    ),
+                    flush=True,
+                )
 
     passed = sum(1 for result in results if result["passed"])
     payload = {
@@ -117,11 +202,12 @@ def main() -> int:
         "example_count": len(results),
         "passed": passed,
         "failed": len(results) - passed,
+        "per_example_timeout_seconds": EXAMPLE_TIMEOUT_SECONDS,
         "results": results,
     }
     results_path.parent.mkdir(parents=True, exist_ok=True)
     results_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + "\\n",
         encoding="utf-8",
     )
     print("Gate 2: {}/{} examples executed".format(passed, len(results)))

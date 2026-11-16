@@ -1819,10 +1819,21 @@ def _mesh_preview(value, style=None):
     # an otherwise valid graph evaluation into a node error.
     shapes = [
         shape for shape in _iter_shapes(value)
-        # Some build123d wrappers expose is_empty and some (for example Box)
-        # do not. When present, it catches empty TopoDS_Compounds whose wrapped
-        # handle is non-null but contains no topology.
-        if not shape.wrapped.IsNull() and not getattr(shape, "is_empty", False)
+        # Check is_empty before accessing wrapped: empty Wire instances can
+        # have no wrapped handle, while wrappers such as Box do not expose
+        # is_empty at all.
+        try:
+            if shape.is_empty:
+                continue
+        except (AttributeError, AssertionError):
+            pass
+        try:
+            wrapped = shape.wrapped
+        except (AttributeError, AssertionError):
+            continue
+        if wrapped.IsNull():
+            continue
+        yield shape
     ]
     if not shapes:
         return None

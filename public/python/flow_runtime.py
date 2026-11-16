@@ -4586,8 +4586,15 @@ def import_python_code(source):
                     class_info["base_type"],
                 ) if initialized[0] == "ref" else initialized
                 return ("literal", None)
-            if isinstance(node.func, ast.Name) and node.func.id in user_classes:
-                class_info = user_classes[node.func.id]
+            class_name = None
+            if isinstance(node.func, ast.Name) and class_name in user_classes:
+                class_name = class_name
+            elif isinstance(node.func, ast.Subscript):
+                class_reference = expression(node.func)
+                if class_reference[0] == "user_class":
+                    class_name = class_reference[1]
+            if class_name is not None:
+                class_info = user_classes[class_name]
                 initializer = class_info["initializer"]
                 arguments = initializer.args
                 positional_parameters = list(arguments.posonlyargs) + list(arguments.args)
@@ -4601,7 +4608,7 @@ def import_python_code(source):
                 if any(isinstance(argument, ast.Starred) for argument in node.args):
                     raise ValueError("Starred arguments to geometry subclass constructors are unsupported (line {})".format(node.lineno))
                 if len(node.args) > len(parameters):
-                    raise ValueError("Too many arguments for geometry subclass {} (line {})".format(node.func.id, node.lineno))
+                    raise ValueError("Too many arguments for geometry subclass {} (line {})".format(class_name, node.lineno))
                 for parameter, argument in zip(parameters, node.args):
                     bound[parameter.arg] = expression(argument)
                 for keyword in node.keywords:
@@ -4627,7 +4634,7 @@ def import_python_code(source):
                     process_statements(initializer.body)
                     instance = variables.get("self")
                     if instance is None:
-                        raise ValueError("Geometry subclass {} must initialize its native base with super().__init__ (line {})".format(node.func.id, node.lineno))
+                        raise ValueError("Geometry subclass {} must initialize its native base with super().__init__ (line {})".format(class_name, node.lineno))
                 finally:
                     active_user_classes.pop()
                     variables.clear()

@@ -1378,6 +1378,23 @@ def run_geometry_subclass_constructor_tests():
     terminal = graph["nodes"][-1]["id"]
     if terminal not in evaluated["previews"]:
         raise AssertionError("Geometry subclass base initialization produced no geometry preview")
+    builder_graph = runtime.import_python_code(
+        "from build123d import *\n"
+        "class BuilderPart(Solid):\n"
+        "    def __init__(self, length, width, height):\n"
+        "        with BuildPart() as obj:\n"
+        "            with BuildSketch():\n"
+        "                Rectangle(length, width)\n"
+        "            extrude(amount=height)\n"
+        "            Cylinder(width / 4, length, rotation=(0, 90, 0), mode=Mode.SUBTRACT)\n"
+        "        super().__init__(obj.part.wrapped)\n"
+        "part = BuilderPart(10, 8, 6)\n"
+    )
+    builder_result = json.loads(runtime.evaluate_graph_json(json.dumps(builder_graph)))
+    if builder_result["errors"]:
+        raise AssertionError("A builder-based geometry subclass failed: " + json.dumps(builder_result["errors"]))
+    if builder_graph["nodes"][-1]["id"] not in builder_result["previews"]:
+        raise AssertionError("Builder subclass base initialization produced no geometry preview")
     return {"name": "geometry subclass constructor lowering", "native_base_initialized": True}
 
 

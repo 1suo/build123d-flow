@@ -2382,7 +2382,11 @@ def evaluate_graph_json(payload, include_previews=True):
                     kwargs = restore_scope_value(value.get("kwargs", {}))
                     return constructor(*args, **kwargs)
                 if object_type == "Plane":
-                    return constructor(origin=value["origin"], x_dir=value["x_dir"], z_dir=value["z_dir"])
+                    return constructor(
+                        origin=restore_scope_value(value["origin"]),
+                        x_dir=restore_scope_value(value["x_dir"]),
+                        z_dir=restore_scope_value(value["z_dir"]),
+                    )
                 if object_type == "Location":
                     return constructor(value["value"])
                 return constructor(*value["value"])

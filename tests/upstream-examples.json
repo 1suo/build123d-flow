@@ -69,5 +69,6 @@
     "twist_extrude.py",
     "vase.py",
     "vase_algebra.py"
-  ]
+  ],
+  "expected_example_count": 67
 }

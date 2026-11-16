@@ -4853,9 +4853,9 @@ def import_python_code(source):
                 created = add_node(definition_id, params, links, node.lineno)
                 return ("ref", created, "result", "Any")
             if isinstance(node.func, ast.Name) and node.func.id in {
-                "range", "enumerate", "zip", "len", "min", "max", "abs", "round", "print", "print",
+                "range", "enumerate", "zip", "len", "min", "max", "abs", "round", "print",
                 "str", "int", "float", "bool", "list", "tuple", "sorted", "reversed",
-                "all", "any", "sum", "divmod", "pow"
+                "all", "any", "sum", "divmod", "pow", "dict", "set", "frozenset"
             }:
                 builtin_args = []
                 for argument in node.args:
@@ -4932,12 +4932,13 @@ def import_python_code(source):
                         "int": int, "float": float, "bool": bool, "list": list, "tuple": tuple,
                         "sorted": sorted, "reversed": reversed, "all": all, "any": any,
                         "sum": sum, "divmod": divmod, "pow": pow,
+                        "dict": dict, "set": set, "frozenset": frozenset,
                     }
                     result = functions[node.func.id](
                         *[materialize_literal(item[1]) for item in builtin_args],
                         **{name: materialize_literal(item[1]) for name, item in builtin_kwargs.items()}
                     )
-                    if isinstance(result, (range, enumerate, zip, reversed)):
+                    if isinstance(result, (range, enumerate, zip, reversed)) or hasattr(result, "__next__"):
                         result = list(result)
                     return ("literal", result)
                 elif node.func.id in {"abs", "round", "pow", "str", "int", "float", "bool"}:
@@ -6047,6 +6048,24 @@ def import_python_code(source):
         for statement_index, statement in enumerate(statements):
             if isinstance(statement, (ast.Import, ast.ImportFrom)):
                 continue
+            if isinstance(statement, (ast.Global, ast.Nonlocal)):
+                continue
+            if isinstance(statement, ast.Try):
+                try:
+                    process_statements(statement.body)
+                except ValueError as exc:
+                    message = str(exc)
+                    if (
+                        "Unresolved augmented-assignment target" in message
+                        or "Invalid subscript" in message
+                    ) and statement.handlers:
+                        process_statements(statement.handlers[0].body)
+                    else:
+                        raise
+                else:
+                    process_statements(statement.orelse)
+                process_statements(statement.finalbody)
+                continue
             if isinstance(statement, ast.With):
                 entered_contexts = []
                 for item in statement.items:
@@ -6504,6 +6523,12 @@ def import_python_code(source):
             self.value = value
 
     def inline_user_function(function_node, call_node, keep_names=()):
+        declared_globals = {
+            name for child in ast.walk(ast.Module(body=function_node.body, type_ignores=[]))
+            if isinstance(child, (ast.Global, ast.Nonlocal))
+            for name in child.names
+        }
+        keep_names = tuple(set(keep_names) | declared_globals)
         arguments = function_node.args
         positional_parameters = list(arguments.posonlyargs) + list(arguments.args)
         defaults = list(arguments.defaults)

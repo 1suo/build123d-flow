@@ -84,6 +84,7 @@ class LiveDiscoveryCatalogTests(unittest.TestCase):
 
     def test_catalog_records_the_installed_distribution_version(self):
         self.assertEqual(self.bundle["build123d_version"], "0.13.0")
+        self.assertEqual(self.bundle["ocp_distribution_version"], "8.0.1.1.0")
         self.assertGreater(len(self.bundle["types"]), 0)
         self.assertGreater(len(self.bundle["nodes"]), 0)
 

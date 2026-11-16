@@ -173,7 +173,7 @@ async function importExample(page: Page, source: string) {
     }
   })(), 30_000, "Python import and graph evaluation");
   if (!importOutcome.success) {
-    throw new Error("Python import/evaluation failed: " + importOutcome.errors.join("\\n"));
+    throw new Error("Python import/evaluation failed: " + importOutcome.errors.join("\n"));
   }
 
   const evaluation = importOutcome.state;

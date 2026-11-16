@@ -72,13 +72,15 @@ def validate_graph(graph, filename):
         node_map[node_id] = node
         definition = node.get("data", {}).get("definition")
         definition_id = definition.get("id") if isinstance(definition, dict) else None
-        if not isinstance(definition_id, str) or definition_id not in runtime._CATALOG:
+        if not isinstance(definition_id, str) or (
+            definition_id not in runtime._CATALOG
+            and definition_id not in runtime._INTERNAL_NODE_IDS
+        ):
             raise ValueError(
                 "{}: node {} references an unregistered definition {}".format(
                     filename, node_id, definition_id
                 )
             )
-        registered_definition = runtime._CATALOG[definition_id]
         if not isinstance(definition, dict) or definition.get("id") != definition_id:
             raise ValueError(
                 "{}: node {} has a malformed embedded definition {}".format(
@@ -86,14 +88,35 @@ def validate_graph(graph, filename):
                 )
             )
         for socket_group in ("inputs", "outputs"):
-            embedded_sockets = definition.get(socket_group, [])
-            registered_sockets = registered_definition.get(socket_group, [])
-            if embedded_sockets != registered_sockets:
+            sockets = definition.get(socket_group, [])
+            if not isinstance(sockets, list) or any(
+                not isinstance(socket, dict)
+                or not isinstance(socket.get("name"), str)
+                or not socket.get("name")
+                for socket in sockets
+            ):
                 raise ValueError(
-                    "{}: node {} has {} that differ from registered definition {}".format(
+                    "{}: node {} has malformed {} for {}".format(
                         filename, node_id, socket_group, definition_id
                     )
                 )
+        registered_definition = runtime._CATALOG.get(definition_id)
+        if registered_definition is not None:
+            for socket_group in ("inputs", "outputs"):
+                registered_names = {
+                    socket.get("name")
+                    for socket in registered_definition.get(socket_group, [])
+                }
+                for socket in definition.get(socket_group, []):
+                    name = socket["name"]
+                    # Loop lowering may add explicitly marked iteration sockets;
+                    # all other embedded sockets must originate in the catalog.
+                    if name not in registered_names and not name.startswith("__flow_iteration_"):
+                        raise ValueError(
+                            "{}: node {} embeds unknown {} socket {} on {}".format(
+                                filename, node_id, socket_group, name, definition_id
+                            )
+                        )
         if not isinstance(definition.get("inputs", []), list) or not isinstance(
             definition.get("outputs", []), list
         ):

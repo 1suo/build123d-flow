@@ -3982,7 +3982,11 @@ def import_python_code(source):
         )
         if b3d is not None and not inspect.isclass(constructor):
             return None
-        return constructor, constructor_type, type_record["name"]
+        return (
+            constructor, constructor_type, type_record["name"],
+            bool(type_record.get("supports_iteration") or type_record.get("supports_context_manager")),
+            type_record.get("iterable_item_type"),
+        )
 
     def resolve_build123d_class_callable(function_node):
         """Resolve class-level API calls from discovered node metadata."""
@@ -4821,7 +4825,7 @@ def import_python_code(source):
             # maintaining one importer exception per value class.
             value_constructor = resolve_value_constructor(node.func, expected_type)
             if value_constructor is not None:
-                constructor, constructor_type, constructor_name = value_constructor
+                constructor, constructor_type, constructor_name, force_node, iterable_item_type = value_constructor
                 value_arguments = [
                     (expression(argument.value), True)
                     if isinstance(argument, ast.Starred)
@@ -4837,7 +4841,7 @@ def import_python_code(source):
                 if node.args and node.keywords and constructor_type in {"Plane", "Location"}:
                     raise ValueError("{} cannot mix positional and keyword arguments at line {}".format(
                         constructor_type, node.lineno))
-                if all(item[0] == "literal" for item in values) and all(
+                if not force_node and all(item[0] == "literal" for item in values) and all(
                     item[0] == "literal" for item in kwargs.values()
                 ):
                     positional_values = []
@@ -4874,7 +4878,10 @@ def import_python_code(source):
                     "source": "python", "kind": "operation", "category": "Internal",
                     "palette_category": "Internal", "palette_section": "Graph lowering",
                     "inputs": input_sockets,
-                    "outputs": [{"name": "result", "type": constructor_type}],
+                    "outputs": [{
+                        "name": "result", "type": constructor_type,
+                        **({"item_type": iterable_item_type} if iterable_item_type else {}),
+                    }],
                 }
                 _INTERNAL_NODE_IDS.add(definition_id)
 

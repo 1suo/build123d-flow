@@ -61,3 +61,41 @@ npm run test:e2e
 The translator suite must be runnable locally without installing or importing the CAD
 kernel. The kernel suite may install the real kernel dependencies. Playwright is
 reserved for UI behavior and is not an acceptance harness for Python translation.
+
+### Discovery and type registry contract
+
+Discovery is performed against the real installed build123d distribution, not against
+a manually curated list of known types. The discovery process must enumerate public
+classes across the build123d package modules, including classes that are not eligible
+to become palette nodes. It must also discover their declared bases/MRO, constructors,
+overloads, methods, operators, properties, fields, enums, annotations, and relevant
+value-type serialization contracts.
+
+The generated, versioned catalog has two distinct registries:
+
+- **Type registry:** every discovered public build123d type, with a stable fully
+  qualified identity, module, bases/MRO, enum/value classification, and the metadata
+  needed to resolve annotations, receiver compatibility, and native operator dispatch.
+  Types remain present even when their constructor or members are rejected as graph
+  nodes.
+- **Node registry:** only callable constructors, methods, properties, operators, and
+  app-owned primitives that pass explicit graph-node eligibility checks. Each node
+  references type-registry identities rather than relying on guessed class names.
+
+A discovery rejection is scoped to a candidate node/member and records its reason; it
+must never delete the corresponding type from the type registry. Unknown or unresolved
+type references are reported as catalog-generation errors or explicit unresolved
+metadata, not silently mapped to a guessed type.
+
+The discovery command runs in the kernel-enabled environment and serializes plain
+JSON data. The interpreter imports only the generated JSON catalog and its own
+kernel-free implementation. It must not import the discovery module as a side effect.
+The catalog records the build123d distribution version and discovery schema version.
+CI regenerates the catalog from the pinned dependency set and verifies that the
+committed artifact is current and complete. A kernel upgrade therefore updates the
+catalog through discovery rather than through hand edits.
+
+Acceptance tests must prove both directions: every discovered public type is retained
+in the type registry, and every emitted node's type references resolve within that
+registry. Tests also exercise inheritance and operator dispatch using the serialized
+MRO, without importing build123d in the interpreter process.

@@ -25,6 +25,16 @@ jobs:
           python-version: "3.12"
       - name: Test Perigram graph adapter (kernel-free)
         run: PYTHONPATH=public/python python -m unittest discover -s tests -p 'test_perigram_graph.py' -v
+      - uses: actions/checkout@v4
+        with:
+          repository: Perigram/perigram
+          ref: staging
+          path: ${{ runner.temp }}/perigram
+      - name: Validate against actual Perigram SDK and core contracts
+        run: node tests/test_perigram_sdk_contract.mjs
+        env:
+          PERIGRAM_REPO: ${{ runner.temp }}/perigram
+          PYTHONPATH: public/python
       - uses: actions/setup-node@v4
         with:
           node-version: 22

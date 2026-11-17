@@ -18,9 +18,9 @@ catalog = {
         "name": "Box",
         "inputs": [
             {"name": "length", "type": "Number", "required": True},
-            {"name": "plane", "type": "build123d.Plane", "required": False},
+            {"name": "plane", "type": "Plane", "type_id": "build123d.geometry.Plane", "type_provider": "build123d", "required": False},
         ],
-        "outputs": [{"name": "result", "type": "build123d.Solid"}],
+        "outputs": [{"name": "result", "type": "Solid", "type_id": "build123d.topology.three_d.Solid", "type_provider": "build123d"}],
     },
     "core.python.select": {
         "id": "core.python.select",
@@ -32,7 +32,7 @@ catalog = {
     "build123d.ShapeList": {
         "id": "build123d.ShapeList",
         "name": "Shape list operation",
-        "inputs": [{"name": "shapes", "type": "build123d.Shape", "data_structure": "list"}],
+        "inputs": [{"name": "shapes", "type": "Shape", "type_id": "build123d.topology.shape_core.Shape", "type_provider": "build123d", "data_structure": "list"}],
         "outputs": [{"name": "result", "type": "Any"}],
     },
 }

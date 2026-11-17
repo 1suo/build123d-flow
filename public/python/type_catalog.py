@@ -297,6 +297,23 @@ def build_type_registry(classes, nodes, geometry_base=None):
                         break
                 if iterable_item_type is not None:
                     break
+        if iterable_item_type is None and callable(iterator):
+            # Some native value objects expose an unannotated __iter__ but
+            # declare homogeneous scalar components through discovered
+            # properties (e.g. X/Y/Z -> Number). Infer the iterable element
+            # capability from those API declarations without naming a class.
+            property_types = []
+            for member_id in member_node_ids:
+                if ".property." not in member_id:
+                    continue
+                member_definition = nodes.get(member_id, {})
+                member_outputs = member_definition.get("outputs", [])
+                if member_outputs:
+                    property_type = member_outputs[0].get("type")
+                    if property_type in {"Number", "Boolean", "String"}:
+                        property_types.append(property_type)
+            if property_types and len(set(property_types)) == 1:
+                iterable_item_type = property_types[0]
         registry[identity] = {
             "id": identity,
             "name": name,

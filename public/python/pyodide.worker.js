@@ -110,7 +110,7 @@ async function loadSources(baseUrl) {
       !/^def\s+import_python_code\s*\(/m.test(translator)) {
     throw new Error("Refusing incomplete Python translator from " + translatorUrl.href);
   }
-  const sourceRevision = await fingerprint(setup + "\0" + runtime + "\\0" + catalog + "\\0" + translator);
+  const sourceRevision = await fingerprint(setup + "\0" + runtime + "\0" + catalog + "\0" + translator);
   return { setup, runtime, catalog, translator, sourceRevision };
 }
 

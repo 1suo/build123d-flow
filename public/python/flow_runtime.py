@@ -203,6 +203,32 @@ def _socket_data_shape(socket):
         }
     return {"kind": "item", "type": socket_type}
 
+
+def _replace_any_shape_leaf(shape, item_type):
+    """Fill unknown collection leaves from a discovered native iterable type."""
+    if not isinstance(shape, dict):
+        return shape
+    kind = shape.get("kind")
+    if kind == "item":
+        return dict(shape, type=item_type) if shape.get("type") == "Any" else shape
+    if kind in {"list", "tree", "set"}:
+        return dict(shape, item=_replace_any_shape_leaf(shape.get("item"), item_type))
+    if kind == "tuple":
+        return dict(shape, items=[
+            _replace_any_shape_leaf(item, item_type) for item in shape.get("items", [])
+        ])
+    if kind == "map":
+        return dict(
+            shape,
+            key=_replace_any_shape_leaf(shape.get("key"), item_type),
+            value=_replace_any_shape_leaf(shape.get("value"), item_type),
+        )
+    if kind == "union":
+        return dict(shape, options=[
+            _replace_any_shape_leaf(item, item_type) for item in shape.get("options", [])
+        ])
+    return shape
+
 def _union_annotations(annotations):
     """Combine overload annotations without losing union or collection types."""
     flattened = []
@@ -1881,6 +1907,17 @@ def discover(include_full=True):
                     if socket.get("item_type") in (None, "", "Any"):
                         socket["item_type"] = record.get("iterable_item_type") or "Any"
             item_type = socket.get("item_type")
+            if (
+                record
+                and socket.get("data_structure") in {"list", "tree", "set"}
+                and item_type in (None, "", "Any")
+                and record.get("iterable_item_type")
+            ):
+                item_type = record["iterable_item_type"]
+                socket["item_type"] = item_type
+                socket["data_shape"] = _replace_any_shape_leaf(
+                    socket.get("data_shape"), item_type
+                )
             item_record = type_records_by_socket.get(item_type)
             if item_record:
                 socket["item_semantic_type_id"] = item_record["id"]

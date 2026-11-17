@@ -367,8 +367,6 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 if source_output and source_output.get("item_type") not in (None, "", "Any"):
                     linked_item_types.append(source_output.get("item_type"))
         for output_socket in node_definition["outputs"]:
-            if output_socket.get("type") == "GroupBy":
-                output_socket.setdefault("item_type", "ShapeList")
             if receiver_output and output_socket.get("variants"):
                 receiver_type = receiver_output.get("type", "Any")
                 variants = output_socket["variants"]
@@ -396,8 +394,13 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                         output_socket["item_types"] = receiver_output["item_types"]
             if (
                 output_socket.get("item_type") in (None, "", "Any")
-                and (output_socket.get("data_structure") == "list"
-                     or output_socket.get("type") in {"List", "Locations", "LocationList", "ShapeList"})
+                and (
+                    output_socket.get("data_structure") in {"list", "tree", "set"}
+                    or (
+                        isinstance(output_socket.get("data_shape"), dict)
+                        and output_socket["data_shape"].get("kind") in {"list", "tree", "set"}
+                    )
+                )
                 and linked_item_types
             ):
                 output_socket["item_type"] = linked_item_types[0]

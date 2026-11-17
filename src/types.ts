@@ -4,6 +4,14 @@ export type BuiltinSocketType =
 /** Discovered nominal API types are open-world; no CAD class allowlist lives in the UI. */
 export type SocketType = BuiltinSocketType | (string & {});
 
+/** Recursive Python data layout, independent from the semantic value type. */
+export type SocketDataShape =
+  | { kind: "item"; type?: SocketType; type_id?: string; type_provider?: string; is_geometry?: boolean }
+  | { kind: "list" | "tree" | "set"; item: SocketDataShape }
+  | { kind: "tuple"; items: SocketDataShape[] }
+  | { kind: "map"; key: SocketDataShape; value: SocketDataShape }
+  | { kind: "union"; options: SocketDataShape[] };
+
 export interface SocketDefinition {
   name: string;
   label?: string;
@@ -24,7 +32,9 @@ export interface SocketDefinition {
   item_type?: SocketType;
   key_type?: SocketType;
   value_type?: SocketType;
-  /** Shape of the data carried by this socket, not its semantic value type. */
+  /** Recursive structure, including tuple positions and map key/value types. */
+  data_shape?: SocketDataShape;
+  /** Legacy outer shape retained for older catalog consumers. */
   data_structure?: "item" | "list" | "tree" | "tuple" | "set" | "dict";
   /** How an input consumes incoming data: one item at a time or as a whole structure. */
   data_access?: "item" | "structure" | "tree";

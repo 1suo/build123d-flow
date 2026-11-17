@@ -42,6 +42,15 @@ catalog = {
         "inputs": [{"name": "items", "type": "Any", "data_structure": "list"}],
         "outputs": [{"name": "result", "type": "Number"}],
     },
+    "build123d.VarArgs": {
+        "id": "build123d.VarArgs",
+        "name": "Varargs operation",
+        "inputs": [
+            {"name": "*args", "type": "Any"},
+            {"name": "**kwargs", "type": "Any"},
+        ],
+        "outputs": [{"name": "result", "type": "Any"}],
+    },
 }
 definitions = provider_definitions(catalog)
 document = translate_graph("Box(1, 2, 3)", {
@@ -81,11 +90,16 @@ print(json.dumps({"definitions": definitions, "document": document}, allow_nan=F
 });
 assert.equal(python.status, 0, python.stderr || python.stdout);
 const payload = JSON.parse(python.stdout);
-assert.equal(payload.definitions.length, 4);
+assert.equal(payload.definitions.length, 5);
 for (const definition of payload.definitions) {
   assert.deepEqual(sdk.validateNodeDefinition(definition), []);
 }
 assert.deepEqual(graph.validateGraphDocument(payload.document), []);
+const varargs = payload.definitions.find(item => item.id === 'build123d.VarArgs');
+assert.deepEqual(varargs.configuration.pythonPortNames.inputs, {
+  varargs_args: '*args',
+  kwargs_kwargs: '**kwargs',
+});
 assert.equal(payload.document.edges[0].source.port, 'result');
 assert.equal(payload.document.edges[0].target.port, 'shapes');
 console.log('All sample provider definitions and canonical graph document pass actual Perigram validators');

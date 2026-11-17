@@ -3,9 +3,11 @@ export type SocketType = string;
 
 /** Recursive value layout, orthogonal to semantic type identity. */
 export type DataShape =
-  | { kind: "item" }
-  | { kind: "list" | "tuple" | "set" | "tree"; item: DataShape }
-  | { kind: "map"; key: DataShape; value: DataShape };
+  | { kind: "item"; type: SocketType }
+  | { kind: "list" | "set" | "tree"; item: DataShape }
+  | { kind: "tuple"; items: DataShape[] }
+  | { kind: "map"; key: DataShape; value: DataShape }
+  | { kind: "union"; options: DataShape[] };
 
 export interface SocketDefinition {
   name: string;
@@ -33,6 +35,7 @@ export interface SocketDefinition {
   runtime_inspectable?: boolean;
   semantic_type_id?: string;
   item_semantic_type_id?: string;
+  runtime_inspectable?: boolean;
 }
 
 export interface NodeDefinition {

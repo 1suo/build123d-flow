@@ -1800,14 +1800,18 @@ def discover(include_full=True):
         for socket in definition.get("inputs", []) + definition.get("outputs", []):
             socket_type = socket.get("type", "Any")
             record = type_records_by_socket.get(socket_type)
-            if record and record.get("is_geometry"):
-                socket["is_geometry"] = True
+            if record:
                 socket["semantic_type_id"] = record["id"]
+                socket["type_mro"] = record.get("mro", [])
+                if record.get("is_geometry"):
+                    socket["is_geometry"] = True
             item_type = socket.get("item_type")
             item_record = type_records_by_socket.get(item_type)
-            if item_record and item_record.get("is_geometry"):
-                socket["item_is_geometry"] = True
+            if item_record:
                 socket["item_semantic_type_id"] = item_record["id"]
+                socket["item_type_mro"] = item_record.get("mro", [])
+                if item_record.get("is_geometry"):
+                    socket["item_is_geometry"] = True
             for variant in socket.get("variants", []):
                 variant_record = type_records_by_socket.get(variant)
                 if variant_record and variant_record.get("is_geometry"):

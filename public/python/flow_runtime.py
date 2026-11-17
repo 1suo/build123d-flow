@@ -2280,14 +2280,29 @@ def _socket_data_structure(socket):
             return "dict"
         if kind in {"item", "list", "tree", "tuple", "set"}:
             return kind
-        # Union shapes retain the legacy structural contract because one
-        # branch may be an item representation and another a collection.
+        if kind == "union":
+            # A union of scalar and collection representations is resolved
+            # from the concrete runtime value, never flattened to one branch.
+            return "dynamic"
     structure = socket.get("data_structure", "item")
     if structure != "item":
         return structure
     return {
         "List": "list", "Tuple": "tuple", "Set": "set", "Dict": "dict",
     }.get(socket.get("type"), "item")
+
+
+def _runtime_data_structure(value):
+    """Resolve a union/dynamic output's concrete runtime collection shape."""
+    if isinstance(value, dict):
+        return "dict"
+    if isinstance(value, set):
+        return "set"
+    if isinstance(value, tuple):
+        return "tuple"
+    if isinstance(value, list):
+        return "tree" if any(type(item) is list for item in value) else "list"
+    return "item"
 
 
 def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None, visiting=None):
@@ -2353,6 +2368,8 @@ def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None
         inferred = "tree"
     if declared in ("list", "tuple") and inferred in ("list", "tree"):
         result = "tree"
+    elif declared == "dynamic":
+        result = inferred if inferred != "item" else "dynamic"
     else:
         result = declared if declared != "item" else inferred
     memo[key] = result
@@ -3025,6 +3042,11 @@ def evaluate_graph_json(payload, include_previews=True):
                 source_shape = _effective_output_structure(
                     source_id, source_output, nodes, incoming, shape_memo
                 )
+                if source_shape == "dynamic":
+                    source_value = values.get(source_id, {}).get(
+                        source_output, values.get(source_id, {}).get("result")
+                    )
+                    source_shape = _runtime_data_structure(source_value)
                 if source_shape in ("list", "tuple", "tree"):
                     stream_shapes[input_name] = "list" if source_shape == "tuple" else source_shape
                 elif direct_loop_source or shared_loop_sources:

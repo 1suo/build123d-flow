@@ -2093,9 +2093,13 @@ def _iter_shapes(value, _seen=None):
     if isinstance(value, (collections.abc.Mapping, collections.abc.Sequence,
                           collections.abc.Set)):
         _seen.add(identity)
-        items = value.values() if isinstance(value, collections.abc.Mapping) else value
-        for item in items:
-            yield from _iter_shapes(item, _seen)
+        if isinstance(value, collections.abc.Mapping):
+            for key, item in value.items():
+                yield from _iter_shapes(key, _seen)
+                yield from _iter_shapes(item, _seen)
+        else:
+            for item in value:
+                yield from _iter_shapes(item, _seen)
         _seen.remove(identity)
 
 

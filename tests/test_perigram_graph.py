@@ -50,6 +50,16 @@ class PerigramGraphAdapterTests(unittest.TestCase):
             "typeId": "build123d.topology.three_d.Solid",
         })
 
+    def test_flow_and_python_primitives_use_python_provider(self):
+        definition = normalize_node_definition({
+            "id": "core.list.length",
+            "source": "flow",
+            "name": "List Length",
+            "inputs": [{"name": "items", "type": "Any", "data_structure": "list"}],
+            "outputs": [{"name": "result", "type": "Number"}],
+        })
+        self.assertEqual(definition["provider"], "perigram.python")
+
     def test_non_cad_nominal_types_do_not_default_to_build123d(self):
         descriptor = semantic_descriptor("my_package.CustomValue")
         self.assertEqual(descriptor, {

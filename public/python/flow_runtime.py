@@ -3249,9 +3249,11 @@ def _python_import_reference(obj, imports, alias):
 
 
 def import_python_code(source):
-    """Translate Python source through the independent kernel-free translator."""
+    """Translate Python through the kernel-free translator and active data catalog."""
+    if not _DISCOVERY_REPORT.get("include_full"):
+        discover(include_full=True)
     from python_translator import import_python_code as translate
-    return translate(source, sys.modules[__name__])
+    return translate(source, sys.modules[__name__], _type_catalog())
 
 def export_python_code(payload):
     """Compile a graph to standalone build123d Python using native API calls."""

@@ -372,8 +372,19 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 if source_output and source_output.get("item_type") not in (None, "", "Any"):
                     linked_item_types.append(source_output.get("item_type"))
         for output_socket in node_definition["outputs"]:
-            if output_socket.get("type") == "GroupBy":
-                output_socket.setdefault("item_type", "ShapeList")
+            # Resolve collection element identity from the discovered runtime
+            # type catalog, never from a GroupBy/ShapeList special case.
+            if (
+                output_socket.get("item_type") in (None, "", "Any")
+                and output_socket.get("data_structure") in {"list", "tree", "set"}
+            ):
+                try:
+                    iterable_record = type_catalog.resolve_type(output_socket.get("type", ""))
+                    discovered_item_type = iterable_record.get("iterable_item_type")
+                    if discovered_item_type:
+                        output_socket["item_type"] = discovered_item_type
+                except CatalogError:
+                    pass
             if receiver_output and output_socket.get("variants"):
                 receiver_type = receiver_output.get("type", "Any")
                 variants = output_socket["variants"]

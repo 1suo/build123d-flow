@@ -82,6 +82,14 @@ jobs:
         env:
           PERIGRAM_REPO: perigram
           PYTHONPATH: public/python
+      - name: Package installable Perigram plugin
+        run: python scripts/package_perigram_plugin.py
+      - name: Upload Perigram plugin package
+        uses: actions/upload-artifact@v4
+        with:
+          name: build123d-flow-perigram-plugin
+          path: build123d-flow-perigram-plugin.zip
+          if-no-files-found: error
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

@@ -613,6 +613,25 @@ wire = Wire.make_circle(5)
             },
         )
 
+    def test_union_data_shape_uses_concrete_runtime_collection_branch(self):
+        from flow_runtime import _runtime_data_structure, _socket_data_structure
+
+        socket = {
+            "type": "Any",
+            "data_structure": "list",
+            "data_shape": {
+                "kind": "union",
+                "options": [
+                    {"kind": "item", "type": "Shape"},
+                    {"kind": "list", "item": {"kind": "item", "type": "Shape"}},
+                ],
+            },
+        }
+        self.assertEqual(_socket_data_structure(socket), "dynamic")
+        self.assertEqual(_runtime_data_structure(object()), "item")
+        self.assertEqual(_runtime_data_structure([1, 2]), "list")
+        self.assertEqual(_runtime_data_structure([[1], [2]]), "tree")
+
     def test_nested_runtime_lists_promote_to_tree_mapping(self):
         from flow_runtime import _map_item_inputs
 

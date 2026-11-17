@@ -47,8 +47,10 @@ not a second production graph editor or execution coordinator.
   objects never cross the worker boundary.
 - The Perigram host's plugin-runtime bridge now strips its host-only
   `readSet` recorder before structured-cloning graph invocations into the
-  plugin worker. That host change and its regression test are on Perigram's
-  `staging` branch (commit `10ac4f58`).
+  plugin worker. Perigram's procedural evaluator now also assigns one
+  execution id per graph preview and carries it to every node (including
+  nested subgraphs). These host changes and regression tests are on Perigram's
+  `staging` branch (commit `d7836c42`).
 - CI validates the listing and node definitions against the actual pinned
   Perigram SDK/core, runs kernel-free Python tests, tests the JavaScript
   runtime entry, and runs a real Pyodide/OCP nested BuildPart/BuildSketch

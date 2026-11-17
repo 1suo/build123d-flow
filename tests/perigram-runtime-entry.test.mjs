@@ -12,7 +12,8 @@ class FakeWorker {
       {
         provider: "build123d",
         id: "build123d.Box",
-        execution: { runtime: "build123d-pyodide", targets: ["browser"] }
+        execution: { runtime: "build123d-pyodide", targets: ["browser"] },
+        preview: { renderer: "cad-mesh" }
       },
       {
         provider: "perigram.python",
@@ -53,6 +54,8 @@ test("Perigram runtime publishes discovered provider contributions", async () =>
     ["build123d", "perigram.python"]
   );
   assert.equal(runtime.providers[0].definitions.length, 1);
+  const build123dProvider = runtime.providers.find(item => item.provider === "build123d");
+  assert.equal(build123dProvider.previewRenderers["cad-mesh"], "build123d-cad-preview");
   runtime.dispose();
   assert.equal(worker.terminated, true);
 });

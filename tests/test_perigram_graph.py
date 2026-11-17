@@ -93,6 +93,45 @@ class PerigramGraphAdapterTests(unittest.TestCase):
             {"id": "scope-1", "module": "build123d", "name": "BuildPart"}
         ])
 
+    def test_graph_config_preserves_input_source_and_loop_metadata(self):
+        result = translate_graph("source -> target", {
+            "nodes": [
+                {
+                    "id": "source",
+                    "data": {
+                        "definition": {"id": "build123d.Box"},
+                        "params": {},
+                        "python_loop_sources": [
+                            {"node_id": "loop-source", "output_name": "result", "matching": "shortest"}
+                        ],
+                    },
+                },
+                {
+                    "id": "target",
+                    "data": {
+                        "definition": {"id": "build123d.Shape.translate"},
+                        "params": {},
+                    },
+                },
+            ],
+            "edges": [{
+                "id": "wire-1",
+                "source": "source",
+                "target": "target",
+                "sourceHandle": "result",
+                "targetHandle": "self",
+            }],
+            "execution_scopes": [],
+        })
+        target = next(node for node in result["nodes"] if node["id"] == "target")
+        self.assertEqual(target["config"]["inputSources"]["self"], [{
+            "nodeId": "source",
+            "outputId": "result",
+            "pythonLoopSources": [
+                {"node_id": "loop-source", "output_name": "result", "matching": "shortest"}
+            ],
+        }])
+
     def test_edges_require_existing_nodes_and_named_ports(self):
         with self.assertRaises(PerigramGraphError):
             translate_graph("x", {

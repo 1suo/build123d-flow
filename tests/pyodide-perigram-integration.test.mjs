@@ -48,7 +48,7 @@ spec.loader.exec_module(flow_runtime)
 import perigram_runtime
 `);
 
-  const result = await pyodide.runPythonAsync(`
+  const resultProxy = await pyodide.runPythonAsync(`
 import json
 import build123d as b3d
 from perigram_runtime import execute_operation_json, _decode
@@ -114,11 +114,15 @@ json.dumps({
     "innerScopeClosed": "result" in inner_result,
 })
 `);
+  const result = typeof resultProxy === "string" ? resultProxy : resultProxy.toJs();
+  if (resultProxy !== result && typeof resultProxy?.destroy === "function") resultProxy.destroy();
   const parsed = JSON.parse(result);
   assert.equal(parsed.volume, 24);
   assert.equal(parsed.solids, 1);
   assert.deepEqual(parsed.opaqueBindings, ["value-ref", "value-ref"]);
   console.log("Pyodide/OCP integration passed:", parsed);
 } finally {
-  pyodide.runPython("import perigram_runtime; perigram_runtime.clear_runtime()");
+  try {
+    pyodide.runPython("import perigram_runtime; perigram_runtime.clear_runtime()");
+  } catch {}
 }

@@ -13,8 +13,8 @@ const graph = await import(pathToFileURL(path.join(root, 'packages/core/src/grap
 const listing = JSON.parse(await readFile('perigram-listing.json', 'utf8'));
 const parsedListing = listingSdk.parseListing(listing);
 assert.equal(parsedListing.pluginId, 'build123d-flow');
-assert.equal(parsedListing.declarations.runtimes[0].id, 'build123d-pyodide');
-assert.equal(parsedListing.declarations.runtimes[0].entry, '/perigram-runtime.js');
+assert.equal(parsedListing.runtimes[0].id, 'build123d-pyodide');
+assert.equal(parsedListing.runtimes[0].entry, '/perigram-runtime.js');
 
 
 const python = spawnSync('python', ['-c', `

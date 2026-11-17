@@ -4,7 +4,7 @@ from perigram_graph import provider_definitions, translate_graph
 
 
 class PerigramScopeContractTests(unittest.TestCase):
-    def test_internal_scope_operations_are_registered_as_stateful_browser_nodes(self):
+    def test_internal_scope_operations_are_registered_as_preview_safe_browser_nodes(self):
         definitions = provider_definitions({})
         by_id = {definition["id"]: definition for definition in definitions}
         for operation_id in (
@@ -13,7 +13,8 @@ class PerigramScopeContractTests(unittest.TestCase):
         ):
             definition = by_id[operation_id]
             self.assertEqual(definition["provider"], "perigram.python")
-            self.assertEqual(definition["execution"]["kind"], "stateful")
+            self.assertEqual(definition["execution"]["kind"], "read")
+            self.assertTrue(definition["configuration"]["scopeLifecycle"])
             self.assertEqual(definition["execution"]["runtime"], "build123d-pyodide")
             self.assertEqual(definition["execution"]["targets"], ["browser"])
             self.assertEqual([port["id"] for port in definition["outputs"]], ["result"])

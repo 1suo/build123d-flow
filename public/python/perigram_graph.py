@@ -76,10 +76,14 @@ def semantic_descriptor(
 def transport_shape(socket: Mapping[str, Any]) -> str:
     """Derive execution transport shape independently from semantic type."""
     explicit = socket.get("data_structure") or socket.get("shape")
+    if explicit == "dict":
+        return "map"
+    if explicit == "set":
+        return "list"
     if explicit in SUPPORTED_SHAPES:
         return str(explicit)
     access = socket.get("data_access")
-    if access in {"tree", "list"}:
+    if access in SUPPORTED_SHAPES:
         return str(access)
     # Legacy translator output can carry shape in the access declaration.
     return "item"

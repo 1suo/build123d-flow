@@ -76,11 +76,11 @@ class PerigramGraphAdapterTests(unittest.TestCase):
                 "data": {
                     "definition": {"id": "build123d.Box", "source": "build123d"},
                     "params": {"length": 1},
-                    "execution_scope_path": [],
+                    "execution_scope_path": ["scope-1"],
                 },
             }],
             "edges": [],
-            "execution_scopes": [],
+            "execution_scopes": [{"id": "scope-1", "module": "build123d", "name": "BuildPart"}],
         })
         self.assertEqual(result["format"], "perigram.graph")
         self.assertEqual(result["version"], 1)
@@ -88,6 +88,10 @@ class PerigramGraphAdapterTests(unittest.TestCase):
             "provider": "build123d", "id": "build123d.Box", "version": "1"
         })
         self.assertEqual(result["metadata"]["source"]["language"], "python")
+        self.assertEqual(result["nodes"][0]["config"]["executionScopePath"], ["scope-1"])
+        self.assertEqual(result["nodes"][0]["config"]["executionScopes"], [
+            {"id": "scope-1", "module": "build123d", "name": "BuildPart"}
+        ])
 
     def test_edges_require_existing_nodes_and_named_ports(self):
         with self.assertRaises(PerigramGraphError):

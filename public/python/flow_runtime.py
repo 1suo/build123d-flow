@@ -547,7 +547,9 @@ def _annotation_metadata(annotation):
         # in structural mapping.
         collection_args = [
             arg for arg in args
-            if typing.get_origin(arg) in collection_origins or arg in collection_origins
+            if typing.get_origin(arg) in collection_origins
+            or typing.get_origin(arg) is tuple
+            or arg in collection_origins
         ]
         scalar_args = [arg for arg in args if arg is not type(None) and arg not in collection_args]
         variants = sorted({_type_name(arg) for arg in scalar_args})

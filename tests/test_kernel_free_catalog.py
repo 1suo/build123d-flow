@@ -505,6 +505,83 @@ wire = Wire.make_circle(5)
             identities,
         )
 
+    def test_recursive_data_shape_is_independent_from_semantic_type(self):
+        import typing
+        from flow_runtime import _annotation_data_shape, _annotation_metadata
+
+        shape = _annotation_data_shape(typing.List[typing.List[typing.Any]])
+        self.assertEqual(shape, {
+            "kind": "tree",
+            "item": {
+                "kind": "list",
+                "item": {"kind": "item", "type": "Any"},
+            },
+        })
+        metadata = _annotation_metadata(typing.List[typing.Any])
+        self.assertEqual(metadata["item_type"], "Any")
+        self.assertEqual(metadata["data_shape"], {
+            "kind": "list",
+            "item": {"kind": "item", "type": "Any"},
+        })
+        mapping = _annotation_data_shape(
+            typing.Dict[str, typing.List[typing.Any]]
+        )
+        self.assertEqual(mapping, {
+            "kind": "map",
+            "key": {"kind": "item", "type": "String"},
+            "value": {
+                "kind": "list",
+                "item": {"kind": "item", "type": "Any"},
+            },
+        })
+
+    def test_tuple_union_and_nested_collection_shapes_are_preserved(self):
+        import typing
+        from flow_runtime import _annotation_data_shape
+
+        self.assertEqual(
+            _annotation_data_shape(typing.Tuple[int, str]),
+            {
+                "kind": "tuple",
+                "items": [
+                    {"kind": "item", "type": "Number"},
+                    {"kind": "item", "type": "String"},
+                ],
+            },
+        )
+        union_shape = _annotation_data_shape(
+            typing.Union[typing.List[typing.Any], typing.Any]
+        )
+        self.assertEqual(union_shape["kind"], "union")
+        self.assertEqual(
+            {item["kind"] for item in union_shape["options"]},
+            {"item", "list"},
+        )
+
+    def test_any_preview_recursively_finds_geometry_in_nested_values(self):
+        from unittest.mock import patch
+
+        class FakeShape:
+            pass
+
+        class FakeKernel:
+            Shape = FakeShape
+
+        first, second = FakeShape(), FakeShape()
+        nested = {
+            "outer": [[first], (None, {second})],
+        }
+        with patch.object(runtime, "b3d", FakeKernel()):
+            found = list(runtime._iter_shapes(nested))
+        self.assertEqual(len(found), 2)
+        self.assertIs(found[0], first)
+        self.assertIs(found[1], second)
+
+    def test_vector_identity_is_not_rewritten_to_frontend_alias(self):
+        vector = self.catalog.resolve_type("Vector")
+        self.assertEqual(vector["socket_type"], "Vector")
+        self.assertNotEqual(vector["socket_type"], "Vector3")
+
     def test_all_discovered_type_node_references_resolve(self):
         for identity, record in self.catalog.types.items():
             references = (

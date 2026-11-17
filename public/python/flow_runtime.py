@@ -537,8 +537,7 @@ def _populate_editor_default(socket):
         return
     defaults = {
         "Number": 1.0, "Boolean": False, "String": "",
-        "Code": "", "Vector2": [0.0, 0.0], "Vector3": [0.0, 0.0, 0.0],
-        "List": [], "Tuple": [], "Set": [], "Dict": {},
+        "Code": "", "List": [], "Tuple": [], "Set": [], "Dict": {},
     }
     if socket_type == "Enum" and socket.get("options"):
         socket["default"] = socket["options"][0]
@@ -2120,7 +2119,9 @@ def _inspect_value(value, depth=0):
                 if (isinstance(item, (bool, int, float, str, list, tuple, set, frozenset,
                                       collections.abc.Mapping, collections.abc.Sequence,
                                       collections.abc.Set)) or item is None or
-                        type(item).__name__ in {"Vector", "Plane", "Location", "Rotation", "Axis", "Color"}):
+                        (_TYPE_REGISTRY.get(
+                            type(item).__module__ + "." + type(item).__name__, {}
+                        ).get("id") is not None)):
                     attributes[name] = _inspect_value(item, depth + 1)
             except Exception:
                 continue

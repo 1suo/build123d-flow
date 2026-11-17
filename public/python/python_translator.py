@@ -180,6 +180,8 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             return False
 
     def normalize_data_shape(socket):
+        if socket.get("type") == "Any" or socket.get("item_type") == "Any":
+            socket["runtime_inspectable"] = True
         if isinstance(socket.get("data_shape"), dict):
             return
         structure = _socket_data_structure(socket)

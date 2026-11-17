@@ -810,7 +810,7 @@ def run_python_loop_lowering_tests():
 def run_python_value_constructor_tests():
     """All declared build123d object socket types share generic constructor import."""
     cases = [
-        ("Vector3", "Vector", "Vector(1, 2, 3)", [1, 2, 3]),
+        ("Vector", "Vector", "Vector(1, 2, 3)", [1, 2, 3]),
         ("Vector2", "Vector2", "Vector2(1, 2)", [1, 2]),
         ("Rotation", "Rotation", "Rotation(0, 0, 0)", [0, 0, 0]),
         ("Plane", "Plane", "Plane(origin=(0, 0, 0), x_dir=(1, 0, 0), z_dir=(0, 0, 1))",

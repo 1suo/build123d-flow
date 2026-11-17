@@ -27,6 +27,12 @@ export interface SocketDefinition {
   /** How an input consumes incoming data: one item at a time or as a whole structure. */
   data_access?: "item" | "structure" | "tree";
   variants?: SocketType[];
+  /** Provider-discovered geometry capability for the semantic value type. */
+  is_geometry?: boolean;
+  item_is_geometry?: boolean;
+  runtime_inspectable?: boolean;
+  semantic_type_id?: string;
+  item_semantic_type_id?: string;
 }
 
 export interface NodeDefinition {

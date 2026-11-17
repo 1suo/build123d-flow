@@ -550,12 +550,12 @@ wire = Wire.make_circle(5)
             },
         )
         union_shape = _annotation_data_shape(
-            typing.Union[typing.List[typing.Any], typing.Any]
+            typing.Union[typing.List[typing.Any], typing.Tuple[typing.Any, ...]]
         )
         self.assertEqual(union_shape["kind"], "union")
         self.assertEqual(
             {item["kind"] for item in union_shape["options"]},
-            {"item", "list"},
+            {"list", "tuple"},
         )
 
     def test_any_preview_recursively_finds_geometry_in_nested_values(self):

@@ -186,6 +186,10 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
         config = {
             "parameters": data.get("params") or {},
             "executionScopePath": data.get("execution_scope_path") or [],
+            # Perigram invokes operations individually. Carry the source
+            # context-manager descriptors with each node so a stateful
+            # runtime can preserve lexical builder scopes across invocations.
+            "executionScopes": translated.get("execution_scopes") or [],
         }
         if data.get("data_matching"):
             config["dataMatching"] = data["data_matching"]

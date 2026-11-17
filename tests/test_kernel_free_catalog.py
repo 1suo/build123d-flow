@@ -679,6 +679,17 @@ vertex = Vertex(Vector(1, 2, 3))
             {"list", "tuple"},
         )
 
+    def test_non_string_class_mapping_keys_survive_literal_serialization(self):
+        graph = runtime.import_python_code("""
+class Lookup:
+    values = {4: "tetrahedron", 6: "cube"}
+    def __init__(self, face_count):
+        self.value = self.values[face_count]
+item = Lookup(4)
+""")
+        serialized = repr(graph)
+        self.assertIn("__flow_mapping__", serialized)
+
     def test_grasshopper_matching_policies_apply_to_generic_item_streams(self):
         from flow_runtime import _map_item_inputs
 

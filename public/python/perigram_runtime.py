@@ -502,6 +502,15 @@ def execute_operation_json(operation_id: str, inputs_json: str, config_json: str
     return execute_operation(operation_id, inputs, config)
 
 
+def clear_execution(execution_id: str) -> bool:
+    """Release one completed/cancelled graph execution and its native values."""
+    session = _SESSIONS.pop(str(execution_id), None)
+    if session is None:
+        return False
+    _release_session(session)
+    return True
+
+
 def clear_runtime() -> None:
     """Release all Python values and unwind any still-open builder scopes."""
     for session in list(_SESSIONS.values()):

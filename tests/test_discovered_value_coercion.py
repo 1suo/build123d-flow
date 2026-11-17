@@ -82,6 +82,25 @@ class DiscoveredValueCoercionTests(unittest.TestCase):
             )
         self.assertEqual(result.angles, (0, 90, 0))
 
+    def test_collection_shape_is_never_inferred_from_a_type_label(self):
+        self.assertEqual(
+            flow_runtime._socket_data_structure({"type": "List"}),
+            "item",
+        )
+        self.assertEqual(
+            flow_runtime._socket_data_structure({
+                "type": "Any",
+                "data_structure": "list",
+            }),
+            "list",
+        )
+
+    def test_vector_operations_are_not_a_hardcoded_flow_node_family(self):
+        definitions = {}
+        callables = {}
+        flow_runtime._register_flow_nodes(definitions, callables)
+        self.assertFalse(any(key.startswith("core.vector.") for key in definitions))
+
     def test_any_does_not_become_a_nominal_typing_type(self):
         metadata = flow_runtime._annotation_metadata(__import__("typing").Any)
         self.assertNotIn("type_id", metadata)

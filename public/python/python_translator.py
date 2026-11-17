@@ -179,10 +179,61 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         except CatalogError:
             return False
 
+    def replace_shape_item_type(shape, type_name):
+        if not isinstance(shape, dict):
+            return shape
+        kind = shape.get("kind")
+        if kind == "item":
+            return {**shape, "type": type_name}
+        if kind in {"list", "tree", "set"}:
+            return {**shape, "item": replace_shape_item_type(shape.get("item"), type_name)}
+        if kind == "tuple":
+            return {
+                **shape,
+                "items": [
+                    replace_shape_item_type(item, type_name)
+                    for item in shape.get("items", [])
+                ],
+            }
+        if kind == "map":
+            return {**shape, "value": replace_shape_item_type(shape.get("value"), type_name)}
+        if kind == "union":
+            return {
+                **shape,
+                "options": [
+                    replace_shape_item_type(item, type_name)
+                    for item in shape.get("options", [])
+                ],
+            }
+        return shape
+
     def normalize_data_shape(socket):
         if socket.get("type") == "Any" or socket.get("item_type") == "Any":
             socket["runtime_inspectable"] = True
-        if isinstance(socket.get("data_shape"), dict):
+        shape = socket.get("data_shape")
+        if isinstance(shape, dict):
+            kind = shape.get("kind")
+            if kind == "item":
+                type_name = socket.get("type", "Any")
+                if type_name != "Any":
+                    socket["data_shape"] = replace_shape_item_type(shape, type_name)
+            elif kind == "map":
+                value_type = socket.get("value_type", "Any")
+                if value_type != "Any":
+                    socket["data_shape"] = replace_shape_item_type(shape, value_type)
+            elif kind == "tuple" and socket.get("item_types"):
+                socket["data_shape"] = {
+                    **shape,
+                    "items": [
+                        replace_shape_item_type(item, socket["item_types"][index])
+                        if index < len(socket["item_types"]) else item
+                        for index, item in enumerate(shape.get("items", []))
+                    ],
+                }
+            else:
+                item_type = socket.get("item_type", "Any")
+                if item_type != "Any":
+                    socket["data_shape"] = replace_shape_item_type(shape, item_type)
             return
         structure = _socket_data_structure(socket)
         item_type = socket.get("item_type", "Any")

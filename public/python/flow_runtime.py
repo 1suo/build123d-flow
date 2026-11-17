@@ -196,6 +196,12 @@ def _annotation_data_shape(annotation, depth=0):
                 "build123d" if module_name.split(".")[0] == "build123d"
                 else "perigram.python"
             )
+            shape_base = getattr(b3d, "Shape", None) if b3d is not None else None
+            if inspect.isclass(shape_base):
+                try:
+                    leaf["is_geometry"] = issubclass(semantic_type, shape_base)
+                except TypeError:
+                    leaf["is_geometry"] = False
     return leaf
 
 

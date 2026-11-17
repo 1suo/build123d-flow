@@ -165,6 +165,12 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         except CatalogError:
             return False
 
+    def discovered_iterable(type_name):
+        try:
+            return bool(type_catalog.resolve_type(type_name).get("supports_iteration"))
+        except CatalogError:
+            return False
+
     def resolve_member(member_name, receiver_type, property_only=False):
         """Resolve a member by the receiver's discovered Python MRO order."""
         candidates = []
@@ -414,9 +420,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 output_socket.get("item_type") in (None, "", "Any")
                 and (
                     output_socket.get("data_structure") in {"list", "tree", "set"}
-                    or bool(
-                        type_catalog.resolve_type(output_socket.get("type", "")).get("supports_iteration")
-                    )
+                    or discovered_iterable(output_socket.get("type", ""))
                 )
                 and linked_item_types
             ):

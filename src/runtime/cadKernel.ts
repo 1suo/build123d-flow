@@ -270,6 +270,7 @@ export function isCadGeometryPort(port: CadPortDefinition): boolean {
 }
 
 export function cadPortTypeLabel(port: CadPortDefinition): string {
+  if (port.dataRepresentation === "value") return port.typeLabel ?? port.valueType;
   if (port.dataShape) return shapeTypeLabel(port.dataShape);
   const value = port.itemTypeLabel ?? port.typeLabel ?? port.itemType ?? port.valueType;
   if (port.collection === "item") return value;

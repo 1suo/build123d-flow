@@ -17,6 +17,7 @@ from typing import Any, Mapping
 _MARKER = "__perigram_runtime__"
 _MAX_HANDLES = 8192
 _MAX_SESSIONS = 16
+_MAX_PREVIEW_NUMBERS_PER_NODE = 300_000
 
 _VALUE_STORE: dict[str, Any] = {}
 _OBJECT_REFS: dict[tuple[int, str], str] = {}
@@ -126,8 +127,14 @@ def _decode(value: Any, session_id: str) -> Any:
     return {key: _decode(item, session_id) for key, item in value.items()}
 
 
-def _attach_preview(value: Any, encoded: Any, flow_runtime: Any) -> None:
-    """Attach a JSON mesh beside an opaque native reference, never replacing it."""
+def _attach_preview(
+    value: Any,
+    encoded: Any,
+    flow_runtime: Any,
+    budget: list[int] | None = None,
+) -> None:
+    """Attach bounded JSON meshes beside opaque refs, never replacing values."""
+    budget = budget if budget is not None else [_MAX_PREVIEW_NUMBERS_PER_NODE]
     if isinstance(encoded, dict) and encoded.get(_MARKER) == "value-ref":
         previewer = getattr(flow_runtime, "_mesh_preview", None)
         if not callable(previewer):
@@ -137,28 +144,32 @@ def _attach_preview(value: Any, encoded: Any, flow_runtime: Any) -> None:
         except Exception:
             return
         if isinstance(preview, dict) and preview.get("vertices") and preview.get("triangles"):
-            # Refuse unbounded preview payloads; the native object remains
-            # executable even when its optional viewport mesh is too large.
-            if len(preview["vertices"]) <= 600_000 and len(preview["triangles"]) <= 600_000:
+            number_count = sum(
+                len(preview.get(key, []))
+                for key in ("vertices", "triangles", "edges", "points")
+                if isinstance(preview.get(key), list)
+            )
+            if number_count <= budget[0]:
                 encoded["preview"] = {"renderer": "cad-mesh", "payload": preview}
+                budget[0] -= number_count
         return
     if type(value) is list and isinstance(encoded, list):
         for original, transported in zip(value, encoded):
-            _attach_preview(original, transported, flow_runtime)
+            _attach_preview(original, transported, flow_runtime, budget)
         return
     if type(value) is tuple and isinstance(encoded, dict) and encoded.get(_MARKER) == "tuple":
         for original, transported in zip(value, encoded.get("items", [])):
-            _attach_preview(original, transported, flow_runtime)
+            _attach_preview(original, transported, flow_runtime, budget)
         return
     if type(value) is dict and isinstance(encoded, dict):
         if encoded.get(_MARKER) == "map":
             for (key, item), pair in zip(value.items(), encoded.get("entries", [])):
-                _attach_preview(key, pair[0], flow_runtime)
-                _attach_preview(item, pair[1], flow_runtime)
+                _attach_preview(key, pair[0], flow_runtime, budget)
+                _attach_preview(item, pair[1], flow_runtime, budget)
         elif not encoded.get(_MARKER):
             for key, item in value.items():
                 if key in encoded:
-                    _attach_preview(item, encoded[key], flow_runtime)
+                    _attach_preview(item, encoded[key], flow_runtime, budget)
 
 
 def _collect_refs(value: Any, found: set[str] | None = None) -> set[str]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import enum
 import importlib
+import importlib.metadata
 import inspect
 import json
 import pkgutil
@@ -12,8 +13,16 @@ import types
 import collections.abc
 import hashlib
 import operator
+import sys
 
-import build123d as b3d
+try:
+    import build123d as b3d
+except ModuleNotFoundError as exc:
+    if exc.name != "build123d":
+        raise
+    b3d = None
+from type_catalog import SCHEMA_VERSION as _CATALOG_SCHEMA_VERSION
+from type_catalog import CatalogError, TypeCatalog, build_symbol_registry, build_type_registry
 
 _CATALOG = {}
 _CATALOG_CALLABLES = {}
@@ -25,6 +34,8 @@ _CATALOG_HINT_TARGETS = {}
 _INTERNAL_NODE_IDS = set()
 _LAST_SHAPE = None
 _DISCOVERY_REPORT = {}
+_TYPE_REGISTRY = {}
+_SYMBOL_REGISTRY = {}
 _EVAL_CACHE = {}
 _PREVIEW_CACHE = {}
 _CACHE_LIMIT = 128
@@ -39,7 +50,7 @@ def _type_name(annotation):
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
         union_args = [arg for arg in args if arg is not type(None)]
-        shape_base = getattr(b3d, "Shape", None)
+        shape_base = getattr(b3d, "Shape", None) if b3d is not None else None
         if union_args and inspect.isclass(shape_base):
             try:
                 if all(inspect.isclass(arg) and issubclass(arg, shape_base) for arg in union_args):
@@ -90,12 +101,18 @@ def _type_name(annotation):
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
-            for shape_name in ("Solid", "Compound", "Face", "Edge", "Wire", "Vertex", "Shell", "Sketch", "Part"):
-                shape_class = getattr(b3d, shape_name, None)
-                if inspect.isclass(shape_class) and issubclass(annotation, shape_class):
-                    return shape_name
-            if issubclass(annotation, getattr(b3d, "Shape", object)):
-                return "Shape"
+            if b3d is not None:
+                shape_base = getattr(b3d, "Shape", None)
+                if inspect.isclass(shape_base) and issubclass(annotation, shape_base):
+                    for base in getattr(annotation, "__mro__", (annotation,)):
+                        if base is shape_base:
+                            return "Shape"
+                        if (
+                            getattr(base, "__module__", "").split(".")[0] == "build123d"
+                            and inspect.isclass(shape_base)
+                            and issubclass(base, shape_base)
+                        ):
+                            return base.__name__
         except TypeError:
             pass
         if getattr(annotation, "__module__", "").split(".")[0] == "build123d":
@@ -143,7 +160,8 @@ def _hint_namespace(target):
     module globals alone raise NameError inside typing.get_type_hints.
     """
     names = dict(vars(typing))
-    names.update(vars(b3d))
+    if b3d is not None:
+        names.update(vars(b3d))
     module = inspect.getmodule(target)
     if module is not None:
         names.update(vars(module))
@@ -181,6 +199,7 @@ def _receiver_socket(owner):
         }
     return {
         "name": "self", "label": "object", "type": receiver_type,
+        "kind": "positional_or_keyword",
         "annotation": str(owner), "required": True, "data_access": "item",
     }
 
@@ -225,6 +244,44 @@ def _method_signature(function):
     return merged_signature, {}, False
 
 
+def _typevar_names(annotation):
+    """Return TypeVar names, including names preserved in unresolved ForwardRefs."""
+    if isinstance(annotation, typing.ForwardRef):
+        expression = annotation.__forward_arg__.strip()
+        if "[" in expression and expression.endswith("]"):
+            inner = expression.split("[", 1)[1][:-1]
+            return _typevar_names(typing.ForwardRef(inner))
+        return {expression}
+    if annotation.__class__.__name__ == "TypeVar":
+        name = getattr(annotation, "__name__", None)
+        return {name} if name else set()
+    names = set()
+    for argument in typing.get_args(annotation):
+        names.update(_typevar_names(argument))
+    return names
+
+
+def _typevar_occurs_in_collection(annotation, name):
+    """Whether a TypeVar occurs beneath a collection container in an annotation."""
+    if isinstance(annotation, typing.ForwardRef):
+        expression = annotation.__forward_arg__.strip()
+        if "[" in expression and expression.endswith("]"):
+            inner = expression.split("[", 1)[1][:-1]
+            return name in _typevar_names(typing.ForwardRef(inner))
+        return False
+    origin = typing.get_origin(annotation)
+    collection_origins = {
+        list, tuple, set, frozenset, collections.abc.Iterable,
+        collections.abc.Sequence, collections.abc.Collection,
+    }
+    if origin in collection_origins and name in _typevar_names(annotation):
+        return True
+    return any(
+        _typevar_occurs_in_collection(argument, name)
+        for argument in typing.get_args(annotation)
+    )
+
+
 def _resolve_self_annotation(annotation, owner):
     """Resolve typing.Self against the class that declares a discovered member."""
     if annotation is getattr(typing, "Self", None):
@@ -260,17 +317,28 @@ def _annotation_metadata(annotation):
     # still denoting one value. The declared collection ABC is the contract.
     collection_class = origin if origin is not None else annotation
     if inspect.isclass(collection_class) and collection_class not in mapping_origins:
-        try:
-            if issubclass(collection_class, collections.abc.Collection):
-                if issubclass(collection_class, (set, frozenset, collections.abc.Set)):
-                    origin = set
-                elif issubclass(collection_class, (tuple,)):
-                    origin = tuple
-                else:
-                    origin = list
-                args = args or (typing.Any,)
-        except TypeError:
-            pass
+        # Use declared collection inheritance, not structural issubclass checks.
+        # CAD domain objects often implement __iter__/__len__/__getitem__ for
+        # traversal while still representing one value (Sketch, Compound, etc.).
+        # Built-in/custom collections and explicit ABC subclasses remain
+        # structural because their collection base appears in the real MRO.
+        declared_bases = set(getattr(collection_class, "__mro__", ()))
+        collection_bases = {
+            list, tuple, set, frozenset,
+            collections.abc.Sequence, collections.abc.MutableSequence,
+            collections.abc.Iterable, collections.abc.Collection,
+            collections.abc.Set, collections.abc.MutableSet,
+        }
+        if declared_bases & collection_bases:
+            if declared_bases & {
+                set, frozenset, collections.abc.Set, collections.abc.MutableSet,
+            }:
+                origin = set
+            elif tuple in declared_bases:
+                origin = tuple
+            else:
+                origin = list
+            args = args or (typing.Any,)
     if origin in collection_origins:
         item_annotation = args[0] if args else typing.Any
         item_metadata = _annotation_metadata(item_annotation) if item_annotation is not typing.Any else {}
@@ -335,22 +403,6 @@ def _annotation_metadata(annotation):
                 for collection in collection_args
             )
         )
-        if value_representation_only:
-            # Preserve the accepted literal representation separately from
-            # stream shape. Overload resolution needs to distinguish
-            # VectorLike(tuple[float, ...]) from Location(Location).
-            literal_shapes = set()
-            if any(typing.get_origin(arg) is tuple for arg in scalar_args):
-                literal_shapes.add("tuple")
-            if any(
-                typing.get_origin(collection) in {
-                    list, collections.abc.Sequence, collections.abc.MutableSequence
-                }
-                for collection in collection_args
-            ):
-                literal_shapes.add("list")
-            if literal_shapes:
-                metadata["literal_shapes"] = sorted(literal_shapes)
         if collection_args and not value_representation_only:
             metadata["data_access"] = "structure"
             # A union return such as Location | Plane | list[Location] has a
@@ -487,6 +539,8 @@ def _candidate_rejection(obj):
 
 
 def _discover_modules(report=None):
+    if b3d is None:
+        raise RuntimeError("build123d is required for API discovery")
     modules = [b3d]
     seen = {b3d.__name__}
     report = report if report is not None else {}
@@ -535,16 +589,65 @@ _PYTHON_OPERATOR_SPECS = {
     "__invert__": {"symbol": "~", "codegen_symbol": "~", "family": "unary", "palette_category": "Logic", "palette_section": "Bitwise operators"},
 }
 
-# Native Shape algebra keeps its actual Python method identity and signature.
-# These are presentation overrides only: they do not register nodes or callables.
-for _shape_method, _shape_presentation in {
-    "__add__": {"name": "Shape + (Union)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-    "__sub__": {"name": "Shape − (Difference)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-    "__and__": {"name": "Shape & (Intersection)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-}.items():
-    _NODE_METADATA_OVERRIDES[
-        b3d.Shape.__module__ + "." + b3d.Shape.__name__ + ".operator." + _shape_method
-    ] = _shape_presentation
+_PYTHON_BINARY_OPERATORS = {
+    "__add__": operator.add, "__sub__": operator.sub,
+    "__mul__": operator.mul, "__truediv__": operator.truediv,
+    "__floordiv__": operator.floordiv, "__mod__": operator.mod,
+    "__pow__": operator.pow, "__matmul__": operator.matmul,
+    "__and__": operator.and_, "__or__": operator.or_,
+    "__xor__": operator.xor, "__lshift__": operator.lshift,
+    "__rshift__": operator.rshift,
+}
+
+
+def _invoke_discovered_operator(method, left, right):
+    """Run a discovered binary operator through Python's complete dispatch protocol."""
+    operation = _PYTHON_BINARY_OPERATORS.get(method)
+    if operation is None:
+        raise ValueError("Unsupported discovered binary operator: " + str(method))
+    return operation(left, right)
+
+
+def _invoke_discovered_operator_callable(native_invoke, method, mapped, signature):
+    """Invoke a discovered dunder with its real signature; honor reflected fallback."""
+    result = native_invoke(mapped)
+    if result is not NotImplemented:
+        return result
+    operation = _PYTHON_BINARY_OPERATORS.get(method)
+    if operation is None:
+        return result
+    parameters = [
+        parameter for parameter in signature.parameters.values()
+        if parameter.name not in ("self", "cls")
+        and parameter.kind not in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        )
+    ]
+    if not parameters:
+        return result
+    receiver_name = next(
+        (parameter.name for parameter in signature.parameters.values()
+         if parameter.name in ("self", "cls")),
+        "self",
+    )
+    receiver, operand = mapped.get(receiver_name), mapped.get(parameters[0].name)
+    if method.startswith("__r"):
+        return operation(operand, receiver)
+    return operation(receiver, operand)
+
+
+def _register_kernel_discovery_overrides():
+    """Register presentation overrides only when the real kernel is available."""
+    if b3d is None:
+        raise RuntimeError("build123d is required for API discovery")
+    for method, presentation in {
+        "__add__": {"name": "Shape + (Union)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+        "__sub__": {"name": "Shape − (Difference)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+        "__and__": {"name": "Shape & (Intersection)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+    }.items():
+        node_id = b3d.Shape.__module__ + "." + b3d.Shape.__name__ + ".operator." + method
+        _NODE_METADATA_OVERRIDES[node_id] = presentation
 
 
 _FLOW_PALETTE = {
@@ -1154,7 +1257,10 @@ def _register_python_nodes(found, callables):
 
 
 def discover(include_full=True):
-    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE
+    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE, _SYMBOL_REGISTRY
+    if b3d is None:
+        raise RuntimeError("build123d is required for API discovery; load a generated catalog instead")
+    _register_kernel_discovery_overrides()
     found = {}
     callables = {}
     signatures = {}
@@ -1169,7 +1275,21 @@ def discover(include_full=True):
         "accepted": [],
     }
     modules = _discover_modules(report) if include_full else [b3d]
-    if not include_full:
+    if include_full:
+        import sys
+        loaded_modules = [
+            module for name, module in tuple(sys.modules.items())
+            if name.startswith("build123d.") and inspect.ismodule(module)
+        ]
+        seen_modules = {getattr(module, "__name__", None) for module in modules}
+        modules.extend(
+            module for module in loaded_modules
+            if getattr(module, "__name__", None) not in seen_modules
+        )
+        report["modules_visited"] = [
+            getattr(module, "__name__", str(module)) for module in modules
+        ]
+    else:
         report["modules_visited"] = [b3d.__name__]
     for module in modules:
         module_name = getattr(module, "__name__", "build123d")
@@ -1348,6 +1468,10 @@ def discover(include_full=True):
                     property_id = node_prefix + ".property." + member_name
                     if property_id in found:
                         continue
+                    property_receiver = _receiver_socket(owner)
+                    getter_parameters = list(getter_signature.parameters.values())
+                    if getter_parameters:
+                        property_receiver["kind"] = getter_parameters[0].kind.name.lower()
                     getter = lambda self, name=member_name: getattr(self, name)
                     property_output = _type_name(return_annotation)
                     property_socket = {
@@ -1361,14 +1485,95 @@ def discover(include_full=True):
                         "category": owner.__name__ + " Properties",
                         "palette_category": "API", "palette_section": "Discovered properties",
                         "description": (inspect.getdoc(getter_fn) or "").split("\n")[0][:180],
-                        "inputs": [_receiver_socket(owner)],
+                        "inputs": [property_receiver],
                         "outputs": [property_socket],
                     }
                     callables[property_id] = getter
                     continue
 
                 if isinstance(raw_member, (staticmethod, classmethod)):
-                    # Static/class methods are module/class API, not receiver members.
+                    # Discover class-level callables as ordinary graph operations.
+                    # Their signatures are obtained from the bound descriptor, so
+                    # classmethod's implicit cls parameter is not exposed as a socket.
+                    callable_obj = getattr(owner, member_name, None)
+                    if not callable(callable_obj):
+                        continue
+                    hint_target = raw_member.__func__
+                    try:
+                        signature, hints, hint_target = _method_signature(hint_target)
+                    except (TypeError, ValueError):
+                        continue
+                    if isinstance(raw_member, classmethod):
+                        parameters = list(signature.parameters.values())
+                        if parameters and parameters[0].name in ("self", "cls"):
+                            signature = signature.replace(parameters=parameters[1:])
+                    inputs = []
+                    for parameter in signature.parameters.values():
+                        annotation = hints.get(parameter.name, parameter.annotation)
+                        if parameter.kind == parameter.VAR_POSITIONAL:
+                            default, default_repr, required, has_default = [], "()", False, True
+                            socket_type = "List"
+                        elif parameter.kind == parameter.VAR_KEYWORD:
+                            default, default_repr, required, has_default = {}, "{}", False, True
+                            socket_type = "Dict"
+                        else:
+                            default, default_repr, required, has_default = _safe_default(parameter.default)
+                            socket_type = _type_name(annotation)
+                        socket = {
+                            "name": parameter.name,
+                            "kind": parameter.kind.name.lower(),
+                            "type": socket_type,
+                            "annotation": str(annotation) if annotation is not inspect.Signature.empty else "",
+                            "required": required,
+                            "default_repr": default_repr,
+                        }
+                        if has_default:
+                            socket["default"] = default
+                        if inspect.isclass(annotation):
+                            try:
+                                if issubclass(annotation, enum.Enum):
+                                    socket["options"] = [member.name for member in annotation]
+                            except TypeError:
+                                pass
+                        if typing.get_origin(annotation) is typing.Literal:
+                            socket["options"] = list(typing.get_args(annotation))
+                        socket.update(_annotation_metadata(annotation))
+                        if parameter.kind == parameter.VAR_POSITIONAL:
+                            socket.update({"data_structure": "list", "item_type": _type_name(annotation)})
+                        elif parameter.kind == parameter.VAR_KEYWORD:
+                            socket.update({"data_structure": "dict", "key_type": "String", "value_type": "Any"})
+                        socket.setdefault(
+                            "data_access",
+                            "structure" if socket.get("data_structure") else "item",
+                        )
+                        _populate_editor_default(socket)
+                        inputs.append(socket)
+                    descriptor_kind = (
+                        "classmethod" if isinstance(raw_member, classmethod) else "static"
+                    )
+                    member_id = node_prefix + "." + descriptor_kind + "." + member_name
+                    return_annotation = hints.get("return", signature.return_annotation)
+                    output_socket = {
+                        "name": "result",
+                        "type": _type_name(return_annotation),
+                        "annotation": str(return_annotation) if return_annotation is not inspect.Signature.empty else "",
+                        **_annotation_metadata(return_annotation),
+                    }
+                    found[member_id] = {
+                        "id": member_id,
+                        "source": "build123d",
+                        "kind": "operation",
+                        "name": owner.__name__ + "." + member_name,
+                        "category": owner.__name__ + " Methods",
+                        "palette_category": "API",
+                        "palette_section": "Discovered methods",
+                        "description": (inspect.getdoc(hint_target) or "").split("\n")[0][:180],
+                        "inputs": inputs,
+                        "outputs": [output_socket],
+                    }
+                    callables[member_id] = callable_obj
+                    signatures[member_id] = signature
+                    hint_targets[member_id] = hint_target
                     continue
                 if not (inspect.isfunction(raw_member) or inspect.ismethoddescriptor(raw_member)
                         or inspect.isbuiltin(raw_member)):
@@ -1382,6 +1587,7 @@ def discover(include_full=True):
                     continue
                 receiver_socket = _receiver_socket(owner)
                 receiver_socket["name"] = parameters[0].name
+                receiver_socket["kind"] = parameters[0].kind.name.lower()
                 inputs = [receiver_socket]
                 for parameter in parameters[1:]:
                     annotation = _resolve_self_annotation(
@@ -1444,6 +1650,18 @@ def discover(include_full=True):
                     "annotation": str(return_annotation) if return_annotation is not inspect.Signature.empty else "",
                     **_annotation_metadata(resolved_return),
                 }
+                return_typevars = _typevar_names(resolved_return)
+                generic_type_sources = {}
+                for parameter in parameters[1:]:
+                    parameter_annotation = hints.get(parameter.name, parameter.annotation)
+                    for typevar_name in return_typevars & _typevar_names(parameter_annotation):
+                        generic_type_sources[typevar_name] = parameter.name
+                if generic_type_sources:
+                    output_socket["generic_type_sources"] = generic_type_sources
+                    output_socket["generic_type_collection"] = {
+                        name: _typevar_occurs_in_collection(resolved_return, name)
+                        for name in generic_type_sources
+                    }
                 found[method_id] = {
                     "id": method_id, "source": "build123d",
                     "kind": "operation", "name": display_name,
@@ -1528,6 +1746,21 @@ def discover(include_full=True):
         report["palette_source_counts"][source] = report["palette_source_counts"].get(source, 0) + 1
         report["palette_category_counts"][source + "/" + category] = report["palette_category_counts"].get(source + "/" + category, 0) + 1
 
+    type_registry = build_type_registry(api_classes, found, getattr(b3d, "Shape", None))
+    for api_class in api_classes:
+        type_id = api_class.__module__ + "." + api_class.__name__
+        record = type_registry.get(type_id)
+        if record is None:
+            continue
+        record["socket_type"] = _type_name(api_class)
+        try:
+            record["is_geometry"] = issubclass(api_class, b3d.Shape)
+        except TypeError:
+            record["is_geometry"] = False
+    report["type_count"] = len(type_registry)
+    symbol_registry = build_symbol_registry(b3d, modules)
+    report["symbol_count"] = len(symbol_registry)
+    report["type_ids"] = sorted(type_registry)
     report["node_count"] = len(found)
     report["kind_counts"] = {}
     report["category_counts"] = {}
@@ -1545,8 +1778,10 @@ def discover(include_full=True):
         name: any(item["name"] == name for item in found.values())
         for name in ("Box", "Cylinder", "Rectangle", "Circle", "extrude", "revolve")
     }
-    global _DISCOVERY_REPORT
+    global _DISCOVERY_REPORT, _TYPE_REGISTRY, _SYMBOL_REGISTRY
     _DISCOVERY_REPORT = report
+    _TYPE_REGISTRY = type_registry
+    _SYMBOL_REGISTRY = symbol_registry
     # Catalog replacement can change a node callable or signature; discard old values.
     _EVAL_CACHE.clear()
     _PREVIEW_CACHE.clear()
@@ -1576,8 +1811,147 @@ def discover_full():
     return json.dumps(_json_clean(discover(include_full=True)), allow_nan=False)
 
 
+def type_catalog_json():
+    """Return the complete discovery-generated type registry as kernel-free JSON."""
+    if not _DISCOVERY_REPORT.get("include_full"):
+        discover(include_full=True)
+    return json.dumps(_json_clean(list(_TYPE_REGISTRY.values())), allow_nan=False)
+
+
+def catalog_bundle_json():
+    """Return versioned type and node registries for the kernel-free interpreter."""
+    if not _DISCOVERY_REPORT.get("include_full"):
+        discover(include_full=True)
+    try:
+        distribution_version = importlib.metadata.version("build123d")
+    except Exception:
+        distribution_version = getattr(b3d, "__version__", "unknown") if b3d is not None else "unknown"
+    return json.dumps(_json_clean({
+        "schema_version": _CATALOG_SCHEMA_VERSION,
+        "build123d_version": distribution_version,
+        "types": list(_TYPE_REGISTRY.values()),
+        "symbols": _SYMBOL_REGISTRY,
+        "nodes": [
+            definition for node_id, definition in _CATALOG.items()
+            if node_id not in _INTERNAL_NODE_IDS
+        ],
+    }), allow_nan=False)
+
+
+def _type_catalog():
+    """Create the pure-data resolver over the most recently discovered API."""
+    if not _DISCOVERY_REPORT.get("include_full"):
+        discover(include_full=True)
+    return TypeCatalog({
+        "schema_version": _CATALOG_SCHEMA_VERSION,
+        "types": list(_TYPE_REGISTRY.values()),
+        "symbols": _SYMBOL_REGISTRY,
+        "nodes": [
+            definition for node_id, definition in _CATALOG.items()
+            if node_id not in _INTERNAL_NODE_IDS
+        ],
+    })
+
+
+def load_catalog_bundle(payload):
+    """Load generated API metadata without importing or initializing build123d."""
+    global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES
+    global _CATALOG_HINT_TARGETS, _TYPE_REGISTRY, _DISCOVERY_REPORT, _SYMBOL_REGISTRY
+    bundle = json.loads(payload) if isinstance(payload, str) else dict(payload)
+    catalog = TypeCatalog(bundle)
+    _INTERNAL_NODE_IDS.clear()
+    definitions = {item["id"]: dict(item) for item in bundle["nodes"]}
+    callables = {}
+    signatures = {}
+    hint_targets = {}
+    parameter_kinds = {
+        "positional_only": inspect.Parameter.POSITIONAL_ONLY,
+        "positional_or_keyword": inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        "var_positional": inspect.Parameter.VAR_POSITIONAL,
+        "keyword_only": inspect.Parameter.KEYWORD_ONLY,
+        "var_keyword": inspect.Parameter.VAR_KEYWORD,
+    }
+    for node_id, definition in definitions.items():
+        # Flow palette nodes intentionally use graph socket contracts that are
+        # not Python-call signatures (for example optional condition followed by
+        # required branch values). Their socket metadata is authoritative.
+        if definition.get("source") == "flow":
+            continue
+        parameters = []
+        input_sockets = definition.get("inputs", [])
+        for index, socket in enumerate(input_sockets):
+            kind = parameter_kinds.get(
+                socket.get("kind"), inspect.Parameter.POSITIONAL_OR_KEYWORD
+            )
+            # A receiver socket is part of the unbound callable signature.
+            # Some extension-backed methods expose a positional-only argument
+            # after an implicit self/cls parameter whose metadata omits kind.
+            # Python requires the receiver to be positional-only in that case.
+            if (
+                index == 0
+                and socket.get("name") in ("self", "cls")
+                and any(
+                    parameter_kinds.get(item.get("kind")) == inspect.Parameter.POSITIONAL_ONLY
+                    for item in input_sockets[index + 1:]
+                )
+            ):
+                kind = inspect.Parameter.POSITIONAL_ONLY
+            if kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ) or socket.get("required", False):
+                default = inspect.Signature.empty
+            else:
+                # Some CAD defaults are intentionally not serialized (for
+                # example a Plane instance). Preserve optionality in the
+                # reconstructed signature without inventing the actual value.
+                default = socket.get("default", None)
+            annotation = socket.get("annotation") or socket.get("type", "Any")
+            parameters.append(inspect.Parameter(
+                socket["name"], kind, default=default, annotation=annotation
+            ))
+        outputs = definition.get("outputs", [])
+        return_annotation = (
+            outputs[0].get("annotation") or outputs[0].get("type", "Any")
+            if outputs else inspect.Signature.empty
+        )
+        try:
+            signatures[node_id] = inspect.Signature(
+                parameters, return_annotation=return_annotation
+            )
+        except ValueError as exc:
+            raise ValueError(
+                "Invalid signature metadata for {}: {}".format(node_id, exc)
+            ) from exc
+        hint_targets[node_id] = False
+    _register_python_nodes(definitions, callables)
+    _CATALOG = definitions
+    _CATALOG_CALLABLES = callables
+    _CATALOG_SIGNATURES = signatures
+    _CATALOG_HINT_TARGETS = hint_targets
+    _TYPE_REGISTRY = dict(catalog.types)
+    _SYMBOL_REGISTRY = dict(catalog.symbols)
+    _DISCOVERY_REPORT = {
+        "include_full": True,
+        "catalog_source": "generated",
+        "type_count": len(_TYPE_REGISTRY),
+        "node_count": len(_CATALOG),
+        "modules_visited": [],
+        "module_import_failures": [],
+        "rejected": [],
+        "accepted": [],
+    }
+    _EVAL_CACHE.clear()
+    _PREVIEW_CACHE.clear()
+    return {
+        "type_count": len(_TYPE_REGISTRY),
+        "node_count": len(_CATALOG),
+        "build123d_version": bundle.get("build123d_version", "unknown"),
+    }
+
+
 def _iter_shapes(value):
-    if isinstance(value, b3d.Shape):
+    if b3d is not None and isinstance(value, b3d.Shape):
         yield value
     elif isinstance(value, (list, tuple)):
         for item in value:
@@ -1585,17 +1959,7 @@ def _iter_shapes(value):
 
 
 def _as_export_shape(value):
-    # A mapped graph result may intentionally contain the same native shape
-    # reference at multiple tree positions. Preserve that data in the graph,
-    # but include each object only once in the aggregate preview/export shape:
-    # OCCT Compound rejects adding the same TopoDS child twice.
-    shapes = []
-    seen = set()
-    for shape in _iter_shapes(value):
-        identity = id(shape)
-        if identity not in seen:
-            seen.add(identity)
-            shapes.append(shape)
+    shapes = list(_iter_shapes(value))
     if not shapes:
         return None
     return shapes[0] if len(shapes) == 1 else b3d.Compound(children=shapes)
@@ -1649,7 +2013,7 @@ def _inspect_value(value, depth=0):
     value_type = type(value).__name__
     if value is None or isinstance(value, (bool, int, float, str)):
         return {"type": value_type, "value": value}
-    if isinstance(value, b3d.Shape):
+    if b3d is not None and isinstance(value, b3d.Shape):
         # OCP-backed shapes expose lazy properties; walking dir()/getattr() can
         # trigger expensive kernel work and freeze the browser UI.
         return {"type": value_type, "repr": "<geometry value>"}
@@ -1749,6 +2113,12 @@ def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None
             inferred = "list"
 
     visiting.remove(key)
+    # A node mapped over multiple independent Python loop sources returns a
+    # nested result tree even when its individual result socket is scalar.
+    # Without this, the next operation sees the whole inner list as one scalar
+    # and applies operators/methods to a list instead of each loop item.
+    if len(loop_sources) > 1 and inferred in ("list", "tree"):
+        inferred = "tree"
     if declared in ("list", "tuple") and inferred in ("list", "tree"):
         result = "tree"
     else:
@@ -1763,7 +2133,7 @@ def _stream_item_kind(value):
         return "scalar"
     if isinstance(value, str):
         return "scalar"
-    if isinstance(value, b3d.Shape):
+    if b3d is not None and isinstance(value, b3d.Shape):
         return "geometry"
     if isinstance(value, (list, tuple, set, frozenset,
                           collections.abc.Mapping, collections.abc.Sequence, collections.abc.Set)):
@@ -1771,15 +2141,21 @@ def _stream_item_kind(value):
     return "object"
 
 
-_GEOMETRY_INPUT_TYPES = {"Shape", "Solid", "Compound", "Face", "Edge", "Vertex", "Wire", "Shell", "Part", "Sketch"}
 _SCALAR_INPUT_TYPES = {"Number", "Boolean", "String", "Code"}
-_OBJECT_INPUT_TYPES = {
-    "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis", "Color", "Matrix", "Enum",
-    # Face is a concrete wrapper used by geometry construction expressions
-    # such as Plane(Face(Wire.make_polygon(...))). It is not a base class for
-    # primitive builders like Box, so its constructor can be lowered safely.
-    "Face",
-}
+
+
+def _discovered_input_type_sets():
+    """Return geometry/object socket types from the generated class registry."""
+    geometry_types, object_types = set(), {"Enum"}
+    for record in _TYPE_REGISTRY.values():
+        socket_type = record.get("socket_type", record.get("name"))
+        if not isinstance(socket_type, str) or not socket_type:
+            continue
+        if record.get("is_geometry"):
+            geometry_types.add(socket_type)
+        elif not record.get("is_abstract"):
+            object_types.add(socket_type)
+    return geometry_types, object_types
 
 
 def _validate_stream_items(definition, params, stream_shapes):
@@ -1804,9 +2180,10 @@ def _validate_stream_items(definition, params, stream_shapes):
             target_types = [input_socket.get("type")]
         if any(target in ("Any", "List", "Tuple", "Set", "Dict") for target in target_types):
             continue
-        geometry_target = any(target in _GEOMETRY_INPUT_TYPES for target in target_types)
+        geometry_types, object_types = _discovered_input_type_sets()
+        geometry_target = any(target in geometry_types for target in target_types)
         scalar_target = any(target in _SCALAR_INPUT_TYPES for target in target_types)
-        object_target = any(target in _OBJECT_INPUT_TYPES for target in target_types)
+        object_target = any(target in object_types for target in target_types)
         if not (geometry_target or scalar_target or object_target):
             continue
         kinds = {_stream_item_kind(item) for item in value}
@@ -2052,7 +2429,8 @@ def _graph_plan(nodes, edges):
     return incoming, outgoing, order
 
 
-def evaluate_graph_json(payload):
+def evaluate_graph_json(payload, include_previews=True):
+    """Evaluate a graph; optionally skip viewport tessellation for kernel acceptance."""
     global _LAST_SHAPE
     _LAST_SHAPE = None
     graph = json.loads(payload)
@@ -2087,6 +2465,16 @@ def evaluate_graph_json(payload):
         if isinstance(value, dict):
             if "__flow_tuple__" in value:
                 return tuple(restore_scope_value(item) for item in value["__flow_tuple__"])
+            if "__flow_attrgetter__" in value:
+                return operator.attrgetter(value["__flow_attrgetter__"])
+            if "__flow_attrgetter__" in value:
+                return operator.attrgetter(value["__flow_attrgetter__"])
+            if "__flow_callable__" in value:
+                module_name, qualified_name = value["__flow_callable__"]
+                target = importlib.import_module(module_name)
+                for part in qualified_name.split("."):
+                    target = getattr(target, part)
+                return target
             if "__flow_ref__" in value:
                 source_id, output_name = value["__flow_ref__"]
                 if source_id not in values:
@@ -2104,10 +2492,14 @@ def evaluate_graph_json(payload):
                     kwargs = restore_scope_value(value.get("kwargs", {}))
                     return constructor(*args, **kwargs)
                 if object_type == "Plane":
-                    return constructor(origin=value["origin"], x_dir=value["x_dir"], z_dir=value["z_dir"])
+                    return constructor(
+                        origin=restore_scope_value(value["origin"]),
+                        x_dir=restore_scope_value(value["x_dir"]),
+                        z_dir=restore_scope_value(value["z_dir"]),
+                    )
                 if object_type == "Location":
-                    return constructor(value["value"])
-                return constructor(*value["value"])
+                    return constructor(restore_scope_value(value["value"]))
+                return constructor(*restore_scope_value(value["value"]))
             return {key: restore_scope_value(item) for key, item in value.items()}
         return value
 
@@ -2199,13 +2591,15 @@ def evaluate_graph_json(payload):
 
         definition_id = data.get("definition", {}).get("id")
         node_definition = data.get("definition", {})
-        has_loop_inputs = any(
-            str(socket.get("name", "")).startswith("__flow_iteration_")
+        has_graph_lowering_inputs = any(
+            str(socket.get("name", "")).startswith((
+                "__flow_iteration_", "__flow_condition_"
+            ))
             for socket in node_definition.get("inputs", [])
         )
         definition = (
             node_definition
-            if has_loop_inputs or str(definition_id).startswith("core.python.")
+            if has_graph_lowering_inputs or str(definition_id).startswith("core.python.")
             else _CATALOG.get(definition_id)
         )
         if definition is None:
@@ -2261,6 +2655,7 @@ def evaluate_graph_json(payload):
                 and signature_parameters
                 and signature_parameters[0].name == receiver_socket["name"]
                 and ".operator." not in definition_id
+                and not definition_id.startswith("core.python.method.")
             )
             if is_instance_method:
                 receiver_name = receiver_socket["name"]
@@ -2315,6 +2710,28 @@ def evaluate_graph_json(payload):
                     signature=signature,
                     hint_target=hint_target,
                 )
+            condition_names = [
+                socket.get("name") for socket in definition.get("inputs", [])
+                if str(socket.get("name", "")).startswith("__flow_condition_")
+            ]
+            if condition_names:
+                unguarded_invoke = invoke
+                def invoke(mapped):
+                    if any(not bool(mapped.get(name, False)) for name in condition_names):
+                        return None
+                    return unguarded_invoke({
+                        name: value for name, value in mapped.items()
+                        if name not in condition_names
+                    })
+            operator_method = definition.get("operator", {}).get("method")
+            python_operator = _PYTHON_BINARY_OPERATORS.get(operator_method)
+            if python_operator is not None:
+                native_operator_invoke = invoke
+
+                def invoke(mapped):
+                    return _invoke_discovered_operator_callable(
+                        native_operator_invoke, operator_method, mapped, signature
+                    )
             stream_shapes = {}
             shape_memo = {}
             # Python for-loops and comprehensions explicitly declare their
@@ -2323,10 +2740,11 @@ def evaluate_graph_json(payload):
             # metadata alone cannot identify it as a stream. Preserve the
             # source identity from the importer and map item-access inputs
             # over that sequence exactly once.
+            node_loop_sources = node.get("data", {}).get("python_loop_sources", [])
             loop_source_groups = {
                 (str(source.get("node_id")), str(source.get("output_name", "result"))):
                     (index, source.get("matching", "longest"))
-                for index, source in enumerate(data.get("python_loop_sources", []))
+                for index, source in enumerate(node_loop_sources)
             }
             loop_sources = set(loop_source_groups)
             stream_groups = {}
@@ -2338,20 +2756,31 @@ def evaluate_graph_json(payload):
                 access = input_socket.get("data_access")
                 if access is None:
                     access = "structure" if _socket_data_structure(input_socket) != "item" else "item"
-                if access != "item":
+                source_key = (str(source_id), str(source_output))
+                source_node = nodes.get(source_id, {})
+                source_loop_sources = {
+                    (str(source.get("node_id")), str(source.get("output_name", "result")))
+                    for source in source_node.get("data", {}).get("python_loop_sources", [])
+                }
+                shared_loop_sources = [
+                    key for key in loop_source_groups if key in source_loop_sources
+                ]
+                direct_loop_source = source_key in loop_sources
+                # Structure-consuming inputs are item-mapped only when their
+                # producer is mapped in the same Python loop. This aligns
+                # paired operands without flattening an intentional collection.
+                if access != "item" and not direct_loop_source and not shared_loop_sources:
                     continue
                 source_shape = _effective_output_structure(
                     source_id, source_output, nodes, incoming, shape_memo
                 )
                 if source_shape in ("list", "tuple", "tree"):
                     stream_shapes[input_name] = "list" if source_shape == "tuple" else source_shape
-                elif (source_id, source_output) in loop_sources:
-                    # The Python AST explicitly says this edge supplies the
-                    # current loop variable. Treat an Any-typed iterable as
-                    # an item stream rather than passing its whole collection
-                    # into operations such as v.X or tuple(v).
+                elif direct_loop_source or shared_loop_sources:
                     stream_shapes[input_name] = "list"
-                loop_group = loop_source_groups.get((str(source_id), str(source_output)))
+                loop_group = loop_source_groups.get(source_key)
+                if loop_group is None and shared_loop_sources:
+                    loop_group = loop_source_groups[shared_loop_sources[0]]
                 if loop_group is not None:
                     stream_groups[input_name] = loop_group
             result = _map_item_inputs(
@@ -2388,37 +2817,49 @@ def evaluate_graph_json(payload):
             errors["scope_cleanup"] = type(exc).__name__ + ": " + str(exc)
             break
 
-    source_nodes = {edge.get("source") for edge in edges}
-    # Preview Style replaces the upstream viewport representation to avoid coplanar z-fighting.
-    styled_sources = {
-        edge.get("source") for edge in edges
-        if nodes.get(edge.get("target"), {}).get("data", {}).get("definition", {}).get("id") == "core.preview.style"
-        and nodes.get(edge.get("target"), {}).get("data", {}).get("visible") is not False
-    }
-    for node_id in order:
-        if node_id not in values:
-            continue
-        visible = nodes[node_id].get("data", {}).get("visible")
-        if node_id in styled_sources or visible is False or (visible is not True and node_id in source_nodes):
-            continue
-        result = values[node_id].get("result")
-        key = node_keys.get(node_id)
-        try:
-            preview = _PREVIEW_CACHE.get(key) if key else None
-            if preview is None:
-                style = evaluated_params.get(node_id, {}) if nodes[node_id].get("data", {}).get("definition", {}).get("id") == "core.preview.style" else None
-                preview = _mesh_preview(result, style)
-                if preview is not None and key:
+    if include_previews:
+        source_nodes = {edge.get("source") for edge in edges}
+        # Preview Style replaces the upstream viewport representation to avoid coplanar z-fighting.
+        styled_sources = {
+            edge.get("source") for edge in edges
+            if nodes.get(edge.get("target"), {}).get("data", {}).get("definition", {}).get("id") == "core.preview.style"
+            and nodes.get(edge.get("target"), {}).get("data", {}).get("visible") is not False
+        }
+        for node_id in order:
+            if node_id not in values:
+                continue
+            visible = nodes[node_id].get("data", {}).get("visible")
+            if node_id in styled_sources or visible is False or (visible is not True and node_id in source_nodes):
+                continue
+            result = values[node_id].get("result")
+            key = node_keys.get(node_id)
+            try:
+                preview = _PREVIEW_CACHE.get(key) if key else None
+                if preview is None:
+                    style = evaluated_params.get(node_id, {}) if nodes[node_id].get("data", {}).get("definition", {}).get("id") == "core.preview.style" else None
+                    preview = _mesh_preview(result, style)
+                    if preview is not None and key:
+                        _PREVIEW_CACHE[key] = preview
+                        _trim_cache(_PREVIEW_CACHE)
+                elif key:
+                    _PREVIEW_CACHE.pop(key, None)
                     _PREVIEW_CACHE[key] = preview
-                    _trim_cache(_PREVIEW_CACHE)
-            elif key:
-                _PREVIEW_CACHE.pop(key, None)
-                _PREVIEW_CACHE[key] = preview
-            if preview is not None:
-                previews[node_id] = preview
-                _LAST_SHAPE = _as_export_shape(result)
-        except Exception as exc:
-            errors[node_id] = "Preview: " + str(exc)
+                if preview is not None:
+                    previews[node_id] = preview
+                    _LAST_SHAPE = _as_export_shape(result)
+            except Exception as exc:
+                errors[node_id] = "Preview: " + str(exc)
+    
+    else:
+        # Kernel acceptance validates native topology directly. Tessellating every
+        # intermediate node is viewport work and obscures execution performance.
+        for node_id in reversed(order):
+            if node_id not in values:
+                continue
+            shape = _as_export_shape(values[node_id].get("result"))
+            if shape is not None:
+                _LAST_SHAPE = shape
+                break
 
     return json.dumps(_json_clean({
         "previews": previews, "errors": errors, "order": order,
@@ -2458,10 +2899,32 @@ def _coerce_annotation(value, annotation):
                     return candidate(value)
                 except Exception:
                     continue
+        # A CAD value may itself be iterable (Shape, Sketch, Compound).
+        # When a union accepts both that domain object and Iterable[Domain],
+        # preserve an already-correct object before considering collection
+        # coercion. Otherwise an overloaded method silently receives a list
+        # of its faces/solids instead of the original shape.
+        for candidate in candidates:
+            candidate_types = []
+            if inspect.isclass(candidate):
+                candidate_types.append(candidate)
+            elif isinstance(candidate, typing.TypeVar):
+                candidate_types.extend(candidate.__constraints__)
+                if candidate.__bound__ is not None:
+                    candidate_types.append(candidate.__bound__)
+            for candidate_type in candidate_types:
+                if inspect.isclass(candidate_type):
+                    try:
+                        if isinstance(value, candidate_type):
+                            return value
+                    except TypeError:
+                        continue
         for candidate in candidates:
             try:
                 converted = _coerce_annotation(value, candidate)
-                if converted is not value or isinstance(value, candidate):
+                if converted is not value or (
+                    inspect.isclass(candidate) and isinstance(value, candidate)
+                ):
                     return converted
             except Exception:
                 continue
@@ -2555,11 +3018,32 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
         if annotation is None:
             parameter = signature.parameters.get(name)
             annotation = parameter.annotation if parameter else None
+        globalns = (
+            getattr(target, "__globals__", None)
+            or getattr(callable_obj, "__globals__", None)
+        )
+        if not globalns:
+            annotation_module = (
+                inspect.getmodule(callable_obj)
+                or inspect.getmodule(getattr(callable_obj, "__objclass__", None))
+            )
+            globalns = vars(annotation_module) if annotation_module is not None else {}
         if isinstance(annotation, str):
             try:
-                annotation = eval(annotation, getattr(target, "__globals__", {}))
+                annotation = eval(annotation, globalns)
             except Exception:
                 pass
+        elif isinstance(annotation, typing.ForwardRef):
+            try:
+                annotation = eval(annotation.__forward_arg__, globalns)
+            except Exception:
+                pass
+        try:
+            # Overload signatures commonly contain ForwardRefs nested inside
+            # Union/Iterable/TypeVar annotations; resolve the whole tree.
+            annotation = typing._eval_type(annotation, globalns, globalns)
+        except Exception:
+            pass
         if annotation is not None and annotation is not inspect.Signature.empty:
             parameter = signature.parameters.get(name)
             if parameter is not None and parameter.kind == parameter.VAR_POSITIONAL:
@@ -2591,6 +3075,12 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
         else:
             raise TypeError("Missing required positional argument: " + name)
 
+    declared_names = set(signature.parameters)
+    var_keyword = next(
+        (parameter for parameter in signature.parameters.values()
+         if parameter.kind == parameter.VAR_KEYWORD),
+        None,
+    )
     for name, parameter in signature.parameters.items():
         if parameter.kind == parameter.POSITIONAL_ONLY:
             continue
@@ -2604,6 +3094,15 @@ def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
                 keywords.update(value)
         else:
             keywords[name] = value
+    extra_keywords = {
+        name: value for name, value in converted.items()
+        if name not in declared_names
+    }
+    if extra_keywords and var_keyword is None:
+        raise TypeError(
+            "Unexpected keyword argument(s): " + ", ".join(sorted(extra_keywords))
+        )
+    keywords.update(extra_keywords)
     return callable_obj(*positional, **keywords)
 
 def _python_getattr(value, name):
@@ -2637,6 +3136,23 @@ def _python_loop_last(sequence, fallback=None, has_fallback=False, preserve_dept
 def _resolve_callable(path):
     if path in _CATALOG_CALLABLES:
         return _CATALOG_CALLABLES[path]
+    # Resolve discovered class members from their owner type. A method node ID
+    # is not an importable module path (for example Plane.offset).
+    for type_id, record in _TYPE_REGISTRY.items():
+        prefix = type_id + "."
+        if not path.startswith(prefix):
+            continue
+        member_path = path[len(prefix):]
+        for marker in ("operator.", "property.", "field.", "static.", "classmethod."):
+            if member_path.startswith(marker):
+                member_path = member_path[len(marker):]
+                break
+        module = importlib.import_module(record["module"])
+        owner = getattr(module, record["name"])
+        member = getattr(owner, member_path)
+        if isinstance(member, property):
+            return member.fget
+        return member
     module_name, attr_name = path.rsplit(".", 1)
     module = importlib.import_module(module_name)
     return getattr(module, attr_name)
@@ -2732,2503 +3248,33 @@ def _python_import_reference(obj, imports, alias):
 
 
 
+def _translator_services():
+    """Expose only the graph-lowering services required by the kernel-free translator."""
+    from python_translator import TranslatorServices
+    return TranslatorServices(
+        b3d=b3d,
+        catalog_nodes=_CATALOG,
+        internal_node_ids=_INTERNAL_NODE_IDS,
+        catalog_callables=_CATALOG_CALLABLES,
+        python_getitem=_python_getitem,
+        catalog_signatures=_CATALOG_SIGNATURES,
+        catalog_hint_targets=_CATALOG_HINT_TARGETS,
+        python_getattr=_python_getattr,
+        socket_data_structure=_socket_data_structure,
+        type_name=_type_name,
+        discovered_input_type_sets=_discovered_input_type_sets,
+        api_signature=_api_signature,
+        call_with_coercion=_call_with_coercion,
+        python_loop_last=_python_loop_last,
+    )
+
+
 def import_python_code(source):
-    """Parse a conservative, non-executing Python subset into the native graph format.
-
-    Imports are inspected, never executed. Unsupported statements fail with a source
-    location instead of being silently dropped or evaluated.
-    """
-    import ast
-    if not isinstance(source, str) or not source.strip():
-        raise ValueError("Python source is empty")
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
-        raise ValueError("Python syntax error at line {}:{}: {}".format(
-            exc.lineno or 1, exc.offset or 1, exc.msg
-        )) from exc
-
-    aliases = {"build123d": "b3d"}
-    imported = {}
-    viewer_modules = {}
-    viewer_functions = set()
-    stdlib_modules = {}
-    stdlib_symbols = {}
-    stdlib_star_modules = set()
-    safe_stdlib_modules = {"math", "copy", "functools", "itertools", "operator", "logging", "timeit"}
-    viewer_api = {"show", "show_object", "show_all", "reset_show", "set_defaults"}
-    for statement in tree.body:
-        if isinstance(statement, ast.Import):
-            for item in statement.names:
-                if item.name == "build123d":
-                    aliases[item.asname or item.name] = "b3d"
-                elif item.name == "ocp_vscode":
-                    viewer_modules[item.asname or item.name] = "ocp_vscode"
-                elif item.name in safe_stdlib_modules:
-                    stdlib_modules[item.asname or item.name] = item.name
-                else:
-                    raise ValueError("Unsupported import at line {}: {}".format(
-                        statement.lineno, item.name))
-        elif isinstance(statement, ast.ImportFrom):
-            if statement.module == "build123d" or (statement.module and statement.module.startswith("build123d.")):
-                for item in statement.names:
-                    if item.name != "*":
-                        imported[item.asname or item.name] = item.name
-            elif statement.module == "ocp_vscode":
-                for item in statement.names:
-                    if item.name == "*":
-                        viewer_functions.update(viewer_api)
-                    elif item.name in viewer_api:
-                        viewer_functions.add(item.asname or item.name)
-                    else:
-                        raise ValueError("Unsupported ocp_vscode import at line {}: {}".format(
-                            statement.lineno, item.name))
-            elif statement.module in safe_stdlib_modules:
-                module = importlib.import_module(statement.module)
-                for item in statement.names:
-                    if item.name == "*":
-                        stdlib_star_modules.add(statement.module)
-                    elif hasattr(module, item.name):
-                        stdlib_symbols[item.asname or item.name] = (statement.module, item.name)
-                    else:
-                        raise ValueError("Unsupported standard-library import at line {}: {}".format(
-                            statement.lineno, item.name))
-            else:
-                raise ValueError("Only build123d, ocp_vscode, and approved standard-library imports are supported (line {})".format(statement.lineno))
-
-    def is_viewer_call(node):
-        if not isinstance(node, ast.Call):
-            return False
-        function = node.func
-        if isinstance(function, ast.Name):
-            return function.id in viewer_functions
-        if isinstance(function, ast.Attribute) and isinstance(function.value, ast.Name):
-            return viewer_modules.get(function.value.id) == "ocp_vscode" and function.attr in viewer_api
-        return False
-
-    # Import is an explicit action, so load the full API catalog lazily here.
-    # This makes class methods/properties available without slowing normal startup.
+    """Translate Python through the kernel-free translator and active data catalog."""
     if not _DISCOVERY_REPORT.get("include_full"):
         discover(include_full=True)
-    definitions = _CATALOG
-    def resolve_member(member_name, receiver_type, property_only=False):
-        """Resolve one catalog method/property using its receiver socket contract."""
-        candidates = []
-        for candidate_id, candidate in definitions.items():
-            is_property = ".property." + member_name in candidate_id or ".field." + member_name in candidate_id
-            if property_only:
-                if not is_property:
-                    continue
-            elif candidate_id.rsplit(".", 1)[-1] != member_name:
-                continue
-            receiver = next((item for item in candidate.get("inputs", [])
-                             if item.get("name") in {"self", "cls"}), None)
-            if receiver is None:
-                continue
-            accepted = receiver.get("variants") or [receiver.get("type", "Any")]
-            if receiver_type in accepted:
-                score = 3
-            else:
-                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
-                compatible = False
-                if inspect.isclass(actual_class):
-                    for accepted_type in accepted:
-                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
-                        if inspect.isclass(expected_class):
-                            try:
-                                if issubclass(actual_class, expected_class):
-                                    compatible = True
-                                    break
-                            except TypeError:
-                                pass
-                if compatible:
-                    score = 2
-                elif "Any" in accepted:
-                    score = 1
-                else:
-                    continue
-            candidates.append((score, candidate_id))
-        # Type inference is necessarily incomplete for chained collection
-        # expressions and generic return annotations. If no receiver-compatible
-        # method was found, permit a uniquely named discovered method. The graph
-        # evaluator binds it to the actual receiver at runtime, so Python's own
-        # attribute lookup remains the final compatibility check. Multiple
-        # implementations remain ambiguous and are rejected.
-        if not candidates:
-            for candidate_id, candidate in definitions.items():
-                if candidate_id.rsplit(".", 1)[-1] != member_name:
-                    continue
-                if any(item.get("name") in {"self", "cls"}
-                       for item in candidate.get("inputs", [])):
-                    candidates.append((0, candidate_id))
-        if not candidates:
-            return None, ()
-        best_score = max(score for score, _ in candidates)
-        winners = tuple(sorted(
-            candidate_id for score, candidate_id in candidates if score == best_score
-        ))
-        return (winners[0], winners) if len(winners) == 1 else (None, winners)
-
-    # Python's subscription protocol is a language-level operation, not a
-    # build123d API member. Register it as a reusable graph primitive so
-    # indexing works for sequences, mappings, and geometry collections alike.
-    _PYTHON_SUBSCRIPT_ID = "core.python.subscript"
-    _PYTHON_SLICE_ID = "core.python.slice"
-    _PYTHON_ATTRIBUTE_ID = "core.python.attribute"
-    _PYTHON_ATTRIBUTE_STRUCTURE_ID = "core.python.attribute.structure"
-    _INTERNAL_NODE_IDS.update({
-        _PYTHON_SUBSCRIPT_ID, _PYTHON_SLICE_ID,
-        _PYTHON_ATTRIBUTE_ID, _PYTHON_ATTRIBUTE_STRUCTURE_ID,
-    })
-    definitions[_PYTHON_SUBSCRIPT_ID] = {
-        "id": _PYTHON_SUBSCRIPT_ID, "name": "Python Subscript",
-        "source": "python", "kind": "operation", "category": "Internal",
-        "palette_category": "Internal", "palette_section": "Graph lowering",
-        "inputs": [
-            {"name": "value", "type": "Any", "required": True, "data_access": "structure"},
-            {"name": "index", "type": "Any", "required": True},
-        ],
-        "outputs": [{"name": "result", "type": "Any"}],
-    }
-    definitions[_PYTHON_SLICE_ID] = {
-        "id": _PYTHON_SLICE_ID, "name": "Python Slice",
-        "source": "python", "kind": "operation", "category": "Internal",
-        "palette_category": "Internal", "palette_section": "Graph lowering",
-        "inputs": [
-            {"name": "start", "type": "Any", "required": False, "default": None},
-            {"name": "stop", "type": "Any", "required": False, "default": None},
-            {"name": "step", "type": "Any", "required": False, "default": None},
-        ],
-        "outputs": [{"name": "result", "type": "Any"}],
-    }
-    definitions[_PYTHON_ATTRIBUTE_ID] = {
-        "id": _PYTHON_ATTRIBUTE_ID, "name": "Python Attribute",
-        "source": "python", "kind": "operation", "category": "Internal",
-        "palette_category": "Internal", "palette_section": "Graph lowering",
-        "inputs": [
-            {"name": "value", "type": "Any", "required": True, "data_access": "item"},
-            {"name": "name", "type": "String", "required": True},
-        ],
-        "outputs": [{"name": "result", "type": "Any"}],
-    }
-    definitions[_PYTHON_ATTRIBUTE_STRUCTURE_ID] = {
-        "id": _PYTHON_ATTRIBUTE_STRUCTURE_ID, "name": "Python Collection Attribute",
-        "source": "python", "kind": "operation", "category": "Internal",
-        "palette_category": "Internal", "palette_section": "Graph lowering",
-        "inputs": [
-            {"name": "value", "type": "Any", "required": True, "data_access": "structure"},
-            {"name": "name", "type": "String", "required": True},
-        ],
-        "outputs": [{"name": "result", "type": "Any"}],
-    }
-    _CATALOG_CALLABLES[_PYTHON_SUBSCRIPT_ID] = _python_getitem
-    _CATALOG_SIGNATURES[_PYTHON_SUBSCRIPT_ID] = inspect.Signature([
-        inspect.Parameter("value", inspect.Parameter.POSITIONAL_ONLY),
-        inspect.Parameter("index", inspect.Parameter.POSITIONAL_ONLY),
-    ])
-    _CATALOG_HINT_TARGETS[_PYTHON_SUBSCRIPT_ID] = False
-    _CATALOG_CALLABLES[_PYTHON_SLICE_ID] = slice
-    _CATALOG_SIGNATURES[_PYTHON_SLICE_ID] = inspect.Signature([
-        inspect.Parameter("start", inspect.Parameter.POSITIONAL_ONLY, default=None),
-        inspect.Parameter("stop", inspect.Parameter.POSITIONAL_ONLY, default=None),
-        inspect.Parameter("step", inspect.Parameter.POSITIONAL_ONLY, default=None),
-    ])
-    _CATALOG_HINT_TARGETS[_PYTHON_SLICE_ID] = False
-    _CATALOG_CALLABLES[_PYTHON_ATTRIBUTE_ID] = _python_getattr
-    _CATALOG_CALLABLES[_PYTHON_ATTRIBUTE_STRUCTURE_ID] = _python_getattr
-    _CATALOG_SIGNATURES[_PYTHON_ATTRIBUTE_ID] = inspect.signature(_python_getattr)
-    _CATALOG_SIGNATURES[_PYTHON_ATTRIBUTE_STRUCTURE_ID] = inspect.signature(_python_getattr)
-    _CATALOG_HINT_TARGETS[_PYTHON_ATTRIBUTE_ID] = False
-    _CATALOG_HINT_TARGETS[_PYTHON_ATTRIBUTE_STRUCTURE_ID] = False
-    by_name = {}
-    for definition_id, definition in definitions.items():
-        by_name.setdefault(definition.get("name"), definition_id)
-        by_name.setdefault(definition_id.rsplit(".", 1)[-1], definition_id)
-
-    graph_nodes, graph_edges = [], []
-    variables = {}
-    stream_variables = set()
-    mapping_matching = "longest"
-    active_loop_frames = []
-    active_scope_ids = []
-    execution_scopes = []
-    scope_counter = 0
-    counter = 0
-
-    def add_node(definition_id, params, links, line, map_over_active_loops=True):
-        nonlocal counter
-        definition = definitions.get(definition_id)
-        if definition is None:
-            raise ValueError("No registered node for '{}' at line {}".format(definition_id, line))
-        counter += 1
-        node_id = "import_{}".format(counter)
-        builder_scope_active = any(
-            next((scope.get("name") for scope in execution_scopes if scope.get("id") == scope_id), None)
-            in {"BuildPart", "BuildSketch", "BuildLine"}
-            for scope_id in active_scope_ids
-        )
-        # A Python loop is a data-mapping scope: each operation is represented
-        # once and receives one item from every active iteration sequence.
-        # Synthetic iteration sockets make even loop-body operations that do
-        # not explicitly read the target execute once per iteration.
-        node_definition = dict(definition)
-        node_definition["inputs"] = list(definition.get("inputs", []))
-        iteration_links = []
-        for index, frame in enumerate(active_loop_frames if map_over_active_loops else []):
-            # Only an item-access input triggers this loop's mapping. A
-            # structure-access input may depend on the loop while still
-            # carrying a whole collection (for example face.edges()); that
-            # value must stay intact while the collection node executes once
-            # per enclosing iteration.
-            has_mapped_dependency = False
-            for input_name, source_id, _ in links:
-                input_socket = next(
-                    (socket for socket in node_definition["inputs"]
-                     if socket.get("name") == input_name),
-                    None,
-                )
-                access = input_socket.get("data_access") if input_socket else "item"
-                if access is None and input_socket is not None:
-                    access = (
-                        "structure"
-                        if _socket_data_structure(input_socket) != "item"
-                        else "item"
-                    )
-                if access == "item" and graph_depends_on(source_id, {frame["node_id"]}):
-                    has_mapped_dependency = True
-                    break
-            if has_mapped_dependency:
-                continue
-            # A lexical context manager may consume the loop stream itself
-            # (for example Locations((x, 0)) inside a loop). In that case its
-            # builder context already represents the complete mapped set, so
-            # body operations that do not otherwise read the loop item execute
-            # once inside that context instead of replaying it for every item.
-            scope_consumes_loop = False
-            for scope_id in active_scope_ids:
-                binding = next((
-                    item for item in graph_nodes
-                    if item.get("data", {}).get("scope_binding") == scope_id
-                ), None)
-                dependencies = (
-                    binding.get("data", {}).get("scope_dependencies", [])
-                    if binding else []
-                )
-                if any(graph_depends_on(source_id, {frame["node_id"]}) for source_id in dependencies):
-                    scope_consumes_loop = True
-                    break
-            if scope_consumes_loop:
-                continue
-            input_name = "__flow_iteration_{}".format(index)
-            node_definition["inputs"].append({
-                "name": input_name, "type": "Any", "required": True,
-                "data_access": "item",
-            })
-            iteration_links.append((input_name, frame["node_id"], frame["output_name"]))
-        data = {"definition": node_definition, "params": params,
-                "execution_scope_path": list(active_scope_ids),
-                "visible": not builder_scope_active and any(
-                    socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
-                    for socket in definition.get("outputs", [])
-                )}
-        if active_loop_frames and map_over_active_loops:
-            data["python_loop_sources"] = [
-                {
-                    "node_id": frame["node_id"],
-                    "output_name": frame["output_name"],
-                    "matching": frame.get("matching", "longest"),
-                }
-                for frame in active_loop_frames
-            ]
-        if map_over_active_loops and mapping_matching != "longest":
-            data["data_matching"] = mapping_matching
-        graph_nodes.append({
-            "id": node_id, "type": "api",
-            "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
-            "data": data
-        })
-        for input_name, source_id, output_name in list(links) + iteration_links:
-            graph_edges.append({
-                "id": "import_edge_{}".format(len(graph_edges) + 1),
-                "source": source_id, "target": node_id,
-                "sourceHandle": output_name, "targetHandle": input_name
-            })
-        return node_id
-
-    def add_collection_node(items, structure, line, map_over_active_loops=True):
-        """Build a structural list/tuple value from literal and graph-backed items."""
-        source_nodes = {item["id"]: item for item in graph_nodes}
-        input_sockets = []
-        for index, (kind, value, *extra) in enumerate(items):
-            # A scalar/geometry stream item is consumed once per mapped
-            # iteration. A collection-valued input remains structural, and
-            # add_node supplies a separate iteration dependency when needed.
-            access = "structure"
-            if kind == "ref":
-                source = source_nodes.get(value)
-                output_name = extra[0] if extra else "result"
-                output = next((
-                    socket for socket in source["data"]["definition"].get("outputs", [])
-                    if socket.get("name") == output_name
-                ), None) if source else None
-                is_active_loop_item = any(
-                    str(frame.get("node_id")) == str(value)
-                    and str(frame.get("output_name", "result")) == str(output_name)
-                    for frame in active_loop_frames
-                )
-                if is_active_loop_item or (
-                    output is not None and _socket_data_structure(output) == "item"
-                ):
-                    access = "item"
-            input_sockets.append({
-                "name": "item_{}".format(index), "type": "Any",
-                "required": True, "data_access": access,
-            })
-        output_structure = structure
-        for kind, value, *extra in items:
-            if kind != "ref":
-                continue
-            source = source_nodes.get(value)
-            if source is None:
-                continue
-            output_name = extra[0] if extra else "result"
-            output = next((item for item in source["data"]["definition"].get("outputs", [])
-                           if item.get("name") == output_name), None)
-            if output and _socket_data_structure(output) in {"list", "tuple", "tree"}:
-                output_structure = "tree"
-                break
-        definition_id = "core.python.collect." + hashlib.sha1(
-            (structure + ":" + str(len(items))).encode("utf-8")
-        ).hexdigest()[:12]
-        item_types = []
-        tuple_item_types = []
-        for kind, value, *extra in items:
-            if kind == "literal":
-                materialized = materialize_literal(value)
-                item_types.append(_type_name(type(materialized)))
-                if isinstance(materialized, (list, tuple)):
-                    tuple_item_types.append([
-                        _type_name(type(item)) for item in materialized
-                    ])
-                else:
-                    tuple_item_types.append(None)
-            else:
-                item_types.append(
-                    extra[1] if len(extra) > 1 and extra[1]
-                    else reference_type((kind, value, extra[0] if extra else "result"))
-                )
-                tuple_item_types.append(None)
-        item_type = (
-            item_types[0]
-            if item_types and item_types[0] != "Any"
-            and all(value_type == item_types[0] for value_type in item_types)
-            else "Any"
-        )
-        output_socket = {
-            "name": "result", "type": "Any",
-            "data_structure": output_structure,
-            "item_type": item_type,
-        }
-        if (
-            structure == "list" and tuple_item_types
-            and all(value is not None for value in tuple_item_types)
-            and len({len(value) for value in tuple_item_types}) == 1
-        ):
-            width = len(tuple_item_types[0])
-            output_socket["item_types"] = [
-                types_found[0]
-                if all(row[index] == types_found[0] for row in tuple_item_types)
-                else "Any"
-                for index in range(width)
-                for types_found in [[row[index] for row in tuple_item_types]]
-            ]
-        definition = {
-            "id": definition_id, "name": "Python " + ("Tuple" if structure == "tuple" else "List"),
-            "source": "python", "kind": "operation", "category": "Internal",
-            "palette_category": "Internal", "palette_section": "Graph lowering",
-            "inputs": input_sockets,
-            "outputs": [output_socket],
-        }
-        definitions[definition_id] = definition
-        _INTERNAL_NODE_IDS.add(definition_id)
-        names = [socket["name"] for socket in input_sockets]
-        def collect(**values):
-            result = [values[name] for name in names]
-            return tuple(result) if structure == "tuple" else result
-        collect.__signature__ = inspect.Signature([
-            inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY) for name in names
-        ])
-        _CATALOG_CALLABLES[definition_id] = collect
-        _CATALOG_SIGNATURES[definition_id] = collect.__signature__
-        _CATALOG_HINT_TARGETS[definition_id] = False
-        params, links = {}, []
-        for index, (kind, value, *extra) in enumerate(items):
-            name = "item_{}".format(index)
-            if kind == "literal":
-                params[name] = literal_json_value(value)
-            else:
-                links.append((name, value, extra[0]))
-        node_id = add_node(
-            definition_id, params, links, line,
-            map_over_active_loops=map_over_active_loops,
-        )
-        return ("ref", node_id, "result")
-
-    def reference_output(value):
-        if not value or value[0] != "ref":
-            return None
-        source_node = next((item for item in graph_nodes if item["id"] == value[1]), None)
-        outputs = source_node.get("data", {}).get("definition", {}).get("outputs", []) if source_node else []
-        return next((item for item in outputs if item.get("name") == value[2]), None)
-
-    def reference_type(value):
-        if value[0] == "literal":
-            return _type_name(type(materialize_literal(value[1])))
-        if len(value) > 3 and value[3] and value[3] != "Any":
-            return value[3]
-        output = reference_output(value)
-        return output.get("type", "Any") if output else "Any"
-
-    def iterable_item_metadata(value):
-        output = reference_output(value)
-        if output is None:
-            return "Any", None
-        return output.get("item_type", "Any"), output.get("item_types")
-
-    def add_python_binary_node(method, left, right, line):
-        operations = {
-            "__add__": operator.add, "__sub__": operator.sub,
-            "__mul__": operator.mul, "__truediv__": operator.truediv,
-            "__floordiv__": operator.floordiv, "__mod__": operator.mod,
-            "__pow__": operator.pow, "__and__": operator.and_,
-            "__or__": operator.or_, "__xor__": operator.xor,
-            "__lshift__": operator.lshift, "__rshift__": operator.rshift,
-        }
-        reverse_methods = {
-            "__add__": "__radd__", "__sub__": "__rsub__",
-            "__mul__": "__rmul__", "__truediv__": "__rtruediv__",
-            "__floordiv__": "__rfloordiv__", "__mod__": "__rmod__",
-            "__pow__": "__rpow__", "__and__": "__rand__",
-            "__or__": "__ror__", "__xor__": "__rxor__",
-            "__lshift__": "__rlshift__", "__rshift__": "__rrshift__",
-        }
-        operation = operations.get(method)
-        if operation is None:
-            raise ValueError("Unsupported Python scalar operator {} at line {}".format(method, line))
-        def operand_type(operand):
-            if operand[0] == "ref":
-                return reference_type(operand)
-            value = operand[1]
-            # Value constructors remain typed Python values even when their
-            # arguments are compile-time literals. Preserve that native type
-            # through operator dispatch instead of treating the encoded object
-            # as an untyped dictionary.
-            if isinstance(value, dict) and isinstance(value.get("__flow_object__"), str):
-                return value["__flow_object__"]
-            try:
-                return _type_name(type(materialize_literal(value)))
-            except Exception:
-                return None
-
-        left_type, right_type = operand_type(left), operand_type(right)
-
-        def operator_contract(receiver_type, member_name):
-            definition_id, winners = resolve_member(member_name, receiver_type)
-            if not definition_id:
-                return None
-            definition = definitions.get(definition_id)
-            if not definition:
-                return None
-            receiver = next((
-                socket for socket in definition.get("inputs", [])
-                if socket.get("name") in {"self", "cls"}
-            ), None)
-            if receiver is None:
-                return None
-            accepted = receiver.get("variants") or [receiver.get("type", "Any")]
-            if receiver_type not in accepted:
-                actual_class = getattr(b3d, receiver_type, None) if isinstance(receiver_type, str) else None
-                compatible = False
-                if inspect.isclass(actual_class):
-                    for accepted_type in accepted:
-                        expected_class = getattr(b3d, accepted_type, None) if isinstance(accepted_type, str) else None
-                        if inspect.isclass(expected_class):
-                            try:
-                                if issubclass(actual_class, expected_class):
-                                    compatible = True
-                                    break
-                            except TypeError:
-                                pass
-                if not compatible:
-                    return None
-            argument = next((
-                socket for socket in definition.get("inputs", [])
-                if socket.get("name") not in {"self", "cls"}
-            ), None)
-            output = next(iter(definition.get("outputs", [])), None)
-            return definition, receiver, argument, output
-
-        contract = operator_contract(left_type, method)
-        receiver_side = "left"
-        if contract is None:
-            contract = operator_contract(right_type, reverse_methods.get(method))
-            receiver_side = "right" if contract is not None else "left"
-
-        def access_for(socket):
-            if socket is None:
-                return "item"
-            access = socket.get("data_access")
-            if access is not None:
-                return access
-            return "structure" if _socket_data_structure(socket) != "item" else "item"
-
-        left_access = right_access = "item"
-        left_port_type = right_port_type = "Any"
-        result_output = {"name": "result", "type": "Any"}
-        if contract is not None:
-            definition, receiver_socket, argument_socket, output_socket = contract
-            if receiver_side == "left":
-                left_access = access_for(receiver_socket)
-                right_access = access_for(argument_socket)
-                left_port_type = receiver_socket.get("type", "Any")
-                right_port_type = argument_socket.get("type", "Any") if argument_socket else "Any"
-            else:
-                right_access = access_for(receiver_socket)
-                left_access = access_for(argument_socket)
-                right_port_type = receiver_socket.get("type", "Any")
-                left_port_type = argument_socket.get("type", "Any") if argument_socket else "Any"
-            if output_socket:
-                result_output["type"] = output_socket.get("type", "Any")
-                for key in ("data_structure", "item_type", "variants", "semantic_type"):
-                    if key in output_socket:
-                        result_output[key] = output_socket[key]
-        elif method == "__add__" and left_type == right_type == "String":
-            result_output["type"] = "String"
-        elif left_type in {"Number", "Integer", "Float"} and right_type in {"Number", "Integer", "Float"}:
-            result_output["type"] = "Number"
-
-        definition_id = "core.python.binary." + method
-        definition = {
-            "id": definition_id, "name": "Python " + method,
-            "source": "python", "kind": "operation", "category": "Internal",
-            "palette_category": "Internal", "palette_section": "Graph lowering",
-            "inputs": [
-                {"name": "left", "type": left_port_type, "required": True, "data_access": left_access},
-                {"name": "right", "type": right_port_type, "required": True, "data_access": right_access},
-            ],
-            "outputs": [result_output],
-        }
-        definitions[definition_id] = definition
-        _INTERNAL_NODE_IDS.add(definition_id)
-        def apply_binary(left, right):
-            return operation(left, right)
-        _CATALOG_CALLABLES[definition_id] = apply_binary
-        _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
-            inspect.Parameter("left", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-            inspect.Parameter("right", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-        ])
-        _CATALOG_HINT_TARGETS[definition_id] = False
-        params, links = {}, []
-        for name, operand, socket_type in (
-            ("left", left, left_port_type),
-            ("right", right, right_port_type),
-        ):
-            if operand[0] == "literal":
-                # Operators consume the native object protocol. Preserve
-                # tagged value constructors even when the resolved operator
-                # signature declares a concrete receiver/argument type.
-                params[name] = literal_json_value(operand[1], preserve_objects=True)
-            else:
-                links.append((name, operand[1], operand[2]))
-        created = add_node(definition_id, params, links, line)
-        return ("ref", created, "result", result_output["type"])
-
-    def resolve_callable(node, call_node=None):
-        symbol_name = None
-        definition_id = None
-        if isinstance(node, ast.Name):
-            name = imported.get(node.id, node.id)
-            definition_id = by_name.get(name) or by_name.get(node.id)
-            symbol_name = name
-        elif isinstance(node, ast.Attribute):
-            path = []
-            current = node
-            while isinstance(current, ast.Attribute):
-                path.append(current.attr)
-                current = current.value
-            if isinstance(current, ast.Name):
-                root = current.id
-                if root in aliases and aliases[root] == "b3d":
-                    symbol_name = path[0] if len(path) == 1 else None
-                    definition_id = (
-                        by_name.get(path[0]) if len(path) == 1
-                        else by_name.get(".".join(reversed(path)))
-                    )
-                elif root in imported:
-                    qualified_name = imported[root] + "." + ".".join(reversed(path))
-                    definition_id = by_name.get(qualified_name)
-                elif hasattr(b3d, root):
-                    qualified_name = root + "." + ".".join(reversed(path))
-                    definition_id = by_name.get(qualified_name)
-        # Resolve overloaded public classes before returning the ordinary
-        # name lookup. by_name contains the canonical class entry too, so an
-        # early return here silently bypasses overload selection for classes
-        # such as Location.
-        # Public build123d aliases (for example Pos) can refer to an overloaded
-        # class whose catalog entries are named Pos(v) / Pos(X, Y, Z), rather
-        # than a single Pos node. Resolve the alias to its canonical class and
-        # choose the overload that accepts this call's positional/keyword form.
-        candidate = getattr(b3d, symbol_name, None) if symbol_name else None
-        if candidate is None and isinstance(node, ast.Name):
-            candidate = getattr(b3d, imported.get(node.id, node.id), None)
-        if candidate is None or not inspect.isclass(candidate):
-            return definition_id
-        canonical_name = getattr(candidate, "__name__", "")
-        prefix = getattr(candidate, "__module__", "") + "." + canonical_name + ".overload-"
-        overload_ids = sorted(
-            definition_id for definition_id in definitions
-            if definition_id.startswith(prefix)
-        )
-        if not overload_ids:
-            return definition_id or by_name.get(canonical_name)
-
-        if call_node is None:
-            return overload_ids[0]
-        keyword_names = {
-            keyword.arg for keyword in call_node.keywords if keyword.arg is not None
-        }
-
-        def literal_argument_shape(argument):
-            if isinstance(argument, ast.Tuple):
-                return "tuple"
-            if isinstance(argument, ast.List):
-                return "list"
-            if isinstance(argument, ast.Set):
-                return "set"
-            if isinstance(argument, ast.Dict):
-                return "dict"
-            if isinstance(argument, ast.Constant):
-                return "scalar"
-            return None
-
-        def overload_argument_score(argument, socket):
-            shape = literal_argument_shape(argument)
-            if shape is None:
-                return 0
-            access = socket.get("data_access")
-            structure = socket.get("data_structure")
-            target_types = set(socket.get("variants") or [socket.get("type", "Any")])
-            if shape in {"tuple", "list", "set", "dict"}:
-                score = 12 if shape in set(socket.get("literal_shapes") or []) else 0
-                if structure == shape:
-                    score += 8
-                if access == "structure":
-                    score += 5
-                elif access == "item":
-                    score -= 5
-                if target_types.intersection(_GEOMETRY_INPUT_TYPES | _OBJECT_INPUT_TYPES):
-                    score -= 3
-                return score
-            score = 1 if access in (None, "item") else -1
-            value = argument.value
-            if isinstance(value, bool):
-                score += 3 if "Boolean" in target_types else 0
-            elif isinstance(value, (int, float)):
-                score += 3 if target_types.intersection({"Number", "Integer", "Float"}) else 0
-            elif isinstance(value, str):
-                score += 3 if "String" in target_types else 0
-            return score
-
-        candidates = []
-        for overload_index, overload_id in enumerate(overload_ids):
-            sockets = definitions[overload_id].get("inputs", [])
-            positional_sockets = [
-                socket for socket in sockets
-                if socket.get("kind") in {"positional_only", "positional_or_keyword"}
-            ]
-            has_var_positional = any(socket.get("kind") == "var_positional" for socket in sockets)
-            if len(call_node.args) > len(positional_sockets) and not has_var_positional:
-                continue
-            supplied = {
-                positional_sockets[index]["name"]
-                for index in range(min(len(call_node.args), len(positional_sockets)))
-            }
-            if supplied.intersection(keyword_names):
-                continue
-            known = {socket["name"] for socket in sockets}
-            if keyword_names - known:
-                continue
-            required = {
-                socket["name"] for socket in sockets
-                if socket.get("required")
-                and socket.get("kind") not in {"var_positional", "var_keyword"}
-            }
-            if required - supplied - keyword_names:
-                continue
-            score = sum(
-                overload_argument_score(argument, positional_sockets[index])
-                for index, argument in enumerate(call_node.args[:len(positional_sockets)])
-            )
-            keyword_sockets = {socket["name"]: socket for socket in sockets}
-            score += sum(
-                overload_argument_score(keyword.value, keyword_sockets[keyword.arg])
-                for keyword in call_node.keywords
-                if keyword.arg in keyword_sockets
-            )
-            candidates.append((score, -overload_index, overload_id))
-        if candidates:
-            return max(candidates)[2]
-        return overload_ids[0]
-
-    def safe_stdlib_value(module_name, attribute):
-        module = importlib.import_module(module_name)
-        value = getattr(module, attribute, None)
-        if callable(value) or isinstance(value, (int, float, str, bool, tuple)):
-            return value
-        return None
-
-    def resolve_safe_stdlib_name(name):
-        if name in stdlib_symbols:
-            module_name, attribute = stdlib_symbols[name]
-            return safe_stdlib_value(module_name, attribute)
-        for module_name in stdlib_star_modules:
-            value = safe_stdlib_value(module_name, name)
-            if value is not None:
-                return value
-        return None
-
-    def resolve_safe_stdlib_attribute(node):
-        path = []
-        current = node
-        while isinstance(current, ast.Attribute):
-            path.append(current.attr)
-            current = current.value
-        if not isinstance(current, ast.Name) or current.id not in stdlib_modules:
-            return None
-        value = importlib.import_module(stdlib_modules[current.id])
-        for part in reversed(path):
-            value = getattr(value, part, None)
-            if value is None:
-                return None
-        return value
-
-    def literal_json_value(value, preserve_objects=False):
-        if isinstance(value, enum.Enum):
-            return value.name
-        if isinstance(value, b3d.Axis):
-            if preserve_objects:
-                return {
-                    "__flow_object__": "Axis",
-                    "args": [list(value.position), list(value.direction)],
-                    "kwargs": {},
-                }
-            return [list(value.position), list(value.direction)]
-        if isinstance(value, b3d.Plane):
-            if preserve_objects:
-                return {
-                    "__flow_object__": "Plane",
-                    "args": [],
-                    "kwargs": {
-                        "origin": list(value.origin),
-                        "x_dir": list(value.x_dir),
-                        "z_dir": list(value.z_dir),
-                    },
-                }
-            return {"origin": list(value.origin), "x_dir": list(value.x_dir),
-                    "z_dir": list(value.z_dir)}
-        if isinstance(value, b3d.Location):
-            if preserve_objects:
-                return {"__flow_object__": "Location", "args": [list(value.to_tuple())], "kwargs": {}}
-            return list(value.to_tuple())
-        if isinstance(value, b3d.Vector):
-            if preserve_objects:
-                return {"__flow_object__": "Vector", "args": list(value), "kwargs": {}}
-            return list(value)
-        if isinstance(value, dict):
-            if "__flow_object__" in value:
-                args = [literal_json_value(item, preserve_objects) for item in value.get("args", [])]
-                kwargs = {key: literal_json_value(item, preserve_objects)
-                          for key, item in value.get("kwargs", {}).items()}
-                # An Any-typed operator input has no annotation from which to
-                # reconstruct a value object. Preserve its type tag (including
-                # inside literal lists) so the evaluator restores the native
-                # object before applying Python's operator protocol.
-                if preserve_objects:
-                    return {
-                        "__flow_object__": value["__flow_object__"],
-                        "args": args,
-                        "kwargs": kwargs,
-                    }
-                if kwargs and value["__flow_object__"] in {"Plane", "Location"}:
-                    return kwargs
-                # Matrix accepts its row-major storage as one positional
-                # argument; the graph socket stores that value, not a wrapper
-                # list containing the constructor argument.
-                if value["__flow_object__"] == "Matrix" and len(args) == 1:
-                    return args[0]
-                # Preserve zero-argument value constructors such as Vector().
-                # An empty kwargs dict is not the same value as the constructed
-                # object; the evaluator restores this tagged form before calling
-                # an Any-typed consumer such as sum(iterable, Vector()).
-                if not args and not kwargs:
-                    return {"__flow_object__": value["__flow_object__"], "args": [], "kwargs": {}}
-                return args if args else kwargs
-            return {key: literal_json_value(item, preserve_objects) for key, item in value.items()}
-        if isinstance(value, (list, tuple)):
-            return [literal_json_value(item, preserve_objects) for item in value]
-        return value
-
-    def materialize_literal(value):
-        if isinstance(value, dict):
-            if "__flow_object__" in value:
-                constructor = getattr(b3d, value["__flow_object__"])
-                args = [materialize_literal(item) for item in value.get("args", [])]
-                kwargs = {key: materialize_literal(item)
-                          for key, item in value.get("kwargs", {}).items()}
-                return constructor(*args, **kwargs)
-            return {key: materialize_literal(item) for key, item in value.items()}
-        if isinstance(value, list):
-            return [materialize_literal(item) for item in value]
-        if isinstance(value, tuple):
-            return tuple(materialize_literal(item) for item in value)
-        return value
-
-    def resolve_value_constructor(function_node, expected_type):
-        """Resolve a build123d value class against the destination socket contract."""
-        if isinstance(function_node, ast.Name):
-            class_name = imported.get(function_node.id, function_node.id)
-            constructor = getattr(b3d, class_name, None)
-        elif isinstance(function_node, ast.Attribute):
-            parts = []
-            current = function_node
-            while isinstance(current, ast.Attribute):
-                parts.append(current.attr)
-                current = current.value
-            constructor = None
-            if isinstance(current, ast.Name) and current.id in aliases and aliases[current.id] == "b3d":
-                path = list(reversed(parts))
-                constructor = getattr(b3d, path[0], None) if len(path) == 1 else None
-        else:
-            return None
-        if not inspect.isclass(constructor):
-            return None
-        if getattr(constructor, "__module__", "").split(".")[0] != "build123d":
-            return None
-        # These are concrete wrapper/value classes named by their public
-        # build123d API contracts. Prefer the registered socket name over
-        # subclass-based shape inference (which can collapse wrappers to Shape).
-        constructor_type = (
-            constructor.__name__
-            if constructor.__name__ in _OBJECT_INPUT_TYPES
-            else _type_name(constructor)
-        )
-        if constructor_type not in _OBJECT_INPUT_TYPES:
-            return None
-        geometry_types = {"Face", "Edge", "Vertex", "Wire", "Shell", "Solid", "Compound"}
-        # Geometry classes are real build123d operations when used as source
-        # expressions (Box(...), Face(...), Solid(...)). Treat them as literal
-        # value constructors only when a typed destination socket explicitly
-        # requests that geometry type; otherwise normal API-node resolution
-        # must retain the constructor and its graph dependencies.
-        if (
-            constructor_type in geometry_types
-            and constructor_type != "Face"
-            and expected_type in (None, "Any")
-        ):
-            return None
-        if expected_type not in (None, "Any", constructor_type):
-            return None
-        return constructor, constructor_type
-
-    def resolve_build123d_class_callable(function_node):
-        """Resolve a public class-level build123d callable without treating its class as a graph value."""
-        if not isinstance(function_node, ast.Attribute):
-            return None
-        parts = []
-        current = function_node
-        while isinstance(current, ast.Attribute):
-            parts.append(current.attr)
-            current = current.value
-        if not isinstance(current, ast.Name):
-            return None
-        root = current.id
-        if root in variables:
-            return None
-        if root in aliases and aliases[root] == "b3d":
-            path = list(reversed(parts))
-            if len(path) != 2:
-                return None
-            owner = getattr(b3d, path[0], None)
-            member_name = path[1]
-        elif root in imported:
-            owner = getattr(b3d, imported[root], None)
-            path = list(reversed(parts))
-            if len(path) != 1:
-                return None
-            member_name = path[0]
-        elif hasattr(b3d, root):
-            owner = getattr(b3d, root, None)
-            path = list(reversed(parts))
-            if len(path) != 1:
-                return None
-            member_name = path[0]
-        else:
-            return None
-        if not inspect.isclass(owner):
-            return None
-        callable_obj = getattr(owner, member_name, None)
-        if not callable(callable_obj):
-            return None
-        if getattr(callable_obj, "__module__", "").split(".")[0] != "build123d":
-            return None
-        return owner, member_name, callable_obj
-
-    def add_build123d_class_call(owner, member_name, callable_obj, call_node):
-        """Lower a bound static/class method into one typed graph operation."""
-        signature = inspect.signature(callable_obj)
-        hints = _resolve_hints(callable_obj)
-        parameters = list(signature.parameters.values())
-        inputs = []
-        for parameter in parameters:
-            annotation = hints.get(parameter.name, parameter.annotation)
-            socket = {
-                "name": parameter.name,
-                "type": _type_name(annotation),
-                "required": parameter.default is inspect.Signature.empty
-                and parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD),
-            }
-            socket.update(_annotation_metadata(annotation))
-            if socket.get("data_structure") in {"list", "tree", "tuple", "set", "dict"}:
-                socket["data_access"] = "structure"
-            if parameter.kind == parameter.VAR_POSITIONAL:
-                socket["kind"] = "var_positional"
-                socket["data_access"] = "structure"
-            elif parameter.kind == parameter.VAR_KEYWORD:
-                socket["kind"] = "var_keyword"
-                socket["data_access"] = "structure"
-            if parameter.default is not inspect.Signature.empty:
-                default, default_repr, _, serializable = _safe_default(parameter.default)
-                if serializable:
-                    socket["default"] = default
-                socket["default_repr"] = default_repr
-            inputs.append(socket)
-
-        definition_id = "core.python.classcall." + owner.__name__ + "." + member_name + "." + hashlib.sha1(
-            (str(signature) + ":" + str(call_node.lineno)).encode("utf-8")
-        ).hexdigest()[:10]
-        return_annotation = hints.get("return", signature.return_annotation)
-        output_socket = {"name": "result", "type": _type_name(return_annotation)}
-        output_socket.update(_annotation_metadata(return_annotation))
-        definitions[definition_id] = {
-            "id": definition_id, "name": "Python " + owner.__name__ + "." + member_name,
-            "source": "python", "kind": "operation", "category": "Internal",
-            "palette_category": "Internal", "palette_section": "Graph lowering",
-            "inputs": inputs, "outputs": [output_socket],
-        }
-        _INTERNAL_NODE_IDS.add(definition_id)
-        _CATALOG_CALLABLES[definition_id] = callable_obj
-        _CATALOG_SIGNATURES[definition_id] = signature
-        _CATALOG_HINT_TARGETS[definition_id] = False
-
-        params, links = {}, []
-        positional_parameters = [
-            parameter for parameter in parameters
-            if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
-        ]
-        var_positional = next(
-            (parameter for parameter in parameters if parameter.kind == parameter.VAR_POSITIONAL), None
-        )
-        positional_index = 0
-        supplied = set()
-        for argument in call_node.args:
-            if isinstance(argument, ast.Starred):
-                if var_positional is None:
-                    raise ValueError("Expanded positional arguments require a variadic parameter at line {}".format(call_node.lineno))
-                name = var_positional.name
-                value_node = argument.value
-            else:
-                if positional_index < len(positional_parameters):
-                    name = positional_parameters[positional_index].name
-                    positional_index += 1
-                elif var_positional is not None:
-                    name = var_positional.name
-                else:
-                    raise ValueError("Too many positional arguments at line {}".format(call_node.lineno))
-                value_node = argument
-            if name in supplied:
-                raise ValueError("Multiple values for argument '{}' at line {}".format(name, call_node.lineno))
-            supplied.add(name)
-            value = expression(value_node)
-            if value[0] == "literal":
-                params[name] = literal_json_value(value[1])
-            else:
-                links.append((name, value[1], value[2]))
-
-        var_keyword = next(
-            (parameter for parameter in parameters if parameter.kind == parameter.VAR_KEYWORD), None
-        )
-        for keyword in call_node.keywords:
-            if keyword.arg is None:
-                if var_keyword is None:
-                    raise ValueError("Expanded keyword arguments require **kwargs at line {}".format(call_node.lineno))
-                name = var_keyword.name
-            else:
-                name = keyword.arg
-            if name in supplied:
-                raise ValueError("Multiple values for argument '{}' at line {}".format(name, call_node.lineno))
-            supplied.add(name)
-            value = expression(keyword.value)
-            if value[0] == "literal":
-                params[name] = literal_json_value(value[1])
-            else:
-                links.append((name, value[1], value[2]))
-        created = add_node(definition_id, params, links, call_node.lineno)
-        return ("ref", created, "result", output_socket["type"])
-
-    def expression(node, expected_type=None):
-        nonlocal mapping_matching
-        if isinstance(node, ast.Constant):
-            return ("literal", node.value)
-        if isinstance(node, ast.Set):
-            raise ValueError("Set literals are not yet importable (line {})".format(node.lineno))
-        if isinstance(node, (ast.List, ast.Tuple)):
-            values = [expression(item) for item in node.elts]
-            if all(item[0] == "literal" for item in values):
-                raw = [item[1] for item in values]
-                return ("literal", raw if isinstance(node, ast.List) else tuple(raw))
-            return add_collection_node(
-                values, "list" if isinstance(node, ast.List) else "tuple", node.lineno
-            )
-        if isinstance(node, ast.ListComp):
-            saved_variables = dict(variables)
-            saved_stream_variables = set(stream_variables)
-            saved_matching = mapping_matching
-            generator_streams = []
-            saved_loop_depth = len(active_loop_frames)
-            def graph_depends_on(node_id, ancestors):
-                pending = [node_id]
-                visited = set()
-                while pending:
-                    current_id = pending.pop()
-                    if current_id in ancestors:
-                        return True
-                    if current_id in visited:
-                        continue
-                    visited.add(current_id)
-                    for edge in graph_edges:
-                        if edge.get("target") != current_id:
-                            continue
-                        source_id = edge.get("source")
-                        if source_id in ancestors:
-                            return True
-                        pending.append(source_id)
-                return False
-            def compile_generator(index):
-                nonlocal mapping_matching
-                generator = node.generators[index]
-                if generator.is_async or not isinstance(generator.target, ast.Name):
-                    raise ValueError("Only synchronous simple-name comprehension targets are supported (line {})".format(node.lineno))
-                iterable = expression(generator.iter)
-                if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple)):
-                    iterable = add_collection_node(
-                        [("literal", item) for item in iterable[1]], "list",
-                        generator.iter.lineno, map_over_active_loops=False,
-                    )
-                if iterable[0] != "ref":
-                    raise ValueError("A comprehension iterable must be a sequence or graph output (line {})".format(generator.iter.lineno))
-                outer_ids = {stream[1] for stream in generator_streams}
-                outer_ids.update(frame["node_id"] for frame in active_loop_frames)
-                if outer_ids:
-                    select_loop_mapping(iterable[1], outer_ids, generator.iter.lineno)
-                item_type, item_types = iterable_item_metadata(iterable)
-                variables[generator.target.id] = (
-                    "ref", iterable[1], iterable[2], item_type, item_types
-                )
-                stream_variables.add(generator.target.id)
-                generator_streams.append(iterable)
-                active_loop_frames.append({
-                    "node_id": iterable[1], "output_name": iterable[2],
-                    "written_names": {generator.target.id},
-                    "matching": mapping_matching,
-                })
-                for condition in generator.ifs:
-                    resolved = expression(condition)
-                    if resolved[0] != "literal" or not isinstance(resolved[1], bool):
-                        raise ValueError("Graph-dependent comprehension filters are not yet importable (line {})".format(condition.lineno))
-                    if not resolved[1]:
-                        return ("literal", [])
-                if index + 1 < len(node.generators):
-                    return compile_generator(index + 1)
-                return expression(node.elt)
-            try:
-                result = compile_generator(0)
-                if result[0] == "literal":
-                    # A literal element still repeats once per generator item.
-                    # The iteration sockets injected by add_node turn this into
-                    # a mapped constant without expanding the comprehension.
-                    loop_value_id = "core.python.comprehension_constant"
-                    value_type = _type_name(type(materialize_literal(result[1])))
-                    loop_value_definition = {
-                        "id": loop_value_id, "name": "Python Loop Value",
-                        "source": "python", "kind": "operation", "category": "Internal",
-                        "palette_category": "Internal", "palette_section": "Graph lowering",
-                        "inputs": [{"name": "value", "type": value_type,
-                                    "required": True, "data_access": "structure"}],
-                        "outputs": [{"name": "result", "type": value_type}],
-                    }
-                    definitions[loop_value_id] = loop_value_definition
-                    _INTERNAL_NODE_IDS.add(loop_value_id)
-                    _CATALOG_CALLABLES[loop_value_id] = lambda value: value
-                    _CATALOG_SIGNATURES[loop_value_id] = inspect.Signature([
-                        inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-                    ])
-                    _CATALOG_HINT_TARGETS[loop_value_id] = False
-                    created = add_node(
-                        loop_value_id, {"value": literal_json_value(result[1])},
-                        [], node.lineno,
-                    )
-                    result = ("ref", created, "result")
-                return result
-            finally:
-                del active_loop_frames[saved_loop_depth:]
-                variables.clear()
-                variables.update(saved_variables)
-                stream_variables.clear()
-                stream_variables.update(saved_stream_variables)
-                mapping_matching = saved_matching
-        if isinstance(node, ast.Dict):
-            keys = [expression(item) for item in node.keys]
-            values = [expression(item) for item in node.values]
-            if any(key[0] != "literal" for key in keys) or any(value[0] != "literal" for value in values):
-                raise ValueError("Connected dictionaries are not yet importable (line {})".format(node.lineno))
-            return ("literal", {key[1]: value[1] for key, value in zip(keys, values)})
-        if isinstance(node, ast.Name):
-            if node.id in variables:
-                return variables[node.id]
-            if node.id in {"True", "False", "None"}:
-                return ("literal", {"True": True, "False": False, "None": None}[node.id])
-            standard_value = resolve_safe_stdlib_name(node.id)
-            if standard_value is not None and not callable(standard_value):
-                return ("literal", standard_value)
-            build123d_value = getattr(b3d, imported.get(node.id, node.id), None)
-            if isinstance(build123d_value, (int, float, str, bool, enum.Enum,
-                                             b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
-                return ("literal", build123d_value)
-            raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
-        if isinstance(node, ast.Attribute):
-            standard_value = resolve_safe_stdlib_attribute(node)
-            if standard_value is not None and not callable(standard_value):
-                return ("literal", standard_value)
-            receiver_root = node.value
-            while isinstance(receiver_root, ast.Attribute):
-                receiver_root = receiver_root.value
-            receiver = None
-            if ((isinstance(receiver_root, ast.Name) and receiver_root.id in variables)
-                    or isinstance(node.value, (ast.Call, ast.Subscript, ast.BinOp, ast.UnaryOp))):
-                receiver = expression(node.value)
-            if receiver and receiver[0] == "literal":
-                try:
-                    return ("literal", getattr(materialize_literal(receiver[1]), node.attr))
-                except AttributeError:
-                    pass
-            if receiver and receiver[0] == "ref":
-                receiver_node = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
-                receiver_type = reference_type(receiver)
-                if receiver_node and receiver_node.get("data", {}).get("scope_result"):
-                    scope_id = receiver_node["data"]["scope_result"]
-                    descriptor = next((item for item in execution_scopes if item.get("id") == scope_id), {})
-                    if node.attr == descriptor.get("result_attribute"):
-                        return receiver
-                definition_id, candidates = resolve_member(
-                    node.attr, receiver_type, property_only=True
-                )
-                if definition_id:
-                    # Attribute reads must use Python's native descriptor lookup.
-                    # Discovered property getters are catalog metadata, but invoking
-                    # their synthetic lambdas through graph data-mapping loses the
-                    # receiver for streamed values (for example, face.area in a loop).
-                    # The generic attribute node preserves descriptor and instance
-                    # semantics while still mapping each receiver item independently.
-                    property_definition = definitions[definition_id]
-                    property_type = next(
-                        (item.get("type", "Any") for item in property_definition.get("outputs", [])),
-                        "Any",
-                    )
-                    if property_type == "Any" and node.attr in {
-                        "X", "Y", "Z", "length", "area", "volume",
-                        "radius", "height", "width", "depth",
-                    }:
-                        property_type = "Number"
-                    property_receiver = next((
-                        item for item in property_definition.get("inputs", [])
-                        if item.get("name") in {"self", "cls"}
-                    ), None)
-                    receiver_access = (
-                        property_receiver.get("data_access")
-                        if property_receiver else "item"
-                    )
-                    if receiver_access is None and property_receiver is not None:
-                        receiver_access = (
-                            "structure"
-                            if _socket_data_structure(property_receiver) != "item"
-                            else "item"
-                        )
-                    attribute_id = (
-                        _PYTHON_ATTRIBUTE_STRUCTURE_ID
-                        if receiver_access == "structure"
-                        else _PYTHON_ATTRIBUTE_ID
-                    )
-                    created = add_node(
-                        attribute_id, {"name": node.attr},
-                        [("value", receiver[1], receiver[2])], node.lineno,
-                    )
-                    return ("ref", created, "result", property_type)
-                if candidates:
-                    # When static receiver typing cannot distinguish same-named
-                    # properties (for example Axis.Y, Vector.Y and Vertex.Y),
-                    # preserve Python semantics and defer attribute lookup to
-                    # the actual runtime object instead of guessing a class.
-                    candidate_types = {
-                        output.get("type", "Any")
-                        for candidate_id in candidates
-                        for output in definitions.get(candidate_id, {}).get("outputs", [])
-                        if output.get("type", "Any") != "Any"
-                    }
-                    property_type = next(iter(candidate_types)) if len(candidate_types) == 1 else "Any"
-                    if property_type == "Any" and node.attr in {
-                        "X", "Y", "Z", "length", "area", "volume",
-                        "radius", "height", "width", "depth",
-                    }:
-                        property_type = "Number"
-                    created = add_node(
-                        _PYTHON_ATTRIBUTE_ID, {"name": node.attr},
-                        [("value", receiver[1], receiver[2])], node.lineno,
-                    )
-                    return ("ref", created, "result", property_type)
-            path = []
-            current = node
-            while isinstance(current, ast.Attribute):
-                path.append(current.attr)
-                current = current.value
-            if isinstance(current, ast.Name):
-                root = current.id
-                if root in aliases and aliases[root] == "b3d":
-                    path = list(reversed(path))
-                    if path:
-                        value = getattr(b3d, path[0], None)
-                        for part in path[1:]:
-                            value = getattr(value, part, None)
-                        if isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
-                            return ("literal", value)
-                elif hasattr(b3d, root):
-                    value = getattr(b3d, root, None)
-                    for part in reversed(path):
-                        value = getattr(value, part, None)
-                    if isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)):
-                        return ("literal", value)
-            raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id == "locals":
-                local_names = set(variables) | set(imported) | set(viewer_functions) | set(stdlib_symbols)
-                return ("literal", {name: True for name in local_names})
-            safe_callable = None
-            if isinstance(node.func, ast.Name):
-                candidate = resolve_safe_stdlib_name(node.func.id)
-                if candidate is not None and callable(candidate):
-                    safe_callable = candidate
-            elif isinstance(node.func, ast.Attribute):
-                candidate = resolve_safe_stdlib_attribute(node.func)
-                if candidate is not None and callable(candidate):
-                    safe_callable = candidate
-            if safe_callable is not None:
-                safe_args = [expression(argument) for argument in node.args]
-                safe_kwargs = {}
-                for keyword in node.keywords:
-                    if keyword.arg is None:
-                        raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
-                    safe_kwargs[keyword.arg] = expression(keyword.value)
-                # Graph values are immutable between nodes, so copying a
-                # graph-backed value is an identity operation. Preserve the
-                # reference rather than trying to resolve copy.copy as a
-                # build123d API node.
-                if (
-                    safe_callable in {copy.copy, copy.deepcopy}
-                    and len(safe_args) == 1 and not safe_kwargs
-                ):
-                    return safe_args[0]
-                if all(item[0] == "literal" for item in safe_args) and all(item[0] == "literal" for item in safe_kwargs.values()):
-                    try:
-                        result = safe_callable(
-                            *[materialize_literal(item[1]) for item in safe_args],
-                            **{name: materialize_literal(item[1]) for name, item in safe_kwargs.items()}
-                        )
-                        if isinstance(result, range):
-                            result = list(result)
-                        return ("literal", result)
-                    except Exception as exc:
-                        raise ValueError("Standard-library call failed at line {}: {}".format(node.lineno, exc))
-            if isinstance(node.func, ast.Name) and node.func.id in {
-                "range", "enumerate", "zip", "len", "min", "max", "abs", "round",
-                "str", "int", "float", "bool", "list", "tuple", "sorted", "reversed",
-                "all", "any", "sum", "divmod", "pow"
-            }:
-                builtin_args = [expression(argument) for argument in node.args]
-                builtin_kwargs = {
-                    keyword.arg: expression(keyword.value) for keyword in node.keywords
-                    if keyword.arg is not None
-                }
-                if all(item[0] == "literal" for item in builtin_args) and all(item[0] == "literal" for item in builtin_kwargs.values()):
-                    functions = {
-                        "range": range, "enumerate": enumerate, "zip": zip, "len": len,
-                        "min": min, "max": max, "abs": abs, "round": round, "str": str,
-                        "int": int, "float": float, "bool": bool, "list": list, "tuple": tuple,
-                        "sorted": sorted, "reversed": reversed, "all": all, "any": any,
-                        "sum": sum, "divmod": divmod, "pow": pow,
-                    }
-                    result = functions[node.func.id](
-                        *[materialize_literal(item[1]) for item in builtin_args],
-                        **{name: materialize_literal(item[1]) for name, item in builtin_kwargs.items()}
-                    )
-                    if isinstance(result, (range, enumerate, zip, reversed)):
-                        result = list(result)
-                    return ("literal", result)
-            # Reduction builtins consume a complete collection rather than
-            # mapping over it. Lower graph-backed sum/max/min/len explicitly
-            # so they cannot be mistaken for build123d's capitalized Sum node.
-            if (
-                isinstance(node.func, ast.Name)
-                and node.func.id in {"sum", "max", "min", "len"}
-            ):
-                builtin_name = node.func.id
-                # The ordinary builtin path above has already lowered these
-                # expressions. Reuse its refs; evaluating a comprehension twice
-                # would leave duplicate, orphaned graph operations behind.
-                dynamic_args = builtin_args
-                dynamic_kwargs = builtin_kwargs
-                if any(item[0] == "ref" for item in dynamic_args + list(dynamic_kwargs.values())):
-                    if builtin_name == "sum" and 1 <= len(dynamic_args) <= 2 and not dynamic_kwargs:
-                        names = ["iterable", "start"][:len(dynamic_args)]
-                        input_sockets = [
-                            {"name": "iterable", "type": "Any", "required": True, "data_access": "structure"},
-                            {"name": "start", "type": "Any", "required": False, "default": 0, "data_access": "structure"},
-                        ]
-                        output_type = reference_type(dynamic_args[1]) if len(dynamic_args) == 2 else "Number"
-                        callable_obj = sum
-                    elif builtin_name in {"max", "min"} and len(dynamic_args) == 1 and not dynamic_kwargs:
-                        names = ["iterable"]
-                        input_sockets = [
-                            {"name": "iterable", "type": "Any", "required": True, "data_access": "structure"}
-                        ]
-                        output_type = reference_type(dynamic_args[0])
-                        callable_obj = max if builtin_name == "max" else min
-                    elif builtin_name == "len" and len(dynamic_args) == 1 and not dynamic_kwargs:
-                        names = ["obj"]
-                        input_sockets = [
-                            {"name": "obj", "type": "Any", "required": True, "data_access": "structure"}
-                        ]
-                        output_type = "Number"
-                        callable_obj = len
-                    else:
-                        raise ValueError("Unsupported graph-backed {} call at line {}".format(builtin_name, node.lineno))
-                    definition_id = "core.python.builtin." + builtin_name
-                    definitions[definition_id] = {
-                        "id": definition_id, "name": "Python " + builtin_name,
-                        "source": "python", "kind": "operation", "category": "Internal",
-                        "palette_category": "Internal", "palette_section": "Graph lowering",
-                        "inputs": input_sockets,
-                        "outputs": [{"name": "result", "type": output_type}],
-                    }
-                    _INTERNAL_NODE_IDS.add(definition_id)
-                    _CATALOG_CALLABLES[definition_id] = callable_obj
-                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
-                        inspect.Parameter(
-                            name,
-                            inspect.Parameter.POSITIONAL_ONLY
-                            if name in {"iterable", "obj"}
-                            else inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                            default=0 if builtin_name == "sum" and name == "start" else inspect.Parameter.empty,
-                        )
-                        for name in names
-                    ])
-                    _CATALOG_HINT_TARGETS[definition_id] = False
-                    params, links = {}, []
-                    for name, value in zip(names, dynamic_args):
-                        if value[0] == "literal":
-                            params[name] = literal_json_value(value[1])
-                        else:
-                            links.append((name, value[1], value[2]))
-                    created = add_node(definition_id, params, links, node.lineno)
-                    return ("ref", created, "result", output_type)
-
-            # tuple(item) is common in build123d list comprehensions: a
-            # mapped Vertex/Vector becomes one coordinate tuple per item.
-            # Preserve that as a graph operation instead of trying to execute
-            # the conversion against a graph reference during import.
-            if (
-                isinstance(node.func, ast.Name)
-                and node.func.id == "tuple"
-                and len(node.args) == 1
-                and not node.keywords
-            ):
-                tuple_input = expression(node.args[0])
-                if tuple_input[0] == "ref":
-                    per_item = (
-                        isinstance(node.args[0], ast.Name)
-                        and node.args[0].id in stream_variables
-                    )
-                    definition_id = "core.python.builtin.tuple"
-                    definition = {
-                        "id": definition_id, "name": "Python tuple",
-                        "source": "python", "kind": "operation", "category": "Internal",
-                        "palette_category": "Internal", "palette_section": "Graph lowering",
-                        "inputs": [{
-                            "name": "value", "type": "Any", "required": True,
-                            "data_access": "item" if per_item else "structure",
-                        }],
-                        "outputs": [{
-                            "name": "result", "type": "Tuple",
-                            "data_structure": "tuple", "item_type": "Number",
-                        }],
-                    }
-                    definitions[definition_id] = definition
-                    _INTERNAL_NODE_IDS.add(definition_id)
-                    _CATALOG_CALLABLES[definition_id] = tuple
-                    _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
-                        inspect.Parameter("value", inspect.Parameter.POSITIONAL_ONLY),
-                    ])
-                    _CATALOG_HINT_TARGETS[definition_id] = False
-                    created = add_node(
-                        definition_id, {},
-                        [("value", tuple_input[1], tuple_input[2])],
-                        node.lineno,
-                    )
-                    return ("ref", created, "result", "Tuple")
-
-            # Resolve build123d value constructors from the destination socket's
-            # declared type. This shares the runtime's type contract instead of
-            # maintaining one importer exception per value class.
-            value_constructor = resolve_value_constructor(node.func, expected_type)
-            if value_constructor is not None:
-                constructor, constructor_type = value_constructor
-                value_arguments = [
-                    (expression(argument.value), True)
-                    if isinstance(argument, ast.Starred)
-                    else (expression(argument), False)
-                    for argument in node.args
-                ]
-                values = [item[0] for item in value_arguments]
-                kwargs = {}
-                for keyword in node.keywords:
-                    if keyword.arg is None:
-                        raise ValueError("Expanded constructor arguments are unsupported at line {}".format(node.lineno))
-                    kwargs[keyword.arg] = expression(keyword.value)
-                if node.args and node.keywords and constructor_type in {"Plane", "Location"}:
-                    raise ValueError("{} cannot mix positional and keyword arguments at line {}".format(
-                        constructor_type, node.lineno))
-                if all(item[0] == "literal" for item in values) and all(
-                    item[0] == "literal" for item in kwargs.values()
-                ):
-                    positional_values = []
-                    for (kind, value, *extra), (_, starred) in zip(values, value_arguments):
-                        materialized = materialize_literal(value)
-                        if starred:
-                            positional_values.extend(materialized)
-                        else:
-                            positional_values.append(materialized)
-                    return ("literal", {
-                        "__flow_object__": constructor.__name__,
-                        "args": [literal_json_value(item) for item in positional_values],
-                        "kwargs": {name: item[1] for name, item in kwargs.items()},
-                    })
-
-                # Value constructors such as Plane(face) and Location(vertex)
-                # are real graph operations when their inputs depend on geometry.
-                # Keep one constructor node and let the normal item-mapping runtime
-                # apply it to each item in the incoming stream.
-                positional_names = ["arg_{}".format(index) for index in range(len(values))]
-                starred_flags = [item[1] for item in value_arguments]
-                supplied_names = positional_names + list(kwargs)
-                if len(set(supplied_names)) != len(supplied_names):
-                    raise ValueError("Duplicate constructor argument at line {}".format(node.lineno))
-                definition_id = "core.python.construct." + constructor.__name__ + "." + hashlib.sha1(
-                    ",".join(supplied_names).encode("utf-8")
-                ).hexdigest()[:10]
-                input_sockets = [
-                    {"name": name, "type": "Any", "required": True}
-                    for name in supplied_names
-                ]
-                definitions[definition_id] = {
-                    "id": definition_id, "name": "Python " + constructor.__name__,
-                    "source": "python", "kind": "operation", "category": "Internal",
-                    "palette_category": "Internal", "palette_section": "Graph lowering",
-                    "inputs": input_sockets,
-                    "outputs": [{"name": "result", "type": constructor_type}],
-                }
-                _INTERNAL_NODE_IDS.add(definition_id)
-
-                def construct_value(**supplied_values):
-                    positional = []
-                    for name, starred in zip(positional_names, starred_flags):
-                        value = supplied_values.pop(name)
-                        if starred:
-                            positional.extend(value)
-                        else:
-                            positional.append(value)
-                    return constructor(*positional, **supplied_values)
-
-                _CATALOG_CALLABLES[definition_id] = construct_value
-                _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
-                    inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY)
-                    for name in supplied_names
-                ])
-                _CATALOG_HINT_TARGETS[definition_id] = False
-                params, links = {}, []
-                for name, item in zip(supplied_names, values + list(kwargs.values())):
-                    if item[0] == "literal":
-                        params[name] = literal_json_value(item[1])
-                    else:
-                        links.append((name, item[1], item[2]))
-                created = add_node(definition_id, params, links, node.lineno)
-                return ("ref", created, "result")
-
-            class_callable = resolve_build123d_class_callable(node.func)
-            if class_callable is not None:
-                return add_build123d_class_call(*class_callable, node)
-
-            definition_id = resolve_callable(node.func, node)
-            receiver = None
-            receiver_type = None
-            if isinstance(node.func, ast.Attribute):
-                # A dotted name can resolve through the imported API namespace even
-                # when its left-hand side is an instance expression. Resolve the
-                # receiver whenever the selected definition is an instance method;
-                # otherwise imported methods silently become receiver-less nodes.
-                selected = definitions.get(definition_id) if definition_id else None
-                expects_receiver = selected is None or any(
-                    item.get("name") in {"self", "cls"}
-                    for item in selected.get("inputs", [])
-                )
-                if expects_receiver:
-                    receiver = expression(node.func.value)
-                    if receiver[0] == "ref":
-                        upstream = next((item for item in graph_nodes if item["id"] == receiver[1]), None)
-                        if upstream:
-                            receiver_type = reference_type(receiver)
-                    elif receiver[0] == "literal":
-                        receiver_type = _type_name(type(materialize_literal(receiver[1])))
-                    if not definition_id:
-                        definition_id, candidates = resolve_member(node.func.attr, receiver_type)
-                        if candidates and definition_id is None:
-                            raise ValueError("Ambiguous method '{}' for receiver type '{}' at line {}: {}".format(
-                                node.func.attr, receiver_type, node.lineno, ", ".join(candidates)))
-            if not definition_id:
-                raise ValueError("Unsupported or ambiguous call at line {}: {}".format(
-                    node.lineno, ast.unparse(node.func)))
-            definition = definitions[definition_id]
-            sockets = definition.get("inputs", [])
-            params, links = {}, []
-            receiver_socket = next((item for item in sockets if item.get("name") in {"self", "cls"}), None)
-            # A discovered instance-method definition is authoritative about
-            # its receiver contract. If namespace resolution selected that
-            # definition before the expression resolver identified the bound
-            # object, recover the receiver from the attribute expression here.
-            if (
-                receiver is None and receiver_socket is not None
-                and isinstance(node.func, ast.Attribute)
-            ):
-                receiver = expression(node.func.value)
-            if receiver is not None and receiver_socket is not None:
-                if receiver[0] == "ref":
-                    links.append((receiver_socket["name"], receiver[1], receiver[2]))
-                else:
-                    params[receiver_socket["name"]] = literal_json_value(receiver[1])
-            # The full runtime catalog is authoritative for bound receiver
-            # sockets. Reconcile it here before lowering arguments so an
-            # incomplete/stale local definition cannot turn a method call into
-            # a receiver-less node.
-            if receiver_socket is None and isinstance(node.func, ast.Attribute):
-                catalog_definition = _CATALOG.get(definition_id)
-                catalog_receiver = next((
-                    item for item in catalog_definition.get("inputs", [])
-                    if item.get("name") in {"self", "cls"}
-                ), None) if catalog_definition else None
-                if catalog_receiver is not None:
-                    definition = catalog_definition
-                    definitions[definition_id] = definition
-                    sockets = definition.get("inputs", [])
-                    receiver_socket = catalog_receiver
-            if receiver_socket is not None and isinstance(node.func, ast.Attribute):
-                if receiver is None:
-                    receiver = expression(node.func.value)
-                if receiver[0] == "ref":
-                    receiver_name = receiver_socket["name"]
-                    links = [link for link in links if link[0] != receiver_name]
-                    links.append((receiver_name, receiver[1], receiver[2]))
-                elif receiver[0] == "literal":
-                    params[receiver_socket["name"]] = literal_json_value(receiver[1])
-            if receiver_socket is not None and isinstance(node.func, ast.Attribute):
-                if receiver is None:
-                    raise ValueError(
-                        "Bound method {} has no resolved receiver at line {}".format(
-                            node.func.attr, node.lineno
-                        )
-                    )
-                if receiver[0] == "ref" and not any(
-                    link[0] == receiver_socket["name"] for link in links
-                ):
-                    raise ValueError(
-                        "Bound method {} failed to connect receiver {} from {} at line {}".format(
-                            node.func.attr, receiver_socket["name"], repr(receiver),
-                            node.lineno
-                        )
-                    )
-            var_positional_socket = next(
-                (socket for socket in sockets if socket.get("kind") == "var_positional"), None
-            )
-            argument_sockets = [
-                socket for socket in sockets
-                if socket is not receiver_socket
-                and socket.get("kind") not in {"keyword_only", "var_keyword", "var_positional"}
-            ]
-            if len(node.args) > len(argument_sockets) and var_positional_socket is None:
-                raise ValueError("Too many positional arguments for {} at line {}".format(
-                    definition.get("name"), node.lineno))
-            supplied = {}
-            for index, value in enumerate(node.args[:len(argument_sockets)]):
-                supplied[argument_sockets[index]["name"]] = value
-
-            # Python constructors such as Bezier(*points) expose a single
-            # VAR_POSITIONAL parameter. Lower its positional arguments as a
-            # structural list; the evaluator expands that list back into
-            # positional arguments when invoking the native callable.
-            var_positional_value = None
-            extra_positional = node.args[len(argument_sockets):]
-            if extra_positional:
-                if var_positional_socket is None:
-                    raise ValueError("Too many positional arguments for {} at line {}".format(
-                        definition.get("name"), node.lineno))
-                if any(isinstance(value, ast.Starred) for value in extra_positional):
-                    if len(extra_positional) != 1 or not isinstance(extra_positional[0], ast.Starred):
-                        raise ValueError("Mixed starred positional arguments are unsupported at line {}".format(
-                            node.lineno))
-                    var_positional_value = expression(extra_positional[0].value)
-                else:
-                    var_positional_value = add_collection_node(
-                        [expression(value) for value in extra_positional], "list", node.lineno
-                    )
-
-            for keyword in node.keywords:
-                if keyword.arg is None:
-                    raise ValueError("Expanded keyword arguments are unsupported at line {}".format(node.lineno))
-                if var_positional_socket is not None and keyword.arg == var_positional_socket["name"]:
-                    raise ValueError("Variadic positional parameter '{}' cannot be passed by keyword at line {}".format(
-                        keyword.arg, node.lineno))
-                supplied[keyword.arg] = keyword.value
-            known = {socket["name"] for socket in sockets}
-            unknown = set(supplied) - known
-            if unknown:
-                raise ValueError("Unknown argument(s) for {} at line {}: {}".format(
-                    definition.get("name"), node.lineno, ", ".join(sorted(unknown))))
-            for socket in sockets:
-                name = socket["name"]
-                if socket is receiver_socket:
-                    continue
-                if socket is var_positional_socket:
-                    if var_positional_value is not None:
-                        kind, value, *extra = var_positional_value
-                        if kind == "literal":
-                            params[name] = literal_json_value(value)
-                        else:
-                            links.append((name, value, extra[0]))
-                    continue
-                if name not in supplied:
-                    if "default" in socket:
-                        params[name] = socket["default"]
-                    elif socket.get("required"):
-                        raise ValueError("Missing '{}' for {} at line {}".format(
-                            name, definition.get("name"), node.lineno))
-                    continue
-                kind, value, *extra = expression(supplied[name], socket.get("type"))
-                if kind == "literal":
-                    params[name] = literal_json_value(value)
-                else:
-                    links.append((name, value, extra[0]))
-            created = add_node(definition_id, params, links, node.lineno)
-            return ("ref", created, definition.get("outputs", [{}])[0].get("name", "result"))
-        if isinstance(node, ast.Subscript):
-            # Preserve Python's native __getitem__ semantics. The receiver and
-            # index are ordinary graph dependencies, so this also handles
-            # geometry collections and values produced by earlier API calls.
-            receiver = expression(node.value)
-            index_node = node.slice
-            if isinstance(index_node, ast.Slice):
-                slice_params, slice_links = {}, []
-                for socket_name, component in (
-                    ("start", index_node.lower), ("stop", index_node.upper),
-                    ("step", index_node.step),
-                ):
-                    if component is None:
-                        slice_params[socket_name] = None
-                        continue
-                    kind, value, *extra = expression(component)
-                    if kind == "literal":
-                        slice_params[socket_name] = literal_json_value(value)
-                    else:
-                        slice_links.append((socket_name, value, extra[0]))
-                index_node_id = add_node(_PYTHON_SLICE_ID, slice_params, slice_links, node.lineno)
-                index = ("ref", index_node_id, "result")
-            else:
-                index = expression(index_node)
-            if receiver[0] == "literal" and index[0] == "literal":
-                try:
-                    return ("literal", operator.getitem(
-                        materialize_literal(receiver[1]),
-                        materialize_literal(index[1]),
-                    ))
-                except (TypeError, KeyError, IndexError) as exc:
-                    raise ValueError("Invalid subscript at line {}: {}".format(node.lineno, exc))
-            params, links = {}, []
-            for socket_name, operand in (("value", receiver), ("index", index)):
-                if operand[0] == "literal":
-                    params[socket_name] = operand[1]
-                else:
-                    links.append((socket_name, operand[1], operand[2]))
-            item_type, item_types = iterable_item_metadata(receiver)
-            created = add_node(_PYTHON_SUBSCRIPT_ID, params, links, node.lineno)
-            return ("ref", created, "result", item_type, item_types)
-        if isinstance(node, ast.Compare):
-            operators = {
-                ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt,
-                ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge,
-                ast.In: lambda left, right: left in right,
-                ast.NotIn: lambda left, right: left not in right,
-                ast.Is: operator.is_, ast.IsNot: operator.is_not,
-            }
-            operands = [expression(node.left)] + [expression(item) for item in node.comparators]
-            if any(item[0] != "literal" for item in operands):
-                raise ValueError("Graph-dependent conditions are not yet importable (line {})".format(node.lineno))
-            values = [materialize_literal(item[1]) for item in operands]
-            result = True
-            for index, operation in enumerate(node.ops):
-                function = operators.get(type(operation))
-                if function is None:
-                    raise ValueError("Unsupported comparison at line {}".format(node.lineno))
-                try:
-                    result = result and function(values[index], values[index + 1])
-                except (TypeError, ValueError) as exc:
-                    raise ValueError("Invalid comparison at line {}: {}".format(node.lineno, exc))
-            return ("literal", result)
-        if isinstance(node, ast.BoolOp):
-            values = [expression(item) for item in node.values]
-            if any(item[0] != "literal" for item in values):
-                raise ValueError("Graph-dependent conditions are not yet importable (line {})".format(node.lineno))
-            raw = [materialize_literal(item[1]) for item in values]
-            return ("literal", all(raw) if isinstance(node.op, ast.And) else any(raw))
-        if isinstance(node, ast.UnaryOp):
-            methods = {
-                ast.USub: ("__neg__", operator.neg),
-                ast.UAdd: ("__pos__", operator.pos),
-                ast.Invert: ("__invert__", operator.invert),
-            }
-            operation = methods.get(type(node.op))
-            if operation is None:
-                raise ValueError("Unsupported unary operator at line {}".format(node.lineno))
-            method, apply_operator = operation
-            operand = expression(node.operand)
-            # Unary operators on Python literals are ordinary compile-time values,
-            # not graph operations. This is required for common syntax such as
-            # items[-1], negative dimensions, and signed numeric arguments.
-            if operand[0] == "literal":
-                try:
-                    return ("literal", apply_operator(materialize_literal(operand[1])))
-                except (TypeError, ValueError, OverflowError) as exc:
-                    raise ValueError(
-                        "Invalid {} operand at line {}: {}".format(method, node.lineno, exc)
-                    )
-            definition_id = next((key for key in definitions if ".operator." + method in key), None)
-            if not definition_id or operand[0] != "ref":
-                raise ValueError("No compatible graph node for unary operator at line {}".format(node.lineno))
-            definition = definitions[definition_id]
-            receiver_socket = next((item for item in definition.get("inputs", []) if item.get("name") in {"self", "cls"}), None)
-            if receiver_socket is None:
-                raise ValueError("Unary operator has no receiver socket")
-            created = add_node(definition_id, {}, [(receiver_socket["name"], operand[1], operand[2])], node.lineno)
-            return ("ref", created, "result")
-        if isinstance(node, ast.BinOp):
-            # Keep this table aligned with Python's complete binary-operator AST.
-            # The importer must not silently assume arithmetic means only + - * /.
-            methods = {
-                ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",
-                ast.Div: "__truediv__", ast.FloorDiv: "__floordiv__",
-                ast.Mod: "__mod__", ast.Pow: "__pow__", ast.MatMult: "__matmul__",
-                ast.BitAnd: "__and__", ast.BitOr: "__or__", ast.BitXor: "__xor__",
-                ast.LShift: "__lshift__", ast.RShift: "__rshift__",
-            }
-            method = methods.get(type(node.op))
-            if not method:
-                raise ValueError("Unsupported binary operator at line {}".format(node.lineno))
-            left, right = expression(node.left), expression(node.right)
-            if left[0] == "literal" and right[0] == "literal":
-                operations = {
-                    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-                    ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
-                    ast.Mod: operator.mod, ast.Pow: operator.pow, ast.MatMult: operator.matmul,
-                    ast.BitAnd: operator.and_, ast.BitOr: operator.or_, ast.BitXor: operator.xor,
-                    ast.LShift: operator.lshift, ast.RShift: operator.rshift,
-                }
-                try:
-                    return ("literal", operations[type(node.op)](
-                        materialize_literal(left[1]), materialize_literal(right[1])
-                    ))
-                except (TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
-                    raise ValueError("Invalid binary operation at line {}: {}".format(node.lineno, exc))
-            # Resolve the operator from the left operand's concrete class MRO.
-            # Catalog insertion order is unrelated to Python dispatch: selecting
-            # the first matching dunder can bind (for example) Mixin1D.__add__
-            # to a Solid even though that class does not inherit from Mixin1D.
-            if left[0] == "ref":
-                receiver_type = reference_type(left)
-            else:
-                encoded_value = left[1]
-                if isinstance(encoded_value, dict) and isinstance(encoded_value.get("__flow_object__"), str):
-                    receiver_type = encoded_value["__flow_object__"]
-                else:
-                    try:
-                        receiver_type = _type_name(type(materialize_literal(encoded_value)))
-                    except Exception:
-                        receiver_type = None
-            if receiver_type in {
-                "Number", "Integer", "Float", "String", "Boolean",
-                "Location", "Vector", "Vector2", "Vector3", "Rotation",
-                "Plane", "Axis", "Color", "Matrix",
-            }:
-                return add_python_binary_node(method, left, right, node.lineno)
-            receiver_class = None
-            if left[0] == "ref":
-                receiver_node = next(
-                    (item for item in graph_nodes if item["id"] == left[1]), None
-                )
-                if receiver_node:
-                    receiver_definition_id = (
-                        receiver_node.get("data", {}).get("definition", {}).get("id")
-                    )
-                    # Resolve the native constructor class directly. The general
-                    # callable resolver prefers catalog wrappers, which can hide
-                    # the Python class needed for native operator MRO dispatch.
-                    try:
-                        if not isinstance(receiver_definition_id, str) or "." not in receiver_definition_id:
-                            raise ValueError("Invalid receiver definition id")
-                        module_name, attr_name = receiver_definition_id.rsplit(".", 1)
-                        receiver_module = importlib.import_module(module_name)
-                        receiver_callable = getattr(receiver_module, attr_name)
-                    except (ImportError, AttributeError, ValueError):
-                        receiver_callable = None
-                    if inspect.isclass(receiver_callable):
-                        receiver_class = receiver_callable
-            if receiver_class is None and receiver_type:
-                receiver_class_name = {"Vector3": "Vector"}.get(receiver_type, receiver_type)
-                receiver_class = getattr(b3d, receiver_class_name, None)
-            definition_id = None
-            if inspect.isclass(receiver_class):
-                for owner in receiver_class.__mro__:
-                    candidate_id = (
-                        owner.__module__ + "." + owner.__name__ + ".operator." + method
-                    )
-                    if candidate_id in definitions:
-                        definition_id = candidate_id
-                        break
-            if definition_id is None:
-                # Unknown/abstract receiver types may not map to an exported
-                # class. In that case only accept an unambiguous catalog entry.
-                candidates = [
-                    key for key in definitions if key.endswith(".operator." + method)
-                ]
-                if len(candidates) == 1:
-                    definition_id = candidates[0]
-                elif candidates:
-                    raise ValueError(
-                        "Cannot resolve operator {} for receiver type {} (line {}); "
-                        "candidates: {}".format(method, receiver_type, node.lineno, candidates)
-                    )
-            if not definition_id:
-                raise ValueError("No graph node registered for operator {} on {} (line {})".format(
-                    method, receiver_type or "unknown receiver", node.lineno
-                ))
-            definition = definitions[definition_id]
-            params, links = {}, []
-            operands = [left, right]
-            for socket, operand in zip(definition.get("inputs", []), operands):
-                if operand[0] == "literal": params[socket["name"]] = literal_json_value(operand[1])
-                else: links.append((socket["name"], operand[1], operand[2]))
-            created = add_node(definition_id, params, links, node.lineno)
-            return ("ref", created, "result")
-        raise ValueError("Unsupported expression '{}' at line {}".format(
-            type(node).__name__, getattr(node, "lineno", "?")))
-
-    def encode_scope_value(value):
-        if isinstance(value, enum.Enum):
-            return {"__flow_enum__": [value.__class__.__module__,
-                                      value.__class__.__name__, value.name]}
-        if isinstance(value, b3d.Plane):
-            return {
-                "__flow_object__": "Plane",
-                "origin": list(value.origin), "x_dir": list(value.x_dir),
-                "z_dir": list(value.z_dir),
-            }
-        if isinstance(value, b3d.Location):
-            return {"__flow_object__": "Location", "value": list(value.to_tuple())}
-        if isinstance(value, b3d.Vector):
-            return {"__flow_object__": "Vector", "value": list(value)}
-        if isinstance(value, b3d.Axis):
-            return {"__flow_object__": "Axis",
-                    "args": [list(value.position), list(value.direction)], "kwargs": {}}
-        if isinstance(value, tuple):
-            return {"__flow_tuple__": [encode_scope_value(item) for item in value]}
-        if isinstance(value, list):
-            return [encode_scope_value(item) for item in value]
-        if isinstance(value, dict):
-            return {key: encode_scope_value(item) for key, item in value.items()}
-        if value is None or isinstance(value, (str, int, float, bool)):
-            return value
-        raise ValueError("Unsupported context-manager argument value: " + type(value).__name__)
-
-    def scope_expression(node):
-        kind, value, *extra = expression(node)
-        if kind == "literal":
-            return encode_scope_value(value)
-        if kind == "ref":
-            return {"__flow_ref__": [value, extra[0]]}
-        raise ValueError("Unsupported context-manager expression at line {}".format(node.lineno))
-
-    def scope_reference_ids(value):
-        references = []
-
-        def visit(item):
-            if isinstance(item, dict):
-                if "__flow_ref__" in item:
-                    references.append(str(item["__flow_ref__"][0]))
-                    return
-                for child in item.values():
-                    visit(child)
-            elif isinstance(item, list):
-                for child in item:
-                    visit(child)
-
-        visit(value)
-        return list(dict.fromkeys(references))
-
-    def resolve_context_manager(node):
-        if not isinstance(node, ast.Call):
-            raise ValueError("A with-block must call a build123d context manager (line {})".format(node.lineno))
-        function = node.func
-        manager = None
-        if isinstance(function, ast.Name):
-            manager_name = imported.get(function.id, function.id)
-            manager = getattr(b3d, manager_name, None)
-        elif isinstance(function, ast.Attribute):
-            parts = []
-            current = function
-            while isinstance(current, ast.Attribute):
-                parts.append(current.attr)
-                current = current.value
-            if isinstance(current, ast.Name) and current.id in aliases and aliases[current.id] == "b3d":
-                path = list(reversed(parts))
-                if len(path) == 1:
-                    manager = getattr(b3d, path[0], None)
-        if not inspect.isclass(manager) or getattr(manager, "__module__", "").split(".")[0] != "build123d":
-            raise ValueError("Unsupported build123d context manager at line {}: {}".format(
-                node.lineno, ast.unparse(function)))
-        supports_context = any(
-            "__enter__" in vars(owner) and "__exit__" in vars(owner)
-            for owner in getattr(manager, "__mro__", (manager,))
-        )
-        if not supports_context:
-            raise ValueError("{} is not a context manager (line {})".format(
-                manager.__name__, node.lineno))
-        args = [
-            {"__flow_starred__": scope_expression(argument.value)}
-            if isinstance(argument, ast.Starred)
-            else scope_expression(argument)
-            for argument in node.args
-        ]
-        kwargs = {}
-        for keyword in node.keywords:
-            if keyword.arg is None:
-                raise ValueError("Expanded context-manager arguments are unsupported (line {})".format(node.lineno))
-            kwargs[keyword.arg] = scope_expression(keyword.value)
-        return manager, args, kwargs
-
-    def add_scope_node(scope_id, role, line, output_type="Any", visible=False, dependencies=()):
-        nonlocal counter
-        counter += 1
-        node_id = "import_{}".format(counter)
-        definition = {
-            "id": "core.python.scope." + role,
-            "name": "Python Scope " + role.title(),
-            "source": "python", "kind": "value",
-            "category": "Python", "palette_category": "Scripting",
-            "palette_section": "Execution",
-            "description": "Internal value node used to preserve a Python context-manager scope.",
-            "inputs": [], "outputs": [{"name": "result", "type": output_type}],
-        }
-        data = {
-            "definition": definition, "params": {},
-            "execution_scope_path": list(active_scope_ids),
-            "visible": visible,
-        }
-        if role == "binding":
-            data["scope_binding"] = scope_id
-            data["scope_dependencies"] = list(dict.fromkeys(dependencies))
-        else:
-            data["scope_result"] = scope_id
-        graph_nodes.append({
-            "id": node_id, "type": "api",
-            "position": {"x": 80 + ((counter - 1) % 4) * 300, "y": 80 + ((counter - 1) // 4) * 190},
-            "data": data,
-        })
-        return node_id
-
-    def graph_depends_on(node_id, ancestors):
-        """Return whether a graph value is derived from any supplied node."""
-        pending = [node_id]
-        visited = set()
-        while pending:
-            current_id = pending.pop()
-            if current_id in ancestors:
-                return True
-            if current_id in visited:
-                continue
-            visited.add(current_id)
-            for edge in graph_edges:
-                if edge.get("target") == current_id:
-                    pending.append(edge.get("source"))
-        return False
-
-    def select_loop_mapping(iterable_id, ancestors, line):
-        """Choose a representable mapping mode and reject mixed nested semantics."""
-        nonlocal mapping_matching
-        selected = "longest" if graph_depends_on(iterable_id, ancestors) else "cross"
-        prior_modes = [frame.get("matching", "longest") for frame in active_loop_frames[1:]]
-        if prior_modes and any(mode != selected for mode in prior_modes):
-            raise ValueError(
-                "Mixed independent and dependent nested loops require per-scope mapping, "
-                "which is not yet supported (line {})".format(line)
-            )
-        mapping_matching = selected
-        return selected
-
-    def last_sequence_item(value, line, fallback=_MISSING):
-        """Lower Python's post-loop binding, including zero-iteration fallback."""
-        if value[0] == "literal":
-            sequence = materialize_literal(value[1])
-            if not isinstance(sequence, (list, tuple)):
-                raise ValueError("Loop iterable is not a sequence at line {}".format(line))
-            if sequence:
-                return ("literal", sequence[-1])
-            if fallback is not _MISSING:
-                return fallback
-            raise ValueError("Loop target is unbound because the iterable is empty (line {})".format(line))
-        source_node = next((item for item in graph_nodes if item["id"] == value[1]), None)
-        source_outputs = source_node.get("data", {}).get("definition", {}).get("outputs", []) if source_node else []
-        source_output = next((item for item in source_outputs if item.get("name") == value[2]), None)
-        output_type = (
-            value[3] if len(value) > 3 and value[3]
-            else source_output.get("type", "Any") if source_output else "Any"
-        )
-        definition_id = "core.python.loop_last"
-        definition = {
-            "id": definition_id, "name": "Python Loop Last",
-            "source": "python", "kind": "operation", "category": "Internal",
-            "palette_category": "Internal", "palette_section": "Graph lowering",
-            "inputs": [
-                {"name": "sequence", "type": "Any", "required": True, "data_access": "structure"},
-                {"name": "fallback", "type": "Any", "required": False, "default": None, "data_access": "structure"},
-                {"name": "has_fallback", "type": "Boolean", "required": True},
-                {"name": "preserve_depth", "type": "Number", "required": True},
-            ],
-            "outputs": [{"name": "result", "type": output_type}],
-        }
-        definitions[definition_id] = definition
-        _INTERNAL_NODE_IDS.add(definition_id)
-        _CATALOG_CALLABLES[definition_id] = _python_loop_last
-        _CATALOG_SIGNATURES[definition_id] = inspect.Signature([
-            inspect.Parameter("sequence", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-            inspect.Parameter("fallback", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=None),
-            inspect.Parameter("has_fallback", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=False),
-            inspect.Parameter("preserve_depth", inspect.Parameter.POSITIONAL_OR_KEYWORD, default=0),
-        ])
-        _CATALOG_HINT_TARGETS[definition_id] = False
-        params = {
-            "has_fallback": fallback is not _MISSING,
-            "preserve_depth": len(active_loop_frames),
-        }
-        links = [("sequence", value[1], value[2])]
-        if fallback is not _MISSING:
-            if fallback[0] == "literal":
-                params["fallback"] = literal_json_value(fallback[1])
-            else:
-                links.append(("fallback", fallback[1], fallback[2]))
-        node_id = add_node(definition_id, params, links, line)
-        node = next(item for item in graph_nodes if item["id"] == node_id)
-        node["data"]["visible"] = output_type in {"Shape", "Solid", "Compound", "Part", "Sketch"}
-        return ("ref", node_id, "result")
-
-    def process_statements(statements):
-        nonlocal scope_counter, mapping_matching
-
-        def assign_target(target, assigned, line):
-            if isinstance(target, ast.Name):
-                variables[target.id] = assigned
-                for frame_index, frame in enumerate(active_loop_frames):
-                    frame["written_names"].add(target.id)
-                    if frame_index < len(active_loop_frames) - 1:
-                        frame.setdefault("nested_written_names", set()).add(target.id)
-                return
-            if isinstance(target, (ast.Tuple, ast.List)):
-                if assigned[0] == "literal" and isinstance(assigned[1], (list, tuple)):
-                    values = [("literal", item) for item in assigned[1]]
-                elif assigned[0] == "ref":
-                    values = []
-                    element_types = assigned[4] if len(assigned) > 4 else None
-                    for index in range(len(target.elts)):
-                        index_node = add_node(
-                            _PYTHON_SUBSCRIPT_ID, {"index": index},
-                            [("value", assigned[1], assigned[2])], line
-                        )
-                        # Tuple-unpacking subscripts are part of the loop body:
-                        # apply them to each tuple item, unlike ordinary Python
-                        # indexing of a collection, which consumes the collection
-                        # as a structure and must not trigger implicit mapping.
-                        unpack_node = next(item for item in graph_nodes if item["id"] == index_node)
-                        unpack_value = next(
-                            socket for socket in unpack_node["data"]["definition"]["inputs"]
-                            if socket["name"] == "value"
-                        )
-                        unpack_value["data_access"] = "item"
-                        element_type = (
-                            element_types[index]
-                            if element_types and index < len(element_types) else "Any"
-                        )
-                        values.append(("ref", index_node, "result", element_type))
-                else:
-                    raise ValueError("Cannot unpack this assignment at line {}".format(line))
-                if len(values) != len(target.elts):
-                    raise ValueError("Unpacking length mismatch at line {}".format(line))
-                for child, value in zip(target.elts, values):
-                    assign_target(child, value, line)
-                return
-            raise ValueError("Unsupported assignment target at line {}".format(line))
-
-        for statement_index, statement in enumerate(statements):
-            if isinstance(statement, (ast.Import, ast.ImportFrom)):
-                continue
-            if isinstance(statement, ast.With):
-                entered_contexts = []
-                for item in statement.items:
-                    manager, args, kwargs = resolve_context_manager(item.context_expr)
-                    scope_counter += 1
-                    scope_id = "python_scope_{}".format(scope_counter)
-                    manager_name = manager.__name__
-                    result_attribute = {
-                        "BuildPart": "part", "BuildSketch": "sketch", "BuildLine": "line",
-                    }.get(manager_name)
-                    optional = item.optional_vars
-                    if optional is not None and not isinstance(optional, ast.Name):
-                        raise ValueError("Only a simple name is supported after 'as' (line {})".format(statement.lineno))
-                    descriptor = {
-                        "id": scope_id, "module": manager.__module__,
-                        "name": manager_name, "args": args, "kwargs": kwargs,
-                        "result_attribute": result_attribute,
-                        "has_binding": optional is not None,
-                    }
-                    execution_scopes.append(descriptor)
-                    dependencies = scope_reference_ids([args, kwargs])
-                    active_scope_ids.append(scope_id)
-                    binding_node = add_scope_node(
-                        scope_id, "binding", statement.lineno,
-                        dependencies=dependencies,
-                    )
-                    if optional is not None:
-                        variables[optional.id] = ("ref", binding_node, "result")
-                    entered_contexts.append((scope_id, manager_name, optional))
-                process_statements(statement.body)
-                for scope_id, manager_name, optional in reversed(entered_contexts):
-                    active_scope_ids.pop()
-                    output_type = {
-                        "BuildPart": "Shape", "BuildSketch": "Sketch", "BuildLine": "Wire",
-                    }.get(manager_name, "Any")
-                    should_emit_result = optional is not None or manager_name in {"BuildPart", "BuildSketch", "BuildLine"}
-                    if should_emit_result:
-                        result_node = add_scope_node(
-                            scope_id, "result", statement.lineno, output_type,
-                            output_type in {"Shape", "Sketch", "Wire"}
-                        )
-                        if optional is not None:
-                            variables[optional.id] = ("ref", result_node, "result")
-                continue
-            if isinstance(statement, ast.Expr):
-                if is_viewer_call(statement.value):
-                    continue
-                # Python list.extend mutates its receiver and returns None.
-                # Represent that mutation as a new list node and rebind the
-                # variable so later reads observe the extended collection.
-                call = statement.value
-                if (
-                    isinstance(call, ast.Call)
-                    and isinstance(call.func, ast.Attribute)
-                    and call.func.attr in {"append", "extend"}
-                    and isinstance(call.func.value, ast.Name)
-                    and len(call.args) == 1
-                    and not call.keywords
-                ):
-                    target_name = call.func.value.id
-                    receiver = expression(call.func.value)
-                    value = expression(call.args[0])
-                    if receiver[0] != "ref" or value[0] != "ref":
-                        raise ValueError(
-                            "List.{} requires graph-backed list inputs at line {}".format(
-                                call.func.attr, statement.lineno
-                            )
-                        )
-                    definition_id = (
-                        "core.list.append" if call.func.attr == "append"
-                        else "core.list.extend"
-                    )
-                    value_socket = "value" if call.func.attr == "append" else "values"
-                    updated_list = add_node(
-                        definition_id, {},
-                        [("items", receiver[1], receiver[2]),
-                         (value_socket, value[1], value[2])],
-                        statement.lineno,
-                    )
-                    variables[target_name] = ("ref", updated_list, "result", "List")
-                    continue
-                expression(statement.value)
-                continue
-            if isinstance(statement, (ast.Assign, ast.AnnAssign)):
-                value_node = statement.value
-                if value_node is None:
-                    continue
-                result = expression(value_node)
-                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
-                for target in targets:
-                    assign_target(target, result, statement.lineno)
-                continue
-            if isinstance(statement, ast.For):
-                iterable = expression(statement.iter)
-                if iterable[0] == "literal" and isinstance(iterable[1], (list, tuple, range)):
-                    iterable = add_collection_node(
-                        [("literal", item) for item in iterable[1]], "list",
-                        statement.iter.lineno, map_over_active_loops=False,
-                    )
-                if iterable[0] != "ref":
-                    raise ValueError(
-                        "A for-loop iterable must be a sequence or graph output (line {})".format(statement.lineno)
-                    )
-
-                saved_variables = dict(variables)
-                saved_stream_variables = set(stream_variables)
-                saved_matching = mapping_matching
-                item_type, item_types = iterable_item_metadata(iterable)
-                typed_iterable = (
-                    "ref", iterable[1], iterable[2], item_type, item_types
-                )
-                if isinstance(statement.target, ast.Name):
-                    target_names = [statement.target]
-                    variables[statement.target.id] = typed_iterable
-                elif isinstance(statement.target, (ast.Tuple, ast.List)):
-                    target_names = [item for item in statement.target.elts if isinstance(item, ast.Name)]
-                    if len(target_names) != len(statement.target.elts):
-                        raise ValueError("Only simple names are supported in a for-loop unpack target (line {})".format(statement.lineno))
-                    assign_target(statement.target, typed_iterable, statement.lineno)
-                else:
-                    raise ValueError("Unsupported for-loop target (line {})".format(statement.lineno))
-
-                # Independent nested iterables form a Cartesian product;
-                # iterables derived from the outer item are zipped/longest-
-                # matched. The body itself is still compiled exactly once.
-                if active_loop_frames:
-                    outer_ids = {frame["node_id"] for frame in active_loop_frames}
-                    select_loop_mapping(iterable[1], outer_ids, statement.iter.lineno)
-                for target in target_names:
-                    for outer_frame in active_loop_frames:
-                        outer_frame["written_names"].add(target.id)
-                        outer_frame.setdefault("nested_written_names", set()).add(target.id)
-                frame = {
-                    "node_id": iterable[1], "output_name": iterable[2],
-                    "written_names": set(target.id for target in target_names),
-                    "matching": mapping_matching,
-                }
-                active_loop_frames.append(frame)
-                stream_variables.update(target.id for target in target_names)
-                process_statements(statement.body)
-                body_variables = dict(variables)
-                active_loop_frames.pop()
-                stream_variables.clear()
-                stream_variables.update(saved_stream_variables)
-                mapping_matching = saved_matching
-
-                # Only materialize post-loop bindings that are actually read
-                # later. An unused loop target must not introduce an artificial
-                # failure for an empty iterable.
-                future_names = set()
-                future_statements = list(statements[statement_index + 1:]) + list(statement.orelse)
-                for future_statement in future_statements:
-                    future_names.update(
-                        item.id for item in ast.walk(future_statement)
-                        if isinstance(item, ast.Name) and isinstance(item.ctx, ast.Load)
-                    )
-                # A nested loop's post-loop binding is itself a mapped value:
-                # its loop_last node executes for each enclosing-loop item.
-                # The enclosing loop can then map its own loop_last over that
-                # sequence, preserving Python's last-value binding at each scope.
-
-                # Python leaves a used loop target bound to its last value.
-                # Lower only the bindings whose values are observed afterward.
-                variables.clear()
-                variables.update(saved_variables)
-                for name in sorted(frame["written_names"] & future_names):
-                    if name in frame.get("nested_written_names", set()):
-                        nested_value = body_variables.get(name, _MISSING)
-                        if nested_value is _MISSING or nested_value == saved_variables.get(name, _MISSING):
-                            raise ValueError(
-                                "A value assigned in a nested loop and read after its enclosing loop "
-                                "requires nested loop-result grouping (line {}): {}".format(
-                                    statement.lineno, name
-                                )
-                            )
-                    if name not in body_variables:
-                        continue
-                    candidate = body_variables[name]
-                    if candidate[0] == "literal":
-                        # A literal assignment inside the loop still occurs
-                        # once per iteration; the token node preserves empty-
-                        # sequence behavior and the sequence dependency.
-                        loop_value_id = "core.python.loop_value"
-                        literal_type = _type_name(type(materialize_literal(candidate[1])))
-                        loop_value_definition = {
-                            "id": loop_value_id, "name": "Python Loop Value",
-                            "source": "python", "kind": "operation", "category": "Internal",
-                            "palette_category": "Internal", "palette_section": "Graph lowering",
-                            "inputs": [
-                                {"name": "value", "type": literal_type, "required": True, "data_access": "structure"},
-                                {"name": "iteration", "type": "Any", "required": True, "data_access": "item"},
-                            ],
-                            "outputs": [{"name": "result", "type": literal_type}],
-                        }
-                        definitions[loop_value_id] = loop_value_definition
-                        _INTERNAL_NODE_IDS.add(loop_value_id)
-                        _CATALOG_CALLABLES[loop_value_id] = lambda value, iteration: value
-                        _CATALOG_SIGNATURES[loop_value_id] = inspect.Signature([
-                            inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-                            inspect.Parameter("iteration", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-                        ])
-                        _CATALOG_HINT_TARGETS[loop_value_id] = False
-                        carried_id = add_node(
-                            loop_value_id, {"value": literal_json_value(candidate[1])},
-                            [("iteration", iterable[1], iterable[2])], statement.lineno,
-                        )
-                        if frame["matching"] != "longest":
-                            next(item for item in graph_nodes if item["id"] == carried_id)["data"]["data_matching"] = frame["matching"]
-                        candidate = ("ref", carried_id, "result")
-                    elif not graph_depends_on(candidate[1], {iterable[1]}):
-                        source_node = next((item for item in graph_nodes if item["id"] == candidate[1]), None)
-                        source_outputs = source_node.get("data", {}).get("definition", {}).get("outputs", []) if source_node else []
-                        source_output = next((item for item in source_outputs if item.get("name") == candidate[2]), None)
-                        carried_type = source_output.get("type", "Any") if source_output else "Any"
-                        loop_value_definition = {
-                            "id": "core.python.loop_value", "name": "Python Loop Value",
-                            "source": "python", "kind": "operation", "category": "Internal",
-                            "palette_category": "Internal", "palette_section": "Graph lowering",
-                            "inputs": [
-                                {"name": "value", "type": carried_type, "required": True, "data_access": "structure"},
-                                {"name": "iteration", "type": "Any", "required": True, "data_access": "item"},
-                            ],
-                            "outputs": [{"name": "result", "type": carried_type}],
-                        }
-                        definitions["core.python.loop_value"] = loop_value_definition
-                        _INTERNAL_NODE_IDS.add("core.python.loop_value")
-                        _CATALOG_CALLABLES["core.python.loop_value"] = lambda value, iteration: value
-                        _CATALOG_SIGNATURES["core.python.loop_value"] = inspect.Signature([
-                            inspect.Parameter("value", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-                            inspect.Parameter("iteration", inspect.Parameter.POSITIONAL_OR_KEYWORD),
-                        ])
-                        _CATALOG_HINT_TARGETS["core.python.loop_value"] = False
-                        carried_id = add_node(
-                            "core.python.loop_value", {},
-                            [("value", candidate[1], candidate[2]),
-                             ("iteration", iterable[1], iterable[2])], statement.lineno,
-                        )
-                        if frame["matching"] != "longest":
-                            next(item for item in graph_nodes if item["id"] == carried_id)["data"]["data_matching"] = frame["matching"]
-                        candidate = ("ref", carried_id, "result")
-                    variables[name] = last_sequence_item(
-                        candidate, statement.lineno, saved_variables.get(name, _MISSING)
-                    )
-
-                if statement.orelse:
-                    # With break rejected below, a for-else suite always runs.
-                    process_statements(statement.orelse)
-                continue
-            if isinstance(statement, ast.AugAssign):
-                if not isinstance(statement.target, ast.Name):
-                    raise ValueError("Only simple augmented assignments are supported (line {})".format(statement.lineno))
-                current = variables.get(statement.target.id)
-                if current is None:
-                    raise ValueError("Unresolved augmented-assignment target '{}' at line {}".format(
-                        statement.target.id, statement.lineno))
-                combined = ast.BinOp(
-                    left=ast.Constant(value=None), op=statement.op, right=statement.value
-                )
-                ast.copy_location(combined, statement)
-                # Reuse the normal operator lowering without synthesizing source text.
-                left_expr = expression(statement.value)
-                if current[0] == "literal" and left_expr[0] == "literal":
-                    methods = {
-                        ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-                        ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
-                        ast.Mod: operator.mod, ast.Pow: operator.pow,
-                    }
-                    operation = methods.get(type(statement.op))
-                    if operation is None:
-                        raise ValueError("Unsupported augmented operator at line {}".format(statement.lineno))
-                    variables[statement.target.id] = ("literal", operation(
-                        materialize_literal(current[1]), materialize_literal(left_expr[1])))
-                else:
-                    methods = {
-                        ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",
-                        ast.Div: "__truediv__", ast.FloorDiv: "__floordiv__",
-                        ast.Mod: "__mod__", ast.Pow: "__pow__",
-                    }
-                    method = methods.get(type(statement.op))
-                    definition_id = next((key for key in definitions if ".operator." + str(method) in key), None)
-                    if not definition_id:
-                        raise ValueError("No graph node registered for augmented operator at line {}".format(statement.lineno))
-                    definition = definitions[definition_id]
-                    params, links = {}, []
-                    for socket, operand in zip(definition.get("inputs", []), (current, left_expr)):
-                        if operand[0] == "literal":
-                            params[socket["name"]] = literal_json_value(operand[1])
-                        else:
-                            links.append((socket["name"], operand[1], operand[2]))
-                    created = add_node(definition_id, params, links, statement.lineno)
-                    variables[statement.target.id] = ("ref", created, "result")
-                continue
-            if isinstance(statement, ast.If):
-                condition = expression(statement.test)
-                if condition[0] != "literal" or not isinstance(condition[1], bool):
-                    raise ValueError("if conditions must be statically known booleans (line {})".format(statement.lineno))
-                process_statements(statement.body if condition[1] else statement.orelse)
-                continue
-            if isinstance(statement, ast.Pass):
-                continue
-            raise ValueError("Unsupported statement '{}' at line {}".format(
-                type(statement).__name__, getattr(statement, "lineno", "?")))
-
-    process_statements(tree.body)
-    if not graph_nodes:
-        raise ValueError("No supported build123d operations were found")
-    return {"nodes": graph_nodes, "edges": graph_edges, "execution_scopes": execution_scopes}
+    from python_translator import import_python_code as translate
+    return translate(source, _translator_services(), _type_catalog())
 
 def export_python_code(payload):
     """Compile a graph to standalone build123d Python using native API calls."""

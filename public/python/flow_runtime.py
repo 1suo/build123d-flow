@@ -185,7 +185,18 @@ def _annotation_data_shape(annotation, depth=0):
         if len(unique) == 1:
             return unique[0]
         return {"kind": "union", "options": unique}
-    return {"kind": "item", "type": _type_name(annotation)}
+    leaf = {"kind": "item", "type": _type_name(annotation)}
+    semantic_type = _semantic_annotation(annotation)
+    if inspect.isclass(semantic_type):
+        module_name = getattr(semantic_type, "__module__", "")
+        type_name = getattr(semantic_type, "__name__", "")
+        if module_name and type_name:
+            leaf["type_id"] = module_name + "." + type_name
+            leaf["type_provider"] = (
+                "build123d" if module_name.split(".")[0] == "build123d"
+                else "perigram.python"
+            )
+    return leaf
 
 
 def _socket_data_shape(socket):

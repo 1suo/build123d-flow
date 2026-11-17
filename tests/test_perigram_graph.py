@@ -50,6 +50,27 @@ class PerigramGraphAdapterTests(unittest.TestCase):
             "typeId": "build123d.topology.three_d.Solid",
         })
 
+    def test_python_varargs_and_private_names_get_stable_port_ids(self):
+        definition = normalize_node_definition({
+            "id": "build123d.example",
+            "source": "build123d",
+            "inputs": [
+                {"name": "*args", "type": "Any"},
+                {"name": "**kwargs", "type": "Any"},
+                {"name": "_private", "type": "Any"},
+            ],
+            "outputs": [{"name": "result", "type": "Any"}],
+        })
+        self.assertEqual(
+            [port["id"] for port in definition["inputs"]],
+            ["varargs_args", "kwargs_kwargs", "p__private"],
+        )
+        self.assertEqual(definition["configuration"]["pythonPortNames"]["inputs"], {
+            "varargs_args": "*args",
+            "kwargs_kwargs": "**kwargs",
+            "p__private": "_private",
+        })
+
     def test_flow_and_python_primitives_use_python_provider(self):
         definition = normalize_node_definition({
             "id": "core.list.length",

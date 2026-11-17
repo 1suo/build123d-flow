@@ -30,42 +30,50 @@ not a second production graph editor or execution coordinator.
   matching, plugin lifecycle, and preview workspace. The provider owns AST
   translation, type/API discovery, and CAD runtime implementation.
 
-## Current adapter and contract tests
+## Runtime adapter and contract tests
 
-`public/python/perigram_graph.py` is a kernel-free adapter. It maps
-discovered operations to the provider-neutral node contract and translates
-the current frontend graph to Perigram's canonical graph document. It fails
-closed on missing operation identity, duplicate node/edge ids, missing edge
-endpoints, and non-JSON values.
+- `perigram-listing.json` declares the `build123d-pyodide` JavaScript runtime
+  and its root-relative `/perigram-runtime.js` entry.
+- `public/perigram-runtime.js` implements Perigram's
+  `createRuntime()` contract. It starts the nested Pyodide worker, publishes
+  dynamically discovered provider definitions, dispatches each node's inputs
+  and configuration, and terminates/restarts the Python worker on cancellation.
+- `public/python/perigram_graph.py` is kernel-free. It maps discovered
+  operations and translated graphs to Perigram's provider-neutral node
+  contract and canonical graph document.
+- `public/python/perigram_runtime.py` owns execution-scoped Python values,
+  opaque cross-worker handles, node-output retention, and a persistent
+  generator frame for nested build123d context managers. Native Python/CAD
+  objects never cross the worker boundary.
+- The Perigram host's plugin-runtime bridge now strips its host-only
+  `readSet` recorder before structured-cloning graph invocations into the
+  plugin worker. That host change and its regression test are on Perigram's
+  `staging` branch (commit `10ac4f58`).
+- CI validates the listing and node definitions against the actual pinned
+  Perigram SDK/core, runs kernel-free Python tests, tests the JavaScript
+  runtime entry, and runs a real Pyodide/OCP nested BuildPart/BuildSketch
+  integration test.
 
-The adapter tests run without importing build123d or OCP. CI additionally
-checks generated node definitions with the actual
-`@perigram/plugin-sdk/nodes` validator and graph documents with the actual
-`packages/core` graph validator from the pinned Perigram revision
-`b5e2065f839854c1695aec742faa94dcf3a39824`.
-
-A kernel-free Python per-operation dispatcher now consumes the discovered
-catalog, merges node parameters with wired inputs, maps item-access lists and
-trees, honors longest/shortest/cross matching, preserves independent Python
-loop axes, and binds discovered instance-method receivers. It rejects
-non-empty execution-scope paths rather than silently running builder-scoped
-operations outside their context. This dispatcher is not yet wired to a
-Perigram JavaScript runtime entry, and native outputs are not yet represented
-by execution-scoped opaque references. The tests prove Python-side dispatch
-semantics, not end-to-end host dispatch.
+The internal scope binding/result operations are marked preview-safe
+(`read`) because they only manage runtime-local builder lifecycle; they do
+not request host capabilities or perform external effects. This is necessary
+because Perigram's current procedural preview evaluator accepts only pure/read
+operations.
 
 ## Remaining production gates
 
-1. Ship a plugin package with a declared JavaScript runtime entry and the
-   pinned Pyodide/OCP.wasm assets/dependencies required by that runtime.
-2. Register discovered provider definitions through the SDK's node-provider
-   contract and prove exact-version dispatch in the Perigram host.
-3. Run translated graphs through Perigram's procedural evaluator, preserving
-   its list/tree matching and execution-scope semantics.
-4. Keep native geometry inside the browser runtime; expose scoped outputs and
-   supported preview representations through a declared renderer.
-5. Exercise browser authoring plus install, upgrade, uninstall, cancellation,
-   memory limits, diagnostics, and deterministic cache invalidation.
+1. Run the actual browser-host integration against the Perigram staging
+   deployment, including plugin install, provider registration, graph preview,
+   and cancellation. The CI runtime tests currently use the real Pyodide/OCP
+   engine but a worker-contract harness for the Perigram host.
+2. Deliver tessellated CAD preview artifacts through a declared Perigram
+   preview surface/renderer; native opaque handles are in place, but preview
+   serialization and renderer lifecycle are not yet implemented.
+3. Add graph-run/session cleanup hooks so completed or superseded previews
+   release all opaque handles immediately rather than relying on the bounded
+   runtime-session LRU.
+4. Exercise browser authoring plus install, upgrade, uninstall, concurrent
+   previews, memory limits, diagnostics, and deterministic cache invalidation.
 
 The old endpoint-mode Python executor under Perigram's
 `workers/build123d` is explicitly transitional and is not the target

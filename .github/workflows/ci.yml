@@ -2,7 +2,7 @@ name: Build and deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, engineering-translator-work, translator-acceptance]
   pull_request:
   workflow_dispatch:
 
@@ -12,7 +12,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,6 +23,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - name: Restore staged Pyodide runtime
         id: pyodide-staged-cache
         uses: actions/cache/restore@v4
@@ -60,6 +63,63 @@ jobs:
         run: npm run build
         env:
           GITHUB_PAGES: "true"
+          VITE_E2E_TEST_HOOKS: "true"
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Run kernel-free catalog contract tests
+        run: |
+          python -S -m unittest discover -s tests -p 'test_type_catalog.py'
+          python -S -m unittest discover -s tests -p 'test_data_contract.py'
+      - name: Install build123d at the exact upstream examples commit
+        run: python -m pip install --disable-pip-version-check "git+https://github.com/gumyr/build123d.git@03b257b1ce8f15c9f9c3fb726533798578b3f1c3" "cadquery-ocp-novtk==8.0.1.1.0" "scipy==1.16.3"
+      - name: Generate complete discovered API catalog
+        run: python scripts/generate_type_catalog.py "$RUNNER_TEMP/build123d_catalog.json"
+      - name: Verify catalog in kernel-free interpreter process
+        run: python -S -m unittest discover -s tests -p 'test_kernel_free_catalog.py'
+        env:
+          BUILD123D_CATALOG_PATH: ${{ runner.temp }}/build123d_catalog.json
+      - name: Gate 1 - translate complete upstream corpus without CAD kernel
+        run: python -S scripts/test_upstream_translator.py "$RUNNER_TEMP/build123d_catalog.json" "$RUNNER_TEMP/upstream-translator-results.json"
+      - name: Compile Python sources
+        run: python -m py_compile public/python/flow_runtime.py public/python/python_translator.py public/python/type_catalog.py scripts/generate_type_catalog.py scripts/test_upstream_translator.py scripts/test_upstream_kernel.py tests/graph_workflows.py tests/test_type_catalog.py tests/test_data_contract.py tests/test_discovery_catalog.py tests/test_kernel_free_catalog.py tests/test_graph_workflows_native.py
+      - name: Run kernel-backed discovery tests
+        run: python -m unittest discover -s tests -p 'test_discovery_catalog.py'
+        env:
+          BUILD123D_CATALOG_PATH: ${{ runner.temp }}/build123d_catalog.json
+      - name: Run kernel-free catalog unit tests
+        run: python -m unittest discover -s tests -p 'test_type_catalog.py'
+      - name: Gate 2 - execute Gate 1 graphs with native build123d kernel
+        run: python scripts/test_upstream_kernel.py "$RUNNER_TEMP/upstream-translator-results.json" "$RUNNER_TEMP/build123d_catalog.json" "$RUNNER_TEMP/upstream-kernel-results.json"
+      - name: Run native graph workflow regression tests
+        run: python -m unittest discover -s tests -p 'test_graph_workflows_native.py'
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run browser regression tests
+        run: npm run test:e2e
+        env:
+          CI: "true"
+      - name: Rebuild deployment bundle without test hooks
+        if: success()
+        run: npm run build
+        env:
+          GITHUB_PAGES: "true"
+      - name: Upload translator and kernel acceptance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: translator-acceptance-results
+          path: |
+            ${{ runner.temp }}/build123d_catalog.json
+            ${{ runner.temp }}/upstream-translator-results.json
+            ${{ runner.temp }}/upstream-kernel-results.json
+          if-no-files-found: ignore
+      - name: Upload Playwright diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-diagnostics
+          path: test-results/
+          if-no-files-found: ignore
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

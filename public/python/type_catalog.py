@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import enum
 import inspect
+import collections.abc
 import math
+import typing
 from typing import Any, Mapping, get_args
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 7
 
 
 class CatalogError(ValueError):
@@ -148,6 +150,10 @@ def build_type_registry(classes, nodes, geometry_base=None):
             None,
         )
     node_ids = tuple(nodes)
+    build123d_classes_by_name = {}
+    for candidate in classes:
+        if inspect.isclass(candidate) and getattr(candidate, "__module__", "").split(".")[0] == "build123d":
+            build123d_classes_by_name.setdefault(candidate.__name__, candidate)
     for cls in sorted(set(classes), key=_qualified_name):
         if not inspect.isclass(cls):
             continue
@@ -162,6 +168,23 @@ def build_type_registry(classes, nodes, geometry_base=None):
             if inspect.isclass(owner)
         ]
         bases = [_qualified_name(base) for base in getattr(cls, "__bases__", ())]
+        declared_mro = set(getattr(cls, "__mro__", ()))
+        if dict in declared_mro or collections.abc.Mapping in declared_mro:
+            collection_kind = "dict"
+        elif set in declared_mro or frozenset in declared_mro or collections.abc.Set in declared_mro:
+            collection_kind = "set"
+        elif tuple in declared_mro:
+            collection_kind = "tuple"
+        elif (
+            list in declared_mro
+            or collections.abc.Sequence in declared_mro
+            or collections.abc.MutableSequence in declared_mro
+            or collections.abc.Collection in declared_mro
+            or collections.abc.Iterable in declared_mro
+        ):
+            collection_kind = "list"
+        else:
+            collection_kind = None
         try:
             is_enum = issubclass(cls, enum.Enum)
         except TypeError:
@@ -210,18 +233,87 @@ def build_type_registry(classes, nodes, geometry_base=None):
             "__enter__" in vars(owner) and "__exit__" in vars(owner)
             for owner in getattr(cls, "__mro__", ())
         )
+        context_result_attribute = None
+        context_result_type = None
+        if supports_context_manager and name.startswith("Build") and len(name) > len("Build"):
+            candidate_attribute = name[len("Build"):].lower()
+            for owner_id in mro:
+                property_id = owner_id + ".property." + candidate_attribute
+                property_definition = nodes.get(property_id)
+                if not property_definition:
+                    continue
+                outputs = property_definition.get("outputs", [])
+                if not outputs:
+                    continue
+                output_type = outputs[0].get("type")
+                output_class = build123d_classes_by_name.get(output_type)
+                if output_class is not None and inspect.isclass(geometry_base):
+                    try:
+                        is_geometry_result = issubclass(output_class, geometry_base)
+                    except TypeError:
+                        is_geometry_result = False
+                    if is_geometry_result:
+                        context_result_attribute = candidate_attribute
+                        context_result_type = output_type
+                        break
         iterator = getattr(cls, "__iter__", None)
         iterable_item_type = None
         if callable(iterator):
             try:
                 iterator_signature = inspect.signature(iterator)
-                item_candidates = get_args(iterator_signature.return_annotation)
+                iterator_hints = typing.get_type_hints(iterator)
+                iterator_return = iterator_hints.get(
+                    "return", iterator_signature.return_annotation
+                )
+                item_candidates = get_args(iterator_return)
                 if item_candidates:
                     candidate = item_candidates[0]
-                    if inspect.isclass(candidate) and getattr(candidate, "__module__", "").startswith("build123d"):
-                        iterable_item_type = candidate.__name__
-            except (TypeError, ValueError):
+                    if inspect.isclass(candidate):
+                        if getattr(candidate, "__module__", "").split(".")[0] == "build123d":
+                            iterable_item_type = candidate.__name__
+                        elif candidate in (int, float):
+                            iterable_item_type = "Number"
+                        elif candidate is bool:
+                            iterable_item_type = "Boolean"
+                        elif candidate is str:
+                            iterable_item_type = "String"
+                        elif candidate not in (bytes, complex, object):
+                            iterable_item_type = candidate.__name__
+            except (TypeError, ValueError, NameError):
                 pass
+        if iterable_item_type is None:
+            # Generic collection bases often declare their item class in
+            # __orig_bases__ even when __iter__ only exposes an unresolved T.
+            for owner in getattr(cls, "__mro__", (cls,)):
+                for declared_base in vars(owner).get("__orig_bases__", ()):
+                    candidates = get_args(declared_base)
+                    candidate = next((
+                        item for item in candidates
+                        if inspect.isclass(item)
+                        and getattr(item, "__module__", "").split(".")[0] == "build123d"
+                    ), None)
+                    if candidate is not None:
+                        iterable_item_type = candidate.__name__
+                        break
+                if iterable_item_type is not None:
+                    break
+        if iterable_item_type is None and callable(iterator):
+            # Some native value objects expose an unannotated __iter__ but
+            # declare homogeneous scalar components through discovered
+            # properties (e.g. X/Y/Z -> Number). Infer the iterable element
+            # capability from those API declarations without naming a class.
+            property_types = []
+            for member_id in member_node_ids:
+                if ".property." not in member_id:
+                    continue
+                member_definition = nodes.get(member_id, {})
+                member_outputs = member_definition.get("outputs", [])
+                if member_outputs:
+                    property_type = member_outputs[0].get("type")
+                    if property_type in {"Number", "Boolean", "String"}:
+                        property_types.append(property_type)
+            if property_types and len(set(property_types)) == 1:
+                iterable_item_type = property_types[0]
         registry[identity] = {
             "id": identity,
             "name": name,
@@ -234,13 +326,12 @@ def build_type_registry(classes, nodes, geometry_base=None):
                 inspect.isclass(geometry_base)
                 and issubclass(cls, geometry_base)
             ),
-            "socket_type": (
-                "Vector3" if name == "Vector"
-                else "Enum" if is_enum
-                else name
-            ),
+            "socket_type": name,
             "supports_context_manager": supports_context_manager,
+            "context_result_attribute": context_result_attribute,
+            "context_result_type": context_result_type,
             "supports_iteration": callable(iterator),
+            "collection_kind": collection_kind,
             "iterable_item_type": iterable_item_type,
             "is_enum": is_enum,
             "enum_members": enum_members,

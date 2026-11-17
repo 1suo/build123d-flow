@@ -26,13 +26,18 @@ export function createGraphNode(
   };
 }
 
-const GEOMETRY_TYPES = new Set([
-  "geometry", "solid", "shell", "face", "wire", "edge", "vertex", "curve", "surface", "mesh",
-]);
-
-function compatibleTypes(source: string, target: string): boolean {
-  if (target === "any" || source === "any" || source === target) return true;
-  return target === "geometry" && GEOMETRY_TYPES.has(source);
+function compatibleTypes(
+  source: string,
+  target: string,
+  sourceGeometry = false,
+  sourceLineage: readonly string[] = [],
+  sourceIdentity = source,
+  targetIdentity = target,
+): boolean {
+  if (target === "any" || source === "any" || source === target ||
+      sourceLineage.includes(targetIdentity)) return true;
+  if (target === "geometry") return sourceGeometry;
+  return false;
 }
 
 function portTypesCompatible(
@@ -47,8 +52,13 @@ function portTypesCompatible(
   const targetTypes = targetItems
     ? [itemType(target), ...(target.variants ?? [])]
     : [target.valueType, ...(target.variants ?? [])];
+  const sourceGeometry = sourceItems ? source.itemGeometry === true : source.geometry === true;
+  const sourceLineage = sourceItems ? source.itemTypeLineage ?? [] : source.typeLineage ?? [];
+  const sourceIdentity = sourceItems ? source.itemTypeIdentity ?? itemType(source) : source.typeIdentity ?? source.valueType;
+  const targetIdentity = targetItems ? target.itemTypeIdentity ?? itemType(target) : target.typeIdentity ?? target.valueType;
   return sourceTypes.some((sourceType) =>
-    targetTypes.some((targetType) => compatibleTypes(sourceType, targetType))
+    targetTypes.some((targetType) =>
+      compatibleTypes(sourceType, targetType, sourceGeometry, sourceLineage, sourceIdentity, targetIdentity))
   );
 }
 

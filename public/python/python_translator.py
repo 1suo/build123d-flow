@@ -25,12 +25,14 @@ import typing
 import types
 import collections
 import collections.abc
-from type_catalog import CatalogError, TypeCatalog
+from type_catalog import CatalogError, TypeCatalog, _serialize_discovered_value
+
+
+_MISSING = object()
 
 class TranslatorServices(typing.NamedTuple):
     """Narrow runtime services required to lower syntax into graph records."""
 
-    b3d: object
     catalog_nodes: dict
     internal_node_ids: set
     catalog_callables: dict
@@ -44,6 +46,7 @@ class TranslatorServices(typing.NamedTuple):
     api_signature: object
     call_with_coercion: object
     python_loop_last: object
+    resolve_type_constructor: object
 
 
 def import_python_code(source: str, services: TranslatorServices, catalog: TypeCatalog):
@@ -57,7 +60,8 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
     if not isinstance(catalog, TypeCatalog):
         raise TypeError("Translator requires an explicit versioned TypeCatalog")
     # Bind the current production catalog/evaluator contract explicitly for this translation.
-    b3d = services.b3d
+    # Translation must never receive or inspect live CAD-kernel objects.
+    b3d = None
     _CATALOG = services.catalog_nodes
     _INTERNAL_NODE_IDS = services.internal_node_ids
     _CATALOG_CALLABLES = services.catalog_callables
@@ -71,6 +75,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
     _api_signature = services.api_signature
     _call_with_coercion = services.call_with_coercion
     _python_loop_last = services.python_loop_last
+    _resolve_type_constructor = services.resolve_type_constructor
 
     import ast
     if not isinstance(source, str) or not source.strip():
@@ -159,6 +164,96 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             return type_catalog.is_subtype(actual_type, expected_type)
         except CatalogError:
             return False
+
+    def discovered_iterable(type_name):
+        try:
+            return bool(type_catalog.resolve_type(type_name).get("supports_iteration"))
+        except CatalogError:
+            return False
+
+    def previewable_type(type_name):
+        if type_name == "Any":
+            return True
+        try:
+            return bool(type_catalog.resolve_type(type_name).get("is_geometry"))
+        except CatalogError:
+            return False
+
+    def replace_shape_item_type(shape, type_name):
+        if not isinstance(shape, dict):
+            return shape
+        kind = shape.get("kind")
+        if kind == "item":
+            return {**shape, "type": type_name}
+        if kind in {"list", "tree", "set"}:
+            return {**shape, "item": replace_shape_item_type(shape.get("item"), type_name)}
+        if kind == "tuple":
+            return {
+                **shape,
+                "items": [
+                    replace_shape_item_type(item, type_name)
+                    for item in shape.get("items", [])
+                ],
+            }
+        if kind == "map":
+            return {**shape, "value": replace_shape_item_type(shape.get("value"), type_name)}
+        if kind == "union":
+            return {
+                **shape,
+                "options": [
+                    replace_shape_item_type(item, type_name)
+                    for item in shape.get("options", [])
+                ],
+            }
+        return shape
+
+    def normalize_data_shape(socket):
+        if socket.get("type") == "Any" or socket.get("item_type") == "Any":
+            socket["runtime_inspectable"] = True
+        shape = socket.get("data_shape")
+        if isinstance(shape, dict):
+            kind = shape.get("kind")
+            if kind == "item":
+                type_name = socket.get("type", "Any")
+                if type_name != "Any":
+                    socket["data_shape"] = replace_shape_item_type(shape, type_name)
+            elif kind == "map":
+                value_type = socket.get("value_type", "Any")
+                if value_type != "Any":
+                    socket["data_shape"] = replace_shape_item_type(shape, value_type)
+            elif kind == "tuple" and socket.get("item_types"):
+                socket["data_shape"] = {
+                    **shape,
+                    "items": [
+                        replace_shape_item_type(item, socket["item_types"][index])
+                        if index < len(socket["item_types"]) else item
+                        for index, item in enumerate(shape.get("items", []))
+                    ],
+                }
+            else:
+                item_type = socket.get("item_type", "Any")
+                if item_type != "Any":
+                    socket["data_shape"] = replace_shape_item_type(shape, item_type)
+            return
+        structure = _socket_data_structure(socket)
+        item_type = socket.get("item_type", "Any")
+        item_shape = {"kind": "item", "type": item_type}
+        if structure in {"list", "tree", "set"}:
+            socket["data_shape"] = {"kind": structure, "item": item_shape}
+        elif structure == "tuple":
+            element_types = socket.get("item_types") or [item_type]
+            socket["data_shape"] = {
+                "kind": "tuple",
+                "items": [{"kind": "item", "type": value_type} for value_type in element_types],
+            }
+        elif structure == "dict":
+            socket["data_shape"] = {
+                "kind": "map",
+                "key": {"kind": "item", "type": socket.get("key_type", "Any")},
+                "value": {"kind": "item", "type": socket.get("value_type", "Any")},
+            }
+        else:
+            socket["data_shape"] = {"kind": "item", "type": socket.get("type", "Any")}
 
     def resolve_member(member_name, receiver_type, property_only=False):
         """Resolve a member by the receiver's discovered Python MRO order."""
@@ -317,8 +412,8 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         counter += 1
         node_id = "import_{}".format(counter)
         builder_scope_active = any(
-            next((scope.get("name") for scope in execution_scopes if scope.get("id") == scope_id), None)
-            in {"BuildPart", "BuildSketch", "BuildLine"}
+            next((scope.get("result_attribute") for scope in execution_scopes
+                  if scope.get("id") == scope_id), None)
             for scope_id in active_scope_ids
         )
         # A Python loop is a data-mapping scope: each operation is represented
@@ -356,6 +451,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     None,
                 )
         linked_item_types = []
+        linked_item_sockets = []
         for input_name, source_id, source_output_name in links:
             source_node = next((item for item in graph_nodes if item["id"] == source_id), None)
             if source_node:
@@ -364,16 +460,32 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                      if socket.get("name") == source_output_name),
                     None,
                 )
-                if source_output and source_output.get("item_type") not in (None, "", "Any"):
-                    linked_item_types.append(source_output.get("item_type"))
+                if source_output:
+                    linked_item_sockets.append(source_output)
+                    if source_output.get("item_type") not in (None, "", "Any"):
+                        linked_item_types.append(source_output.get("item_type"))
         for output_socket in node_definition["outputs"]:
-            if output_socket.get("type") == "GroupBy":
-                output_socket.setdefault("item_type", "ShapeList")
+            # Resolve collection element identity from the discovered runtime
+            # type catalog, never from a GroupBy/ShapeList special case.
+            if (
+                output_socket.get("item_type") in (None, "", "Any")
+                and output_socket.get("data_structure") in {"list", "tree", "set"}
+            ):
+                try:
+                    iterable_record = type_catalog.resolve_type(output_socket.get("type", ""))
+                    discovered_item_type = iterable_record.get("iterable_item_type")
+                    if discovered_item_type:
+                        output_socket["item_type"] = discovered_item_type
+                except CatalogError:
+                    pass
             if receiver_output and output_socket.get("variants"):
                 receiver_type = receiver_output.get("type", "Any")
                 variants = output_socket["variants"]
                 if receiver_type in variants:
                     output_socket["type"] = receiver_type
+                    for key in ("is_geometry", "semantic_type_id", "type_mro", "runtime_inspectable"):
+                        if key in receiver_output:
+                            output_socket[key] = receiver_output[key]
                 else:
                     try:
                         receiver_record = type_catalog.resolve_type(receiver_type)
@@ -382,25 +494,45 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                             if variant != "Any" and discovered_subtype(receiver_type, variant)
                         ]
                         if compatible:
-                            output_socket["type"] = min(
+                            selected_variant = min(
                                 compatible,
                                 key=lambda variant: len(type_catalog.resolve_type(variant)["mro"]),
                             )
+                            output_socket["type"] = selected_variant
+                            selected_record = type_catalog.resolve_type(selected_variant)
+                            output_socket["semantic_type_id"] = selected_record["id"]
+                            output_socket["type_mro"] = selected_record.get("mro", [])
+                            if selected_record.get("is_geometry"):
+                                output_socket["is_geometry"] = True
                     except CatalogError:
                         pass
             if output_socket.get("item_type") in (None, "", "Any") and receiver_output:
                 inherited_item_type = receiver_output.get("item_type")
                 if inherited_item_type and inherited_item_type != "Any":
                     output_socket["item_type"] = inherited_item_type
+                    for key in ("item_is_geometry", "item_semantic_type_id", "item_type_mro"):
+                        if key in receiver_output:
+                            output_socket[key] = receiver_output[key]
                     if receiver_output.get("item_types"):
                         output_socket["item_types"] = receiver_output["item_types"]
             if (
                 output_socket.get("item_type") in (None, "", "Any")
-                and (output_socket.get("data_structure") == "list"
-                     or output_socket.get("type") in {"List", "Locations", "LocationList", "ShapeList"})
+                and (
+                    output_socket.get("data_structure") in {"list", "tree", "set"}
+                    or discovered_iterable(output_socket.get("type", ""))
+                )
                 and linked_item_types
             ):
                 output_socket["item_type"] = linked_item_types[0]
+                source_item = next(
+                    (item for item in linked_item_sockets
+                     if item.get("item_type") == linked_item_types[0]),
+                    None,
+                )
+                if source_item:
+                    for key in ("item_is_geometry", "item_semantic_type_id", "item_type_mro"):
+                        if key in source_item:
+                            output_socket[key] = source_item[key]
         iteration_links = []
         for index, frame in enumerate(active_loop_frames if map_over_active_loops else []):
             # Only an item-access input triggers this loop's mapping. A
@@ -453,10 +585,15 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 "data_access": "item",
             })
             iteration_links.append((input_name, frame["node_id"], frame["output_name"]))
+        for socket in node_definition.get("inputs", []) + node_definition.get("outputs", []):
+            normalize_data_shape(socket)
+            if socket.get("type") == "Any" or socket.get("item_type") == "Any":
+                socket["runtime_inspectable"] = True
         data = {"definition": node_definition, "params": params,
                 "execution_scope_path": list(active_scope_ids),
                 "visible": not active_conditions and not builder_scope_active and any(
-                    socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
+                    socket.get("is_geometry") or socket.get("item_is_geometry")
+                    or socket.get("runtime_inspectable")
                     for socket in definition.get("outputs", [])
                 )}
         if active_loop_frames and map_over_active_loops:
@@ -865,6 +1002,12 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         if inspect.isclass(candidate):
             canonical_name = getattr(candidate, "__name__", "")
             canonical_id = getattr(candidate, "__module__", "") + "." + canonical_name
+        elif definition_id:
+            # Module-level functions can also expose typing.overload
+            # signatures. Resolve their overload family from the discovered
+            # callable identity just as we do for overloaded constructors.
+            canonical_id = definition_id.split(".overload-", 1)[0]
+            canonical_name = canonical_id.rsplit(".", 1)[-1]
         else:
             try:
                 type_record = type_catalog.resolve_type(symbol_name or "")
@@ -910,15 +1053,132 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     return "scalar"
             return None
 
+        def inferred_argument_type(argument, depth=0):
+            """Infer a call argument's value type from discovered graph/API metadata."""
+            if depth > 8:
+                return None
+            reference = None
+            if isinstance(argument, ast.Name):
+                reference = variables.get(argument.id)
+            elif isinstance(argument, ast.Attribute):
+                reference = variables.get(ast.unparse(argument))
+            if reference is not None:
+                try:
+                    result = reference_type(reference)
+                    if result and result != "Any":
+                        return result
+                except (CatalogError, TypeError, ValueError):
+                    pass
+            if isinstance(argument, ast.Call):
+                function = argument.func
+                if isinstance(function, ast.Name):
+                    try:
+                        symbol = type_catalog.resolve_symbol(
+                            imported.get(function.id, function.id)
+                        )
+                    except CatalogError:
+                        symbol = None
+                    if symbol and symbol.get("kind") == "type":
+                        try:
+                            return type_catalog.resolve_type(symbol["type_id"])["name"]
+                        except CatalogError:
+                            return None
+                    if symbol and symbol.get("kind") == "callable":
+                        definition = definitions.get(symbol.get("id"), {})
+                        outputs = definition.get("outputs", [])
+                        return outputs[0].get("type") if outputs else None
+                elif isinstance(function, ast.Attribute):
+                    owner_type = inferred_argument_type(function.value, depth + 1)
+                    if owner_type is None and isinstance(function.value, ast.Name):
+                        try:
+                            symbol = type_catalog.resolve_symbol(
+                                imported.get(function.value.id, function.value.id)
+                            )
+                            if symbol.get("kind") == "type":
+                                owner_type = type_catalog.resolve_type(symbol["type_id"])["name"]
+                        except CatalogError:
+                            pass
+                    if owner_type:
+                        try:
+                            owner = type_catalog.resolve_type(owner_type)
+                        except CatalogError:
+                            owner = None
+                        owner_ids = owner.get("mro", []) if owner else []
+                        for owner_id in owner_ids:
+                            owner_record = type_catalog.types.get(owner_id, {})
+                            for member_id in owner_record.get("member_node_ids", []):
+                                base_id = member_id.split(".overload-", 1)[0]
+                                if base_id.rsplit(".", 1)[-1] != function.attr:
+                                    continue
+                                definition = definitions.get(member_id, {})
+                                outputs = definition.get("outputs", [])
+                                if outputs:
+                                    return outputs[0].get("type")
+            if isinstance(argument, ast.BinOp):
+                method = {
+                    ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",
+                    ast.Div: "__truediv__", ast.FloorDiv: "__floordiv__",
+                    ast.Mod: "__mod__", ast.Pow: "__pow__", ast.MatMult: "__matmul__",
+                    ast.BitAnd: "__and__", ast.BitOr: "__or__", ast.BitXor: "__xor__",
+                }.get(type(argument.op))
+                left_type = inferred_argument_type(argument.left, depth + 1)
+                if method and left_type:
+                    try:
+                        operator_id = type_catalog.resolve_operator(left_type, method)
+                        outputs = definitions.get(operator_id, {}).get("outputs", [])
+                        if outputs:
+                            output = outputs[0]
+                            return output.get("type") or next(iter(output.get("variants", [])), None)
+                    except CatalogError:
+                        pass
+            return None
+
         def overload_argument_score(argument, socket):
             shape = literal_argument_shape(argument)
-            if shape is None:
-                return 0
+            # Prefer overloads whose discovered semantic type accepts the
+            # actual connected/literal call value, including inline nested calls.
+            inferred_type = inferred_argument_type(argument)
             access = socket.get("data_access")
             structure = socket.get("data_structure")
             target_types = set(socket.get("variants") or [socket.get("type", "Any")])
+            score = 0
+            if inferred_type and inferred_type != "Any":
+                if inferred_type in target_types:
+                    score += 24
+                else:
+                    for target_type in target_types:
+                        try:
+                            if type_catalog.is_subtype(inferred_type, target_type):
+                                score += 16
+                                break
+                        except CatalogError:
+                            continue
+                # Iterable value objects (e.g. Vector) can satisfy a
+                # collection-annotated overload such as Iterable[float].
+                # Compare discovered element capabilities rather than relying
+                # on class names or treating every iterable geometry as a list.
+                target_item_type = socket.get("item_type")
+                if not target_item_type:
+                    shape_contract = socket.get("data_shape", {})
+                    if shape_contract.get("kind") in {"list", "tree", "set"}:
+                        child_shape = shape_contract.get("item", {})
+                        if child_shape.get("kind") == "item":
+                            target_item_type = child_shape.get("type")
+                if target_item_type and target_item_type != "Any":
+                    try:
+                        source_record = type_catalog.resolve_type(inferred_type)
+                    except CatalogError:
+                        source_record = {}
+                    source_item_type = source_record.get("iterable_item_type")
+                    if source_item_type == target_item_type:
+                        score += 12
+                    elif source_item_type:
+                        try:
+                            if type_catalog.is_subtype(source_item_type, target_item_type):
+                                score += 8
+                        except CatalogError:
+                            pass
             if shape in {"tuple", "list", "set", "dict"}:
-                score = 0
                 if structure == shape:
                     score += 8
                 if access == "structure":
@@ -929,7 +1189,9 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 if target_types.intersection(geometry_types | object_types):
                     score -= 3
                 return score
-            score = 1 if access in (None, "item") else -1
+            score += 1 if access in (None, "item") else -1
+            if not isinstance(argument, ast.Constant):
+                return score
             value = argument.value
             if isinstance(value, bool):
                 score += 3 if "Boolean" in target_types else 0
@@ -1012,60 +1274,71 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 return None
         return value
 
+    def serialize_discovered_value(value):
+        value_type = type(value)
+        if getattr(value_type, "__module__", "").split(".")[0] != "build123d":
+            return None
+        try:
+            record = catalog.resolve_type(
+                value_type.__module__ + "." + value_type.__name__
+            )
+        except CatalogError:
+            return None
+        if record.get("is_geometry"):
+            return None
+        return _serialize_discovered_value(value)
+
+    def is_discovered_literal(value):
+        if value is None or isinstance(value, (bool, int, float, str, enum.Enum)):
+            return True
+        return serialize_discovered_value(value) is not None
+
     def literal_json_value(value):
         if isinstance(value, enum.Enum):
             return value.name
         if isinstance(value, dict) and "__flow_enum__" in value:
             return value["__flow_enum__"][2]
-        if b3d is not None and isinstance(value, b3d.Axis):
-            return {
-                "__flow_object__": "Axis",
-                "value": [list(value.position), list(value.direction)],
-            }
-        if b3d is not None and isinstance(value, b3d.Plane):
-            return {
-                "__flow_object__": "Plane",
-                "origin": list(value.origin),
-                "x_dir": list(value.x_dir),
-                "z_dir": list(value.z_dir),
-            }
-        if b3d is not None and isinstance(value, b3d.Location):
-            return {"__flow_object__": "Location", "value": list(value.to_tuple())}
-        if b3d is not None and isinstance(value, b3d.Vector):
-            return {"__flow_object__": "Vector", "value": list(value)}
         if isinstance(value, dict):
-            if "__flow_object__" in value:
-                object_type = value["__flow_object__"]
-                if all(key in value for key in ("origin", "x_dir", "z_dir")):
-                    return {
-                        "__flow_object__": object_type,
-                        **{
-                            key: literal_json_value(value[key])
-                            for key in ("origin", "x_dir", "z_dir")
-                        },
-                    }
-                if "value" in value:
-                    return {
-                        "__flow_object__": object_type,
-                        "value": literal_json_value(value["value"]),
-                    }
-                args = [literal_json_value(item) for item in value.get("args", [])]
-                kwargs = {key: literal_json_value(item)
-                          for key, item in value.get("kwargs", {}).items()}
+            if "__flow_mapping__" in value:
                 return {
-                    "__flow_object__": object_type,
-                    "args": args,
-                    "kwargs": kwargs,
+                    "__flow_mapping__": [
+                        [literal_json_value(key), literal_json_value(item)]
+                        for key, item in value["__flow_mapping__"]
+                    ]
+                }
+            if not all(isinstance(key, str) for key in value):
+                return {
+                    "__flow_mapping__": [
+                        [literal_json_value(key), literal_json_value(item)]
+                        for key, item in value.items()
+                    ]
+                }
+            if "__flow_object__" in value:
+                return {
+                    "__flow_object__": value["__flow_object__"],
+                    **{
+                        key: literal_json_value(item)
+                        for key, item in value.items()
+                        if key != "__flow_object__"
+                    },
                 }
             return {key: literal_json_value(item) for key, item in value.items()}
         if isinstance(value, tuple):
             return {"__flow_tuple__": [literal_json_value(item) for item in value]}
         if isinstance(value, list):
             return [literal_json_value(item) for item in value]
+        serialized = serialize_discovered_value(value)
+        if serialized is not None:
+            return literal_json_value(serialized)
         return value
 
     def materialize_literal(value):
         if isinstance(value, dict):
+            if "__flow_mapping__" in value:
+                return {
+                    materialize_literal(key): materialize_literal(item)
+                    for key, item in value["__flow_mapping__"]
+                }
             if "__flow_callable__" in value:
                 module_name, qualified_name = value["__flow_callable__"]
                 target = importlib.import_module(module_name)
@@ -1134,20 +1407,13 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         # unless a typed value socket explicitly requires a concrete geometry.
         if (
             type_record.get("is_geometry")
-            and constructor_type != "Face"
             and expected_type in (None, "Any")
         ):
             return None
         if expected_type not in (None, "Any", constructor_type):
             return None
-        constructor = (
-            getattr(b3d, type_record["name"], None)
-            if b3d is not None else None
-        )
-        if b3d is not None and not inspect.isclass(constructor):
-            return None
         return (
-            constructor, constructor_type, type_record["name"],
+            type_record["id"], constructor_type, type_record["name"],
             bool(
                 type_record.get("supports_iteration")
                 or type_record.get("supports_context_manager")
@@ -1831,8 +2097,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 if symbol.get("kind") == "callable":
                     return ("literal", {"__flow_callable__": symbol["id"]})
             build123d_value = getattr(b3d, imported.get(node.id, node.id), None)
-            if b3d is not None and isinstance(build123d_value, (int, float, str, bool, enum.Enum,
-                                             b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
+            if b3d is not None and is_discovered_literal(build123d_value):
                 return ("literal", build123d_value)
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
@@ -2024,13 +2289,13 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                         value = getattr(b3d, path[0], None)
                         for part in path[1:]:
                             value = getattr(value, part, None)
-                        if b3d is not None and isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
+                        if b3d is not None and is_discovered_literal(value):
                             return ("literal", value)
                 elif hasattr(b3d, root):
                     value = getattr(b3d, root, None)
                     for part in reversed(path):
                         value = getattr(value, part, None)
-                    if b3d is not None and isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
+                    if b3d is not None and is_discovered_literal(value):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
@@ -2551,7 +2816,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             # maintaining one importer exception per value class.
             value_constructor = resolve_value_constructor(node.func, expected_type)
             if value_constructor is not None:
-                constructor, constructor_type, constructor_name, force_node, iterable_item_type = value_constructor
+                constructor_type_id, constructor_type, constructor_name, force_node, iterable_item_type = value_constructor
                 value_arguments = [
                     (expression(argument.value), True)
                     if isinstance(argument, ast.Starred)
@@ -2564,9 +2829,6 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     if keyword.arg is None:
                         raise ValueError("Expanded constructor arguments are unsupported at line {}".format(node.lineno))
                     kwargs[keyword.arg] = expression(keyword.value)
-                if node.args and node.keywords and constructor_type in {"Plane", "Location"}:
-                    raise ValueError("{} cannot mix positional and keyword arguments at line {}".format(
-                        constructor_type, node.lineno))
                 if not force_node and all(item[0] == "literal" for item in values) and all(
                     item[0] == "literal" for item in kwargs.values()
                 ):
@@ -2641,7 +2903,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 _INTERNAL_NODE_IDS.add(definition_id)
 
                 def construct_value(
-                    _constructor=constructor,
+                    _constructor_type_id=constructor_type_id,
                     _constructor_name=constructor_name,
                     _positional_names=tuple(positional_names),
                     _starred_flags=tuple(starred_flags),
@@ -2654,6 +2916,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                             positional.extend(value)
                         else:
                             positional.append(value)
+                    _constructor = _resolve_type_constructor(_constructor_type_id)
                     if _constructor is None:
                         raise RuntimeError("CAD kernel is required to execute value constructor " + _constructor_name)
                     try:
@@ -3363,19 +3626,6 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         if isinstance(value, enum.Enum):
             return {"__flow_enum__": [value.__class__.__module__,
                                       value.__class__.__name__, value.name]}
-        if b3d is not None and isinstance(value, b3d.Plane):
-            return {
-                "__flow_object__": "Plane",
-                "origin": list(value.origin), "x_dir": list(value.x_dir),
-                "z_dir": list(value.z_dir),
-            }
-        if b3d is not None and isinstance(value, b3d.Location):
-            return {"__flow_object__": "Location", "value": list(value.to_tuple())}
-        if b3d is not None and isinstance(value, b3d.Vector):
-            return {"__flow_object__": "Vector", "value": list(value)}
-        if b3d is not None and isinstance(value, b3d.Axis):
-            return {"__flow_object__": "Axis",
-                    "args": [list(value.position), list(value.direction)], "kwargs": {}}
         if isinstance(value, tuple):
             return {"__flow_tuple__": [encode_scope_value(item) for item in value]}
         if isinstance(value, list):
@@ -3384,6 +3634,9 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             return {key: encode_scope_value(item) for key, item in value.items()}
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
+        serialized = serialize_discovered_value(value)
+        if serialized is not None:
+            return encode_scope_value(serialized)
         raise ValueError("Unsupported context-manager argument value: " + type(value).__name__)
 
     def scope_expression(node):
@@ -3563,7 +3816,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 links.append(("fallback", fallback[1], fallback[2]))
         node_id = add_node(definition_id, params, links, line)
         node = next(item for item in graph_nodes if item["id"] == node_id)
-        node["data"]["visible"] = output_type in {"Shape", "Solid", "Compound", "Part", "Sketch"}
+        node["data"]["visible"] = previewable_type(output_type)
         return ("ref", node_id, "result")
 
     def process_statements(statements):
@@ -3677,9 +3930,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     scope_counter += 1
                     scope_id = "python_scope_{}".format(scope_counter)
                     manager_name = manager["name"]
-                    result_attribute = {
-                        "BuildPart": "part", "BuildSketch": "sketch", "BuildLine": "line",
-                    }.get(manager_name)
+                    result_attribute = manager.get("context_result_attribute")
                     optional = item.optional_vars
                     if optional is not None and not isinstance(optional, ast.Name):
                         raise ValueError("Only a simple name is supported after 'as' (line {})".format(statement.lineno))
@@ -3692,30 +3943,42 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     execution_scopes.append(descriptor)
                     dependencies = scope_reference_ids([args, kwargs])
                     active_scope_ids.append(scope_id)
-                    binding_type = {
-                        "BuildPart": "BuildPart", "BuildSketch": "BuildSketch",
-                        "BuildLine": "BuildLine",
-                    }.get(manager_name, manager_name)
                     binding_node = add_scope_node(
                         scope_id, "binding", statement.lineno,
-                        output_type=binding_type,
+                        output_type=manager.get("socket_type", manager["name"]),
                         dependencies=dependencies,
                     )
                     if optional is not None:
                         variables[optional.id] = ("ref", binding_node, "result")
-                    entered_contexts.append((scope_id, manager_name, optional))
+                    entered_contexts.append((scope_id, manager, manager_name, optional))
                 process_statements(statement.body)
-                for scope_id, manager_name, optional in reversed(entered_contexts):
+                for scope_id, manager, manager_name, optional in reversed(entered_contexts):
                     active_scope_ids.pop()
-                    output_type = {
-                        "BuildPart": "Part", "BuildSketch": "Sketch", "BuildLine": "Wire",
-                    }.get(manager_name, "Any")
-                    should_emit_result = optional is not None or manager_name in {"BuildPart", "BuildSketch", "BuildLine"}
+                    result_property_id = next((
+                        member_id for member_id in manager.get("member_node_ids", [])
+                        if member_id.endswith(".property." + str(result_attribute))
+                    ), None) if result_attribute else None
+                    result_definition = definitions.get(result_property_id) if result_property_id else None
+                    result_socket = (
+                        result_definition.get("outputs", [{}])[0]
+                        if result_definition else {}
+                    )
+                    output_type = result_socket.get("type", "Any")
+                    should_emit_result = optional is not None or result_attribute is not None
                     if should_emit_result:
                         result_node = add_scope_node(
                             scope_id, "result", statement.lineno, output_type,
-                            output_type in {"Shape", "Part", "Sketch", "Wire"}
+                            previewable_type(output_type)
                         )
+                        result_graph_node = next(item for item in graph_nodes if item["id"] == result_node)
+                        result_output = result_graph_node["data"]["definition"]["outputs"][0]
+                        for key in (
+                            "is_geometry", "semantic_type_id", "type_mro",
+                            "item_is_geometry", "item_semantic_type_id",
+                            "item_type_mro", "runtime_inspectable",
+                        ):
+                            if key in result_socket:
+                                result_output[key] = result_socket[key]
                         scope_result_nodes[scope_id] = result_node
                 continue
             if isinstance(statement, ast.Expr):
@@ -4264,4 +4527,10 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
     process_statements(tree.body)
     if not graph_nodes:
         raise ValueError("No supported build123d operations were found")
+    # Every emitted graph socket carries the same recursive shape contract,
+    # including synthetic loop, unpack, scope, and collection nodes.
+    for graph_node in graph_nodes:
+        graph_definition = graph_node.get("data", {}).get("definition", {})
+        for socket in graph_definition.get("inputs", []) + graph_definition.get("outputs", []):
+            normalize_data_shape(socket)
     return {"nodes": graph_nodes, "edges": graph_edges, "execution_scopes": execution_scopes}

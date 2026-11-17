@@ -50,13 +50,6 @@ def _type_name(annotation):
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
         union_args = [arg for arg in args if arg is not type(None)]
-        shape_base = getattr(b3d, "Shape", None) if b3d is not None else None
-        if union_args and inspect.isclass(shape_base):
-            try:
-                if all(inspect.isclass(arg) and issubclass(arg, shape_base) for arg in union_args):
-                    return "Shape"
-            except TypeError:
-                pass
         names = {_type_name(arg) for arg in union_args}
         tuple_alternatives = [arg for arg in union_args if typing.get_origin(arg) is tuple]
         object_alternatives = [
@@ -100,40 +93,141 @@ def _type_name(annotation):
     if inspect.isclass(annotation):
         try:
             if issubclass(annotation, enum.Enum):
+                if getattr(annotation, "__module__", "").split(".")[0] == "build123d":
+                    return annotation.__name__
                 return "Enum"
-            if b3d is not None:
-                shape_base = getattr(b3d, "Shape", None)
-                if inspect.isclass(shape_base) and issubclass(annotation, shape_base):
-                    for base in getattr(annotation, "__mro__", (annotation,)):
-                        if base is shape_base:
-                            return "Shape"
-                        if (
-                            getattr(base, "__module__", "").split(".")[0] == "build123d"
-                            and inspect.isclass(shape_base)
-                            and issubclass(base, shape_base)
-                        ):
-                            return base.__name__
         except TypeError:
             pass
         if getattr(annotation, "__module__", "").split(".")[0] == "build123d":
-            # Runtime class names must map to the catalog's semantic socket types.
-            # build123d exposes Vector as a class; the graph contract calls it Vector3.
-            return {"Vector": "Vector3"}.get(annotation.__name__, annotation.__name__)
+            # Preserve the exact discovered class identity. Geometry capability
+            # and collection shape are separate metadata, never aliases here.
+            return annotation.__name__
     if isinstance(annotation, str):
-        name = annotation.strip().strip("'\\\"").split(".")[-1].lower()
+        raw_name = annotation.strip().strip("'\\\"").split(".")[-1]
     else:
-        name = getattr(annotation, "__name__", str(annotation)).lower()
+        raw_name = getattr(annotation, "__name__", str(annotation)).split(".")[-1]
+    name = raw_name.lower()
     mapping = {
         "int": "Number", "float": "Number", "bool": "Boolean", "str": "String",
-        "vector": "Vector3", "vector2": "Vector2", "vector3": "Vector3",
-        "rotation": "Rotation", "plane": "Plane", "location": "Location", "axis": "Axis", "color": "Color",
-        "matrix": "Matrix",
-        "shape": "Shape", "solid": "Solid", "compound": "Compound", "face": "Face",
-        "edge": "Edge", "wire": "Wire", "shell": "Shell", "part": "Part",
-        "sketch": "Sketch", "code": "Code", "callable": "Code",
+        "code": "Code", "callable": "Code",
     }
-    return mapping.get(name, "Any")
+    # Keep unknown class names open for runtime discovery. Unknown annotations
+    # with compound/generic syntax remain Any rather than becoming fake types.
+    if name in mapping:
+        return mapping[name]
+    return raw_name if raw_name.isidentifier() else "Any"
 
+
+
+def _annotation_data_shape(annotation, depth=0):
+    """Describe recursive collection layout independently from value type."""
+    if depth >= 16:
+        return {"kind": "item", "type": "Any"}
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    collection_origins = {
+        list, set, frozenset, collections.abc.Sequence,
+        collections.abc.MutableSequence, collections.abc.Iterable,
+        collections.abc.Collection, collections.abc.Set,
+        collections.abc.MutableSet,
+    }
+    mapping_origins = {dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping}
+    # Concrete collection subclasses are structural only through declared
+    # inheritance, never through duck-typed iteration. This keeps ShapeList
+    # and user-defined list/map classes discoverable without mistaking
+    # iterable CAD domain objects for collections.
+    candidate = origin if origin is not None else annotation
+    if inspect.isclass(candidate):
+        declared_bases = set(getattr(candidate, "__mro__", ()))
+        if declared_bases & {dict, collections.abc.Mapping, collections.abc.MutableMapping}:
+            origin = dict
+            args = args or (typing.Any, typing.Any)
+        elif declared_bases & collection_origins or tuple in declared_bases:
+            if declared_bases & {
+                set, frozenset, collections.abc.Set, collections.abc.MutableSet,
+            }:
+                origin = set
+            elif tuple in declared_bases:
+                origin = tuple
+            else:
+                origin = list
+            args = args or (typing.Any,)
+    if origin in collection_origins:
+        child = _annotation_data_shape(args[0] if args else typing.Any, depth + 1)
+        kind = "set" if origin in (set, frozenset, collections.abc.Set, collections.abc.MutableSet) else "list"
+        if child.get("kind") in {"list", "tree"}:
+            kind = "tree"
+        return {"kind": kind, "item": child}
+    if origin is tuple:
+        if len(args) == 2 and args[1] is Ellipsis:
+            return {"kind": "tuple", "items": [_annotation_data_shape(args[0], depth + 1)]}
+        return {"kind": "tuple", "items": [
+            _annotation_data_shape(item, depth + 1) for item in args
+        ]}
+    if origin in mapping_origins:
+        return {
+            "kind": "map",
+            "key": _annotation_data_shape(args[0] if args else str, depth + 1),
+            "value": _annotation_data_shape(args[1] if len(args) > 1 else typing.Any, depth + 1),
+        }
+    if origin in (typing.Union, types.UnionType):
+        options = [_annotation_data_shape(item, depth + 1) for item in args if item is not type(None)]
+        unique = []
+        for option in options:
+            if option not in unique:
+                unique.append(option)
+        if len(unique) == 1:
+            return unique[0]
+        return {"kind": "union", "options": unique}
+    return {"kind": "item", "type": _type_name(annotation)}
+
+
+def _socket_data_shape(socket):
+    """Normalize legacy socket metadata to the recursive data-shape contract."""
+    if isinstance(socket.get("data_shape"), dict):
+        return socket["data_shape"]
+    structure = socket.get("data_structure")
+    socket_type = socket.get("type", "Any")
+    if structure is None:
+        structure = {"List": "list", "Tuple": "tuple", "Set": "set", "Dict": "dict"}.get(socket_type, "item")
+    item = {"kind": "item", "type": socket.get("item_type", "Any")}
+    if structure in ("list", "tree", "set"):
+        return {"kind": structure, "item": item}
+    if structure == "tuple":
+        return {"kind": "tuple", "items": [item]}
+    if structure == "dict":
+        return {
+            "kind": "map",
+            "key": {"kind": "item", "type": socket.get("key_type", "Any")},
+            "value": {"kind": "item", "type": socket.get("value_type", "Any")},
+        }
+    return {"kind": "item", "type": socket_type}
+
+
+def _replace_any_shape_leaf(shape, item_type):
+    """Fill unknown collection leaves from a discovered native iterable type."""
+    if not isinstance(shape, dict):
+        return shape
+    kind = shape.get("kind")
+    if kind == "item":
+        return dict(shape, type=item_type) if shape.get("type") == "Any" else shape
+    if kind in {"list", "tree", "set"}:
+        return dict(shape, item=_replace_any_shape_leaf(shape.get("item"), item_type))
+    if kind == "tuple":
+        return dict(shape, items=[
+            _replace_any_shape_leaf(item, item_type) for item in shape.get("items", [])
+        ])
+    if kind == "map":
+        return dict(
+            shape,
+            key=_replace_any_shape_leaf(shape.get("key"), item_type),
+            value=_replace_any_shape_leaf(shape.get("value"), item_type),
+        )
+    if kind == "union":
+        return dict(shape, options=[
+            _replace_any_shape_leaf(item, item_type) for item in shape.get("options", [])
+        ])
+    return shape
 
 def _union_annotations(annotations):
     """Combine overload annotations without losing union or collection types."""
@@ -183,18 +277,31 @@ def _resolve_hints(target):
 def _receiver_socket(owner):
     """Describe whether a discovered method receives one object or a collection."""
     receiver_type = _type_name(owner)
-    try:
-        collection_receiver = issubclass(
-            owner, (list, tuple, set, frozenset, collections.abc.Collection)
-        )
-    except TypeError:
-        collection_receiver = False
+    # Only declared collection inheritance makes a receiver structural.
+    # CAD values may implement iteration/length for traversal while remaining
+    # one semantic value; ABC structural subclass hooks must not turn them into
+    # list sockets.
+    declared_bases = set(getattr(owner, "__mro__", ()))
+    collection_receiver = bool(declared_bases & {
+        list, tuple, set, frozenset,
+        collections.abc.Sequence, collections.abc.MutableSequence,
+        collections.abc.Collection, collections.abc.Iterable,
+        collections.abc.Set, collections.abc.MutableSet,
+    })
     if collection_receiver:
+        if dict in declared_bases or collections.abc.Mapping in declared_bases:
+            structure, socket_type = "dict", "Dict"
+        elif set in declared_bases or frozenset in declared_bases or collections.abc.Set in declared_bases:
+            structure, socket_type = "set", "Set"
+        elif tuple in declared_bases:
+            structure, socket_type = "tuple", "Tuple"
+        else:
+            structure, socket_type = "list", "List"
         return {
-            "name": "self", "label": "collection", "type": "List",
+            "name": "self", "label": "collection", "type": socket_type,
             "annotation": str(owner), "required": True,
             "variants": [receiver_type],
-            "data_structure": "list", "item_type": "Any",
+            "data_structure": structure, "item_type": "Any",
             "data_access": "structure",
         }
     return {
@@ -424,6 +531,7 @@ def _annotation_metadata(annotation):
             }
             if len(item_types) == 1:
                 metadata["item_type"] = item_types.pop()
+    metadata["data_shape"] = _annotation_data_shape(annotation)
     return metadata
 
 
@@ -443,13 +551,25 @@ def _safe_default(value):
             return json.loads(json.dumps(value, allow_nan=False)), repr(value), False, True
         except (TypeError, ValueError, OverflowError):
             pass
-    if type(value).__name__.lower() == "vector" and all(hasattr(value, axis) for axis in ("X", "Y", "Z")):
+    # Generic value-object protocol: serialize iterable discovered value
+    # objects only when every component is a JSON primitive. Geometry objects
+    # remain opaque and are never flattened into coordinate arrays.
+    is_geometry = (
+        b3d is not None
+        and isinstance(getattr(b3d, "Shape", None), type)
+        and isinstance(value, b3d.Shape)
+    )
+    if not is_geometry and not isinstance(value, (str, bytes, bytearray)):
         try:
-            vector = [float(value.X), float(value.Y), float(value.Z)]
-            json.dumps(vector, allow_nan=False)
-            return vector, repr(value), False, True
+            components = list(iter(value))
+            if components and all(
+                item is None or isinstance(item, (bool, int, float, str))
+                for item in components
+            ):
+                json.dumps(components, allow_nan=False)
+                return components, repr(value), False, True
         except (TypeError, ValueError, OverflowError):
-            return None, repr(value), False, False
+            pass
     return None, repr(value), False, False
 
 
@@ -483,8 +603,7 @@ def _populate_editor_default(socket):
         return
     defaults = {
         "Number": 1.0, "Boolean": False, "String": "",
-        "Code": "", "Vector2": [0.0, 0.0], "Vector3": [0.0, 0.0, 0.0],
-        "List": [], "Tuple": [], "Set": [], "Dict": {},
+        "Code": "", "List": [], "Tuple": [], "Set": [], "Dict": {},
     }
     if socket_type == "Enum" and socket.get("options"):
         socket["default"] = socket["options"][0]
@@ -571,32 +690,50 @@ def _discover_modules(report=None):
 # Domain-specific presentation belongs in _NODE_METADATA_OVERRIDES below.
 _PYTHON_OPERATOR_SPECS = {
     "__add__": {"symbol": "+", "codegen_symbol": "+", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__radd__": {"symbol": "+", "codegen_symbol": "+", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__sub__": {"symbol": "−", "codegen_symbol": "-", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__rsub__": {"symbol": "−", "codegen_symbol": "-", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__mul__": {"symbol": "×", "codegen_symbol": "*", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__rmul__": {"symbol": "×", "codegen_symbol": "*", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__truediv__": {"symbol": "÷", "codegen_symbol": "/", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__rtruediv__": {"symbol": "÷", "codegen_symbol": "/", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__floordiv__": {"symbol": "//", "codegen_symbol": "//", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__rfloordiv__": {"symbol": "//", "codegen_symbol": "//", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__mod__": {"symbol": "%", "codegen_symbol": "%", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__rmod__": {"symbol": "%", "codegen_symbol": "%", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__pow__": {"symbol": "**", "codegen_symbol": "**", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__rpow__": {"symbol": "**", "codegen_symbol": "**", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__matmul__": {"symbol": "@", "codegen_symbol": "@", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
+    "__rmatmul__": {"symbol": "@", "codegen_symbol": "@", "family": "arithmetic", "palette_category": "Math", "palette_section": "Operators"},
     "__and__": {"symbol": "&", "codegen_symbol": "&", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__rand__": {"symbol": "&", "codegen_symbol": "&", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
     "__or__": {"symbol": "|", "codegen_symbol": "|", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__ror__": {"symbol": "|", "codegen_symbol": "|", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
     "__xor__": {"symbol": "^", "codegen_symbol": "^", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__rxor__": {"symbol": "^", "codegen_symbol": "^", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
     "__lshift__": {"symbol": "<<", "codegen_symbol": "<<", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__rlshift__": {"symbol": "<<", "codegen_symbol": "<<", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
     "__rshift__": {"symbol": ">>", "codegen_symbol": ">>", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
+    "__rrshift__": {"symbol": ">>", "codegen_symbol": ">>", "family": "bitwise", "palette_category": "Logic", "palette_section": "Bitwise operators"},
     "__neg__": {"symbol": "−", "codegen_symbol": "-", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
     "__pos__": {"symbol": "+", "codegen_symbol": "+", "family": "unary", "palette_category": "Math", "palette_section": "Unary operators"},
     "__invert__": {"symbol": "~", "codegen_symbol": "~", "family": "unary", "palette_category": "Logic", "palette_section": "Bitwise operators"},
 }
 
 _PYTHON_BINARY_OPERATORS = {
-    "__add__": operator.add, "__sub__": operator.sub,
-    "__mul__": operator.mul, "__truediv__": operator.truediv,
-    "__floordiv__": operator.floordiv, "__mod__": operator.mod,
-    "__pow__": operator.pow, "__matmul__": operator.matmul,
-    "__and__": operator.and_, "__or__": operator.or_,
-    "__xor__": operator.xor, "__lshift__": operator.lshift,
-    "__rshift__": operator.rshift,
+    "__add__": operator.add, "__radd__": operator.add,
+    "__sub__": operator.sub, "__rsub__": operator.sub,
+    "__mul__": operator.mul, "__rmul__": operator.mul,
+    "__truediv__": operator.truediv, "__rtruediv__": operator.truediv,
+    "__floordiv__": operator.floordiv, "__rfloordiv__": operator.floordiv,
+    "__mod__": operator.mod, "__rmod__": operator.mod,
+    "__pow__": operator.pow, "__rpow__": operator.pow,
+    "__matmul__": operator.matmul, "__rmatmul__": operator.matmul,
+    "__and__": operator.and_, "__rand__": operator.and_,
+    "__or__": operator.or_, "__ror__": operator.or_,
+    "__xor__": operator.xor, "__rxor__": operator.xor,
+    "__lshift__": operator.lshift, "__rlshift__": operator.lshift,
+    "__rshift__": operator.rshift, "__rrshift__": operator.rshift,
 }
 
 
@@ -609,13 +746,15 @@ def _invoke_discovered_operator(method, left, right):
 
 
 def _invoke_discovered_operator_callable(native_invoke, method, mapped, signature):
-    """Invoke a discovered dunder with its real signature; honor reflected fallback."""
-    result = native_invoke(mapped)
-    if result is not NotImplemented:
-        return result
+    """Dispatch through Python's runtime operator protocol.
+
+    The catalog owner is useful for graph identity and signature metadata, but
+    it must not freeze method resolution to a base class. Runtime dispatch is
+    required for subclasses that override a dunder (for example Curve.__xor__).
+    """
     operation = _PYTHON_BINARY_OPERATORS.get(method)
     if operation is None:
-        return result
+        return native_invoke(mapped)
     parameters = [
         parameter for parameter in signature.parameters.values()
         if parameter.name not in ("self", "cls")
@@ -625,30 +764,36 @@ def _invoke_discovered_operator_callable(native_invoke, method, mapped, signatur
         )
     ]
     if not parameters:
-        return result
+        return native_invoke(mapped)
     receiver_name = next(
         (parameter.name for parameter in signature.parameters.values()
          if parameter.name in ("self", "cls")),
         "self",
     )
-    receiver, operand = mapped.get(receiver_name), mapped.get(parameters[0].name)
+    receiver = mapped.get(receiver_name)
+    operand = mapped.get(parameters[0].name)
+    bound_method = getattr(receiver, method, None)
+    if not callable(bound_method):
+        return native_invoke(mapped)
     if method.startswith("__r"):
+        # Let Python try the left operand before reflected dispatch.
         return operation(operand, receiver)
+    if callable(bound_method):
+        bound_parameters = [
+            parameter for parameter in signature.parameters.values()
+            if parameter.name not in ("self", "cls")
+        ]
+        bound_signature = signature.replace(parameters=bound_parameters)
+        arguments = {
+            name: value for name, value in mapped.items()
+            if name != receiver_name and not name.startswith("__flow_iteration_")
+        }
+        result = _call_with_coercion(
+            bound_method, arguments, signature=bound_signature
+        )
+        if result is not NotImplemented:
+            return result
     return operation(receiver, operand)
-
-
-def _register_kernel_discovery_overrides():
-    """Register presentation overrides only when the real kernel is available."""
-    if b3d is None:
-        raise RuntimeError("build123d is required for API discovery")
-    for method, presentation in {
-        "__add__": {"name": "Shape + (Union)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-        "__sub__": {"name": "Shape − (Difference)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-        "__and__": {"name": "Shape & (Intersection)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-    }.items():
-        node_id = b3d.Shape.__module__ + "." + b3d.Shape.__name__ + ".operator." + method
-        _NODE_METADATA_OVERRIDES[node_id] = presentation
-
 
 _FLOW_PALETTE = {
     "Math": ("Math", "Arithmetic & trigonometry"),
@@ -661,7 +806,6 @@ _FLOW_PALETTE = {
     "Utilities": ("Math", "Numeric utilities"),
     "Constants": ("Math", "Constants"),
     "Values": ("Data", "Literal values"),
-    "Boolean": ("Boolean", "Boolean operations"),
     "Preview": ("Inspect", "Preview styling"),
 }
 
@@ -931,25 +1075,7 @@ def _register_flow_nodes(found, callables):
     _add_node(found, callables, "core.convert.to_string", "To String", "Conversions", lambda value: str(value),
               [("value", "Any")], "String")
 
-    # Vector operations use build123d's native Vector type.
-    _add_node(found, callables, "core.vector.add", "Vector Add", "Spatial", lambda a, b: a + b,
-              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.subtract", "Vector Subtract", "Spatial", lambda a, b: a - b,
-              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.scale", "Vector Scale", "Spatial",
-              lambda vector_value, factor: vector_value * factor,
-              [("vector_value", "Vector3"), ("factor", "Number")], "Vector3")
-    _add_node(found, callables, "core.vector.dot", "Dot Product", "Spatial", lambda a, b: a.dot(b),
-              [("a", "Vector3"), ("b", "Vector3")], "Number")
-    _add_node(found, callables, "core.vector.cross", "Cross Product", "Spatial",
-              lambda a, b: a.cross(b),
-              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.length", "Vector Length", "Spatial",
-              lambda value: value.length,
-              [("value", "Vector3")], "Number")
-    _add_node(found, callables, "core.vector.normalize", "Normalize", "Spatial",
-              lambda value: value.normalized(),
-              [("value", "Vector3")], "Vector3")
+    # Vector arithmetic and methods are discovered from the native type API.
 
     # First-class collection construction and transformation nodes.
     _add_node(found, callables, "core.list.length", "List Length", "Collections",
@@ -1223,7 +1349,7 @@ def _python_function(code, a=None, b=None, c=None):
         "zip": zip, "sorted": sorted,
     }
     scope = {"__builtins__": safe_builtins, "math": math, "operator": operator,
-             "a": a, "b": b, "c": c, "b3d": b3d, "Vector": b3d.Vector}
+             "a": a, "b": b, "c": c, "b3d": b3d}
     exec(compile(code, "<node>", "exec"), scope, scope)
     if "result" not in scope:
         raise ValueError("Python Function must assign its output to 'result'")
@@ -1260,7 +1386,6 @@ def discover(include_full=True):
     global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE, _SYMBOL_REGISTRY
     if b3d is None:
         raise RuntimeError("build123d is required for API discovery; load a generated catalog instead")
-    _register_kernel_discovery_overrides()
     found = {}
     callables = {}
     signatures = {}
@@ -1712,6 +1837,8 @@ def discover(include_full=True):
     _register_flow_nodes(found, callables)
     _register_python_nodes(found, callables)
     for definition in found.values():
+        for socket in definition.get("inputs", []) + definition.get("outputs", []):
+            socket.setdefault("data_shape", _socket_data_shape(socket))
         definition.setdefault("data_matching", "longest")
         definition.setdefault("execution", {"purity": "unknown", "cacheable": False})
 
@@ -1747,6 +1874,7 @@ def discover(include_full=True):
         report["palette_category_counts"][source + "/" + category] = report["palette_category_counts"].get(source + "/" + category, 0) + 1
 
     type_registry = build_type_registry(api_classes, found, getattr(b3d, "Shape", None))
+    type_records_by_socket = {}
     for api_class in api_classes:
         type_id = api_class.__module__ + "." + api_class.__name__
         record = type_registry.get(type_id)
@@ -1757,6 +1885,75 @@ def discover(include_full=True):
             record["is_geometry"] = issubclass(api_class, b3d.Shape)
         except TypeError:
             record["is_geometry"] = False
+        type_records_by_socket[record["socket_type"]] = record
+
+    # Carry provider-discovered geometry capability onto sockets. Any remains
+    # open-ended and preview-eligible; runtime values decide whether it contains
+    # geometry. Collection item capability is independent of collection shape.
+    for definition in found.values():
+        input_socket_ids = {id(socket) for socket in definition.get("inputs", [])}
+        for socket in definition.get("inputs", []) + definition.get("outputs", []):
+            socket_type = socket.get("type", "Any")
+            record = type_records_by_socket.get(socket_type)
+            if record:
+                socket["semantic_type_id"] = record["id"]
+                socket["type_mro"] = record.get("mro", [])
+                if record.get("is_geometry"):
+                    socket["is_geometry"] = True
+                if record.get("collection_kind") and socket.get("data_structure", "item") == "item":
+                    socket["data_structure"] = record["collection_kind"]
+                    if id(socket) in input_socket_ids:
+                        socket["data_access"] = "structure"
+                    if socket.get("item_type") in (None, "", "Any"):
+                        socket["item_type"] = record.get("iterable_item_type") or "Any"
+            item_type = socket.get("item_type")
+            if (
+                record
+                and socket.get("data_structure") in {"list", "tree", "set"}
+                and item_type in (None, "", "Any")
+                and record.get("iterable_item_type")
+            ):
+                item_type = record["iterable_item_type"]
+                socket["item_type"] = item_type
+                socket["data_shape"] = _replace_any_shape_leaf(
+                    socket.get("data_shape"), item_type
+                )
+            item_record = type_records_by_socket.get(item_type)
+            if item_record:
+                socket["item_semantic_type_id"] = item_record["id"]
+                socket["item_type_mro"] = item_record.get("mro", [])
+                if item_record.get("is_geometry"):
+                    socket["item_is_geometry"] = True
+            variant_records = [
+                type_records_by_socket.get(variant)
+                for variant in socket.get("variants", [])
+            ]
+            for variant_record in variant_records:
+                if variant_record and variant_record.get("is_geometry"):
+                    socket["variants_include_geometry"] = True
+            # Collection receiver sockets are typed as a structural container;
+            # discover their element identity from the declared iterable API.
+            if socket.get("item_type") in (None, "", "Any") and variant_records:
+                iterable_records = [
+                    record for record in variant_records
+                    if record and record.get("supports_iteration")
+                    and record.get("iterable_item_type")
+                ]
+                if len(iterable_records) == len(variant_records):
+                    discovered_items = {
+                        record["iterable_item_type"] for record in iterable_records
+                    }
+                    if len(discovered_items) == 1:
+                        discovered_item = discovered_items.pop()
+                        socket["item_type"] = discovered_item
+                        item_record = type_records_by_socket.get(discovered_item)
+                        if item_record:
+                            socket["item_semantic_type_id"] = item_record["id"]
+                            socket["item_type_mro"] = item_record.get("mro", [])
+                            if item_record.get("is_geometry"):
+                                socket["item_is_geometry"] = True
+            if socket_type == "Any" or socket.get("item_type") == "Any":
+                socket["runtime_inspectable"] = True
     report["type_count"] = len(type_registry)
     symbol_registry = build_symbol_registry(b3d, modules)
     report["symbol_count"] = len(symbol_registry)
@@ -1861,6 +2058,9 @@ def load_catalog_bundle(payload):
     catalog = TypeCatalog(bundle)
     _INTERNAL_NODE_IDS.clear()
     definitions = {item["id"]: dict(item) for item in bundle["nodes"]}
+    for definition in definitions.values():
+        for socket in definition.get("inputs", []) + definition.get("outputs", []):
+            socket.setdefault("data_shape", _socket_data_shape(socket))
     callables = {}
     signatures = {}
     hint_targets = {}
@@ -1950,12 +2150,33 @@ def load_catalog_bundle(payload):
     }
 
 
-def _iter_shapes(value):
+def _iter_shapes(value, _seen=None):
+    """Yield geometry recursively without relying on a socket's static type.
+
+    Any, List[Any], nested trees, sets, tuples, and mapping values all use the
+    same runtime inspection path. Cycles are ignored defensively.
+    """
     if b3d is not None and isinstance(value, b3d.Shape):
         yield value
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            yield from _iter_shapes(item)
+        return
+    if value is None or isinstance(value, (str, bytes, bytearray)):
+        return
+    if _seen is None:
+        _seen = set()
+    identity = id(value)
+    if identity in _seen:
+        return
+    if isinstance(value, (collections.abc.Mapping, collections.abc.Sequence,
+                          collections.abc.Set)):
+        _seen.add(identity)
+        if isinstance(value, collections.abc.Mapping):
+            for key, item in value.items():
+                yield from _iter_shapes(key, _seen)
+                yield from _iter_shapes(item, _seen)
+        else:
+            for item in value:
+                yield from _iter_shapes(item, _seen)
+        _seen.remove(identity)
 
 
 def _as_export_shape(value):
@@ -2039,7 +2260,9 @@ def _inspect_value(value, depth=0):
                 if (isinstance(item, (bool, int, float, str, list, tuple, set, frozenset,
                                       collections.abc.Mapping, collections.abc.Sequence,
                                       collections.abc.Set)) or item is None or
-                        type(item).__name__ in {"Vector", "Plane", "Location", "Rotation", "Axis", "Color"}):
+                        (_TYPE_REGISTRY.get(
+                            type(item).__module__ + "." + type(item).__name__, {}
+                        ).get("id") is not None)):
                     attributes[name] = _inspect_value(item, depth + 1)
             except Exception:
                 continue
@@ -2049,13 +2272,37 @@ def _inspect_value(value, depth=0):
 
 
 def _socket_data_structure(socket):
-    """Return the declared collection shape of a socket, never its runtime value shape."""
+    """Return the declared recursive data shape's outer execution structure."""
+    shape = socket.get("data_shape")
+    if isinstance(shape, dict):
+        kind = shape.get("kind")
+        if kind == "map":
+            return "dict"
+        if kind in {"item", "list", "tree", "tuple", "set"}:
+            return kind
+        if kind == "union":
+            # A union of scalar and collection representations is resolved
+            # from the concrete runtime value, never flattened to one branch.
+            return "dynamic"
     structure = socket.get("data_structure", "item")
     if structure != "item":
         return structure
     return {
         "List": "list", "Tuple": "tuple", "Set": "set", "Dict": "dict",
     }.get(socket.get("type"), "item")
+
+
+def _runtime_data_structure(value):
+    """Resolve a union/dynamic output's concrete runtime collection shape."""
+    if isinstance(value, dict):
+        return "dict"
+    if isinstance(value, set):
+        return "set"
+    if isinstance(value, tuple):
+        return "tuple"
+    if isinstance(value, list):
+        return "tree" if any(type(item) is list for item in value) else "list"
+    return "item"
 
 
 def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None, visiting=None):
@@ -2121,6 +2368,8 @@ def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None
         inferred = "tree"
     if declared in ("list", "tuple") and inferred in ("list", "tree"):
         result = "tree"
+    elif declared == "dynamic":
+        result = inferred if inferred != "item" else "dynamic"
     else:
         result = declared if declared != "item" else inferred
     memo[key] = result
@@ -2221,7 +2470,10 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
         # Tree recursion follows nested loop lists, not tuple payloads such as
         # coordinates passed to Vector(*tuple(v)).
         if shape == "tree":
-            if isinstance(value, list):
+            # Only native Python lists represent mapped branches here.
+            # ShapeList and other discovered collection subclasses are
+            # semantic collection values and must remain intact as leaves.
+            if type(value) is list:
                 sequences[name] = list(value)
         elif shape in ("list", "tuple") and isinstance(value, (list, tuple)):
             sequences[name] = list(value)
@@ -2315,7 +2567,12 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
         child_shapes = dict(stream_shapes)
         for name, value in zip(names, row):
             child[name] = value
-            if stream_shapes[name] == "list" or not isinstance(value, (list, tuple)):
+            if stream_shapes[name] == "list" and type(value) is list:
+                # Runtime loop mapping can introduce additional nested
+                # branches even when the declared producer is a flat list.
+                # Promote that branch to a tree and keep mapping recursively.
+                child_shapes[name] = "tree"
+            elif stream_shapes[name] == "list" or not isinstance(value, (list, tuple)):
                 child_shapes.pop(name, None)
         results.append(_map_item_inputs(
             child, child_shapes, invoke, matching, path + (index,), depth + 1,
@@ -2463,6 +2720,11 @@ def evaluate_graph_json(payload, include_previews=True):
         if isinstance(value, list):
             return [restore_scope_value(item) for item in value]
         if isinstance(value, dict):
+            if "__flow_mapping__" in value:
+                return {
+                    restore_scope_value(key): restore_scope_value(item)
+                    for key, item in value["__flow_mapping__"]
+                }
             if "__flow_tuple__" in value:
                 return tuple(restore_scope_value(item) for item in value["__flow_tuple__"])
             if "__flow_attrgetter__" in value:
@@ -2491,15 +2753,21 @@ def evaluate_graph_json(payload, include_previews=True):
                     args = restore_scope_value(value.get("args", []))
                     kwargs = restore_scope_value(value.get("kwargs", {}))
                     return constructor(*args, **kwargs)
-                if object_type == "Plane":
+                if all(key in value for key in ("origin", "x_dir", "z_dir")):
                     return constructor(
                         origin=restore_scope_value(value["origin"]),
                         x_dir=restore_scope_value(value["x_dir"]),
                         z_dir=restore_scope_value(value["z_dir"]),
                     )
-                if object_type == "Location":
-                    return constructor(restore_scope_value(value["value"]))
-                return constructor(*restore_scope_value(value["value"]))
+                if "value" in value:
+                    payload = restore_scope_value(value["value"])
+                    try:
+                        return constructor(payload)
+                    except TypeError:
+                        return constructor(*payload)
+                raise ValueError(
+                    "Discovered value object has no reconstruction contract: " + object_type
+                )
             return {key: restore_scope_value(item) for key, item in value.items()}
         return value
 
@@ -2774,6 +3042,11 @@ def evaluate_graph_json(payload, include_previews=True):
                 source_shape = _effective_output_structure(
                     source_id, source_output, nodes, incoming, shape_memo
                 )
+                if source_shape == "dynamic":
+                    source_value = values.get(source_id, {}).get(
+                        source_output, values.get(source_id, {}).get("result")
+                    )
+                    source_shape = _runtime_data_structure(source_value)
                 if source_shape in ("list", "tuple", "tree"):
                     stream_shapes[input_name] = "list" if source_shape == "tuple" else source_shape
                 elif direct_loop_source or shared_loop_sources:
@@ -2956,50 +3229,51 @@ def _coerce_annotation(value, annotation):
                 return value if isinstance(value, annotation) else annotation[value] if isinstance(value, str) else annotation(value)
         except (TypeError, KeyError, ValueError):
             pass
-        name = annotation.__name__.lower()
-        if name == "vector" and isinstance(value, (list, tuple)):
-            return b3d.Vector(*value)
-        if name == "rotation" and isinstance(value, (list, tuple)):
-            return b3d.Rotation(tuple(value))
-        if name == "plane" and isinstance(value, dict):
-            return b3d.Plane(**value)
-        if name == "location" and isinstance(value, dict):
-            return b3d.Location(**value)
-        if name == "location" and isinstance(value, (list, tuple)):
-            return b3d.Location(*value)
-        if name == "axis" and isinstance(value, (list, tuple)):
-            return b3d.Axis(*value)
-        if name == "color" and isinstance(value, (list, tuple)):
-            return b3d.Color(*value)
-        if name == "matrix" and isinstance(value, (list, tuple)):
-            # A 4×3 affine row list is the JSON shape of a Matrix.
-            return b3d.Matrix(value if any(isinstance(row, (list, tuple)) for row in value) else [list(value)])
-        if annotation is bool:
-            return bool(value)
-        if annotation is int:
-            return int(value)
-        if annotation is float:
-            return float(value)
-        if annotation is str:
-            return str(value)
+        if isinstance(value, annotation):
+            return value
+        if annotation in (bool, int, float, str):
+            return annotation(value)
+        type_id = getattr(annotation, "__module__", "") + "." + getattr(annotation, "__name__", "")
+        record = _TYPE_REGISTRY.get(type_id)
+        if not record or record.get("is_geometry"):
+            return value
+        # Rehydrate discovered non-geometry value classes generically. The
+        # catalog supplies class identity; constructor binding supplies shape.
+        # No per-type Vector/Rotation/Plane codec table is maintained.
+        if isinstance(value, dict):
+            try:
+                return annotation(**value)
+            except (TypeError, ValueError):
+                pass
+        if isinstance(value, (list, tuple)):
+            try:
+                return annotation(value)
+            except (TypeError, ValueError):
+                return annotation(*value)
     return value
 
 
 def _coerce_graph_receiver(value, socket):
-    """Restore JSON-serialized build123d value objects before native method lookup."""
-    value_types = {
-        "Vector2": b3d.Vector,
-        "Vector3": b3d.Vector,
-        "Rotation": b3d.Rotation,
-        "Plane": b3d.Plane,
-        "Location": b3d.Location,
-        "Axis": b3d.Axis,
-        "Color": b3d.Color,
-        "Matrix": b3d.Matrix,
-    }
-    annotation = value_types.get(socket.get("type"))
-    return _coerce_annotation(value, annotation) if annotation is not None else value
-
+    """Restore a discovered value object from its open semantic type identity."""
+    if b3d is None or not isinstance(socket, dict):
+        return value
+    type_id = socket.get("semantic_type_id")
+    record = _TYPE_REGISTRY.get(type_id) if type_id else None
+    if record is None:
+        socket_type = socket.get("type")
+        record = next(
+            (item for item in _TYPE_REGISTRY.values()
+             if item.get("socket_type") == socket_type and not item.get("is_geometry")),
+            None,
+        )
+    if not record or record.get("is_geometry"):
+        return value
+    try:
+        module = importlib.import_module(record["module"])
+        annotation = getattr(module, record["name"])
+    except (ImportError, AttributeError):
+        return value
+    return _coerce_annotation(value, annotation)
 
 def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
     if hint_target is False:
@@ -3248,11 +3522,22 @@ def _python_import_reference(obj, imports, alias):
 
 
 
+def _resolve_type_constructor(type_id):
+    """Resolve a native value constructor only when an evaluated graph requests it."""
+    if b3d is None:
+        return None
+    try:
+        type_record = _type_catalog().resolve_type(type_id)
+    except CatalogError:
+        return None
+    constructor = getattr(b3d, type_record["name"], None)
+    return constructor if inspect.isclass(constructor) else None
+
+
 def _translator_services():
     """Expose only the graph-lowering services required by the kernel-free translator."""
     from python_translator import TranslatorServices
     return TranslatorServices(
-        b3d=b3d,
         catalog_nodes=_CATALOG,
         internal_node_ids=_INTERNAL_NODE_IDS,
         catalog_callables=_CATALOG_CALLABLES,
@@ -3266,6 +3551,7 @@ def _translator_services():
         api_signature=_api_signature,
         call_with_coercion=_call_with_coercion,
         python_loop_last=_python_loop_last,
+        resolve_type_constructor=_resolve_type_constructor,
     )
 
 
@@ -3335,13 +3621,15 @@ def export_python_code(payload):
                             kwargs = ["{}={}".format(key, scope_code_value(item))
                                       for key, item in value.get("kwargs", {}).items()]
                             return "b3d.{}({})".format(object_type, ", ".join(args + kwargs))
-                        if object_type == "Plane":
+                        if all(key in value for key in ("origin", "x_dir", "z_dir")):
                             fields = ["{}={}".format(key, scope_code_value(value[key]))
                                       for key in ("origin", "x_dir", "z_dir")]
-                            return "b3d.Plane(" + ", ".join(fields) + ")"
-                        if object_type == "Location":
-                            return "b3d.Location(" + scope_code_value(value["value"]) + ")"
-                        return "b3d.Vector(" + ", ".join(scope_code_value(item) for item in value["value"]) + ")"
+                            return "b3d.{}({})".format(object_type, ", ".join(fields))
+                        if "value" in value:
+                            return "b3d.{}({})".format(object_type, scope_code_value(value["value"]))
+                        raise ValueError(
+                            "Discovered value object has no reconstruction contract: " + object_type
+                        )
                     return "{" + ", ".join(repr(key) + ": " + scope_code_value(item)
                                             for key, item in value.items()) + "}"
                 return repr(value)

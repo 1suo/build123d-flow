@@ -9,11 +9,8 @@ import type { PythonRuntime } from "./pythonRuntime";
  * API. No OpenCascade/build123d class or method belongs in this module.
  */
 
-export type CadValueType =
-  | "number" | "integer" | "boolean" | "string"
-  | "vector2" | "vector3" | "transform" | "plane" | "axis"
-  | "geometry" | "solid" | "shell" | "face" | "wire" | "edge" | "vertex"
-  | "curve" | "surface" | "mesh" | "material" | "enum" | "any";
+/** Provider-defined semantic identity; intentionally open to discovered kernel types. */
+export type CadValueType = string;
 
 export type CadCollectionShape = "item" | "list" | "tree" | "tuple" | "set" | "map";
 export type CadInputAccess = "item" | "collection" | "tree";
@@ -32,6 +29,9 @@ export interface CadPortDefinition {
   readonly valueType: CadValueType;
   readonly collection: CadCollectionShape;
   readonly itemType?: CadValueType;
+  /** Geometry capability discovered from the provider's type registry. */
+  readonly geometry?: boolean;
+  readonly itemGeometry?: boolean;
   readonly access?: CadInputAccess;
   readonly required?: boolean;
   readonly defaultValue?: unknown;
@@ -143,12 +143,8 @@ export function validateCadOperation(operation: CadOperationDefinition): string[
 
 
 const RUNTIME_TYPE_MAP: Readonly<Record<string, CadValueType>> = {
-  Number: "number", Boolean: "boolean", String: "string", Vector2: "vector2",
-  Vector3: "vector3", Rotation: "transform", Location: "transform", Plane: "plane",
-  Axis: "axis", Shape: "geometry", Solid: "solid", Compound: "geometry",
-  Face: "face", Edge: "edge", Wire: "wire", Shell: "shell", Part: "solid",
-  Sketch: "geometry", Curve: "curve", Surface: "surface", Mesh: "mesh",
-  Color: "material", Enum: "enum", Any: "any", Code: "string",
+  Number: "number", Boolean: "boolean", String: "string",
+  Enum: "enum", Any: "any", Code: "string",
 };
 
 function portCollection(socket: SocketDefinition): CadCollectionShape {
@@ -168,9 +164,11 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
   return {
     id: socket.name,
     label: socket.label ?? socket.name,
-    valueType: RUNTIME_TYPE_MAP[sourceType] ?? "any",
+    valueType: RUNTIME_TYPE_MAP[sourceType] ?? sourceType,
     collection,
-    ...(collection !== "item" ? { itemType: RUNTIME_TYPE_MAP[sourceType] ?? "any" } : {}),
+    ...(collection !== "item" ? { itemType: RUNTIME_TYPE_MAP[sourceType] ?? sourceType } : {}),
+    ...(socket.is_geometry ? { geometry: true } : {}),
+    ...(socket.item_is_geometry ? { itemGeometry: true } : {}),
     access: socket.data_access === "structure"
       ? "collection"
       : socket.data_access ?? (collection === "item" ? "item" : "collection"),
@@ -217,13 +215,9 @@ export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationD
   };
 }
 
-const CAD_GEOMETRY_TYPES = new Set<CadValueType>([
-  "geometry", "solid", "shell", "face", "wire", "edge", "vertex", "curve", "surface", "mesh",
-]);
-
+/** Geometry is a provider capability, not a hardcoded list of CAD type names. */
 export function isCadGeometryPort(port: CadPortDefinition): boolean {
-  return CAD_GEOMETRY_TYPES.has(port.valueType) ||
-    (port.itemType !== undefined && CAD_GEOMETRY_TYPES.has(port.itemType));
+  return port.geometry === true || port.itemGeometry === true || port.valueType === "geometry";
 }
 
 export function cadPortTypeLabel(port: CadPortDefinition): string {
@@ -235,7 +229,7 @@ export function cadPortTypeLabel(port: CadPortDefinition): string {
 
 export function cadPortColor(port: CadPortDefinition): string {
   const type = port.itemType ?? port.valueType;
-  if (CAD_GEOMETRY_TYPES.has(type)) return "var(--socket-geometry)";
+  if (port.geometry || port.itemGeometry || type === "geometry") return "var(--socket-geometry)";
   if (["number", "integer", "vector2", "vector3", "transform", "plane", "axis"].includes(type)) return "var(--socket-numeric)";
   if (["string", "enum"].includes(type)) return "var(--socket-text)";
   return "var(--socket-generic)";

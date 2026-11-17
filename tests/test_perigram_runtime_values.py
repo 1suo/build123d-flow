@@ -32,6 +32,18 @@ class PerigramRuntimeValueTests(unittest.TestCase):
         self.assertIsInstance(decoded["labels"], set)
         self.assertEqual(decoded["mapping"], value["mapping"])
 
+    def test_clear_execution_releases_its_native_value_handles(self):
+        value = NativeValue()
+        session = perigram_runtime._get_session("release-graph")
+        encoded = perigram_runtime._encode(value, "release-graph")
+        perigram_runtime._set_node_output(session, "node-1", encoded)
+        token = encoded["id"]
+        self.assertIn(token, perigram_runtime._VALUE_STORE)
+        self.assertTrue(perigram_runtime.clear_execution("release-graph"))
+        self.assertNotIn(token, perigram_runtime._VALUE_STORE)
+        self.assertNotIn("release-graph", perigram_runtime._SESSIONS)
+        self.assertFalse(perigram_runtime.clear_execution("release-graph"))
+
     def test_native_objects_cross_boundary_only_as_session_scoped_handles(self):
         value = NativeValue()
         encoded = perigram_runtime._encode(value, "graph-a")

@@ -74,6 +74,20 @@ result = box + cylinder
         self.assertIsNone(runtime.b3d)
         self.assertNotIn("build123d", sys.modules)
 
+    def test_translator_module_imports_without_execution_runtime(self):
+        import subprocess
+
+        python_path = str(Path(__file__).resolve().parents[1] / "public" / "python")
+        code = (
+            "import sys; "
+            "sys.path.insert(0, " + repr(python_path) + "); "
+            "import python_translator; "
+            "assert 'flow_runtime' not in sys.modules; "
+            "assert 'build123d' not in sys.modules; "
+            "assert 'OCP' not in sys.modules"
+        )
+        subprocess.run([sys.executable, "-S", "-c", code], check=True)
+
     def test_extracted_translator_module_is_kernel_free(self):
         from python_translator import import_python_code
 

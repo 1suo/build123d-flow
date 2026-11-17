@@ -1002,6 +1002,12 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         if inspect.isclass(candidate):
             canonical_name = getattr(candidate, "__name__", "")
             canonical_id = getattr(candidate, "__module__", "") + "." + canonical_name
+        elif definition_id:
+            # Module-level functions can also expose typing.overload
+            # signatures. Resolve their overload family from the discovered
+            # callable identity just as we do for overloaded constructors.
+            canonical_id = definition_id.split(".overload-", 1)[0]
+            canonical_name = canonical_id.rsplit(".", 1)[-1]
         else:
             try:
                 type_record = type_catalog.resolve_type(symbol_name or "")

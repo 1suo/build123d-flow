@@ -232,6 +232,8 @@ def _socket_data_shape(socket):
 
 def _socket_data_structure(socket):
     """Return the outer execution shape without inferring from semantic labels."""
+    if socket.get("data_representation") == "value":
+        return "item"
     kind = _socket_data_shape(socket).get("kind", "item")
     if kind == "map":
         return "dict"
@@ -591,6 +593,7 @@ def _annotation_metadata(annotation):
             # of one nominal value (for example Vector or Rotation). Preserve
             # the union contract but consume its representation as a whole.
             metadata["data_access"] = "structure"
+            metadata["data_representation"] = "value"
         elif collection_args:
             metadata["data_access"] = "structure"
             # A union return such as Shape | list[Shape] has a genuine

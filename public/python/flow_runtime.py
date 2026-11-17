@@ -292,11 +292,73 @@ def _resolve_self_annotation(annotation, owner):
     return annotation
 
 
+def _semantic_annotation(annotation):
+    """Select the nominal value type while leaving collection shape to metadata."""
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is typing.Annotated:
+        return _semantic_annotation(args[0]) if args else None
+    collection_origins = {
+        list, set, frozenset, collections.abc.Sequence,
+        collections.abc.MutableSequence, collections.abc.Iterable,
+        collections.abc.Collection, collections.abc.Set,
+        collections.abc.MutableSet,
+    }
+    mapping_origins = {
+        dict, typing.Dict, collections.abc.Mapping,
+        collections.abc.MutableMapping,
+    }
+    if origin in collection_origins:
+        return _semantic_annotation(args[0]) if args else None
+    if origin in mapping_origins:
+        return _semantic_annotation(args[1]) if len(args) > 1 else None
+    if origin in (typing.Union, types.UnionType):
+        candidates = [item for item in args if item is not type(None)]
+        semantic = []
+        for candidate in candidates:
+            candidate_origin = typing.get_origin(candidate)
+            candidate_args = typing.get_args(candidate)
+            if candidate_origin in collection_origins:
+                candidate = candidate_args[0] if candidate_args else None
+            elif candidate_origin in mapping_origins:
+                candidate = candidate_args[1] if len(candidate_args) > 1 else None
+            if candidate is not None and candidate not in semantic:
+                semantic.append(candidate)
+        if len(semantic) == 1:
+            return _semantic_annotation(semantic[0])
+        classes = [item for item in semantic if inspect.isclass(item)]
+        if len(classes) == len(semantic) and classes:
+            for base in getattr(classes[0], "__mro__", ()):
+                if base is object:
+                    continue
+                if all(base in getattr(item, "__mro__", ()) for item in classes[1:]):
+                    return base
+        return None
+    if inspect.isclass(origin) and getattr(origin, "__module__", "").split(".")[0] == "build123d":
+        return origin
+    if inspect.isclass(annotation):
+        if annotation in (str, bytes, bool, int, float, complex, type(None)):
+            return None
+        return annotation
+    return None
+
+
 def _annotation_metadata(annotation):
     """Return structured socket metadata for Python generic annotations."""
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
     metadata = {}
+    semantic_type = _semantic_annotation(annotation)
+    if inspect.isclass(semantic_type):
+        module_name = getattr(semantic_type, "__module__", "")
+        type_name = getattr(semantic_type, "__name__", "")
+        if module_name and type_name:
+            metadata["type_id"] = module_name + "." + type_name
+            metadata["type_provider"] = (
+                "build123d"
+                if module_name.split(".")[0] == "build123d"
+                else "perigram.python"
+            )
     collection_origins = {
         list, set, frozenset,
         collections.abc.Sequence, collections.abc.MutableSequence,

@@ -22,6 +22,7 @@ _VALUE_STORE: dict[str, Any] = {}
 _OBJECT_REFS: dict[tuple[int, str], str] = {}
 _REF_COUNTS: dict[str, int] = {}
 _TOKEN_SESSIONS: dict[str, str] = {}
+_PENDING_REFS: set[str] = set()
 _SESSIONS: "OrderedDict[str, _Session]" = OrderedDict()
 
 
@@ -50,6 +51,7 @@ def _store_value(value: Any, session_id: str) -> dict[str, Any]:
         _VALUE_STORE[token] = value
         _REF_COUNTS[token] = 0
         _TOKEN_SESSIONS[token] = session_id
+        _PENDING_REFS.add(token)
     descriptor = _type_descriptor(value)
     return {
         _MARKER: "value-ref",
@@ -140,11 +142,23 @@ def _collect_refs(value: Any, found: set[str] | None = None) -> set[str]:
 
 def _evict_unreferenced() -> None:
     for token in list(_VALUE_STORE):
-        if _REF_COUNTS.get(token, 0) > 0:
+        if _REF_COUNTS.get(token, 0) > 0 or token in _PENDING_REFS:
             continue
         value = _VALUE_STORE.pop(token, None)
         _REF_COUNTS.pop(token, None)
         session_id = _TOKEN_SESSIONS.pop(token, "")
+        if value is not None:
+            _OBJECT_REFS.pop((id(value), session_id), None)
+
+
+def _discard_pending(session_id: str) -> None:
+    for token in list(_PENDING_REFS):
+        if _TOKEN_SESSIONS.get(token) != session_id:
+            continue
+        value = _VALUE_STORE.pop(token, None)
+        _REF_COUNTS.pop(token, None)
+        _TOKEN_SESSIONS.pop(token, None)
+        _PENDING_REFS.discard(token)
         if value is not None:
             _OBJECT_REFS.pop((id(value), session_id), None)
 
@@ -157,6 +171,7 @@ def _set_node_output(session: "_Session", node_id: str, encoded: Any) -> None:
     session.node_outputs[node_id] = encoded
     for token in _collect_refs(encoded):
         _REF_COUNTS[token] = _REF_COUNTS.get(token, 0) + 1
+        _PENDING_REFS.discard(token)
     _evict_unreferenced()
 
 
@@ -256,6 +271,9 @@ def _scope_runner(session: "_Session"):
                 for item in config.get("executionScopes", [])
                 if isinstance(item, dict) and item.get("id")
             }
+            if config.get("scopeBinding"):
+                failed_scopes.discard(config["scopeBinding"])
+                scope_results.pop(config["scopeBinding"], None)
             if any(scope_id in failed_scopes for scope_id in scope_path):
                 raise RuntimeError("Execution skipped because an enclosing Python scope failed")
 
@@ -377,6 +395,7 @@ class _Session:
     def dispose(self) -> None:
         try:
             self.runner.send({"action": "dispose"})
+            self.runner.close()
         except Exception:
             pass
 
@@ -420,10 +439,18 @@ def execute_operation(
     decoded_inputs = _decode(inputs or {}, session_id)
     decoded_config = _decode(raw_config, session_id)
     result = session.execute(operation_id, decoded_inputs, decoded_config)
-    encoded = _encode(result, session_id)
+    try:
+        encoded = _encode(result, session_id)
+    except Exception:
+        _discard_pending(session_id)
+        raise
     node_id = decoded_config.get("nodeId")
     if node_id:
         _set_node_output(session, str(node_id), encoded)
+    else:
+        for token in _collect_refs(encoded):
+            _REF_COUNTS[token] = _REF_COUNTS.get(token, 0) + 1
+            _PENDING_REFS.discard(token)
     return json.dumps(encoded, allow_nan=False, separators=(",", ":"))
 
 
@@ -436,3 +463,4 @@ def clear_runtime() -> None:
     _OBJECT_REFS.clear()
     _REF_COUNTS.clear()
     _TOKEN_SESSIONS.clear()
+    _PENDING_REFS.clear()

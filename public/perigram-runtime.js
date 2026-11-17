@@ -10,9 +10,8 @@ export async function createRuntime({ createWorker } = {}) {
   let statePromise = null;
   let disposed = false;
   function executionIdFor(context, config) {
-    // Perigram's preview evaluator may not yet provide a run id. The imported
-    // graph id is stable across all node invocations and isolates graph sessions;
-    // hosts that expose an execution id get per-run isolation automatically.
+    // The current Perigram evaluator supplies one execution id to every node
+    // in a preview. Graph id is a stable fallback for older host versions.
     return String(
       context?.executionId || context?.runId ||
       config.executionId || config.runId || config.graphId || "build123d-default"
@@ -38,7 +37,12 @@ export async function createRuntime({ createWorker } = {}) {
         const id = "build123d-" + (++sequence);
         return new Promise((resolve, reject) => {
           pending.set(id, { resolve, reject });
-          worker.postMessage({ type: "call", id, method, payload });
+          try {
+            worker.postMessage({ type: "call", id, method, payload });
+          } catch (error) {
+            pending.delete(id);
+            reject(error);
+          }
         });
       },
       terminate(error = new Error("build123d worker was terminated")) {
@@ -85,20 +89,18 @@ export async function createRuntime({ createWorker } = {}) {
       }
 
       const grouped = new Map();
-    for (const definition of definitions) {
-      if (!definition || typeof definition.provider !== "string" || !definition.id) {
-        state.terminate(new Error("Discovered build123d node definition is incomplete"));
-        throw new Error("Discovered build123d node definition is incomplete");
+      for (const definition of definitions) {
+        if (!definition || typeof definition.provider !== "string" || !definition.id) {
+          throw new Error("Discovered build123d node definition is incomplete");
+        }
+        if (definition.execution?.runtime !== "build123d-pyodide" ||
+            !definition.execution?.targets?.includes("browser")) {
+          throw new Error("Discovered node " + definition.id +
+            " does not target the build123d-pyodide browser runtime");
+        }
+        if (!grouped.has(definition.provider)) grouped.set(definition.provider, []);
+        grouped.get(definition.provider).push(definition);
       }
-      if (definition.execution?.runtime !== "build123d-pyodide" ||
-          !definition.execution?.targets?.includes("browser")) {
-        state.terminate(new Error("Discovered node has an incompatible runtime"));
-        throw new Error("Discovered node " + definition.id +
-          " does not target the build123d-pyodide browser runtime");
-      }
-      if (!grouped.has(definition.provider)) grouped.set(definition.provider, []);
-      grouped.get(definition.provider).push(definition);
-    }
       state.providers = [...grouped].map(([provider, providerDefinitions]) => ({
         provider,
         definitions: providerDefinitions,

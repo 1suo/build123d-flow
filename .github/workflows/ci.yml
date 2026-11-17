@@ -58,7 +58,7 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm install
       - name: Test Perigram JavaScript runtime entry
-        run: node --test tests/perigram-runtime-entry.test.mjs
+        run: node --test tests/perigram-runtime-entry.test.mjs tests/build123d-preview.test.mjs
       - name: Test real Pyodide and OCP builder-scope execution
         run: node tests/pyodide-perigram-integration.test.mjs
       - name: Production build

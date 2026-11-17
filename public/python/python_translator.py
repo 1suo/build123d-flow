@@ -46,6 +46,7 @@ class TranslatorServices(typing.NamedTuple):
     api_signature: object
     call_with_coercion: object
     python_loop_last: object
+    resolve_type_constructor: object
 
 
 def import_python_code(source: str, services: TranslatorServices, catalog: TypeCatalog):
@@ -74,6 +75,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
     _api_signature = services.api_signature
     _call_with_coercion = services.call_with_coercion
     _python_loop_last = services.python_loop_last
+    _resolve_type_constructor = services.resolve_type_constructor
 
     import ast
     if not isinstance(source, str) or not source.strip():
@@ -1143,14 +1145,8 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             return None
         if expected_type not in (None, "Any", constructor_type):
             return None
-        constructor = (
-            getattr(b3d, type_record["name"], None)
-            if b3d is not None else None
-        )
-        if b3d is not None and not inspect.isclass(constructor):
-            return None
         return (
-            constructor, constructor_type, type_record["name"],
+            type_record["id"], constructor_type, type_record["name"],
             bool(
                 type_record.get("supports_iteration")
                 or type_record.get("supports_context_manager")
@@ -2554,7 +2550,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             # maintaining one importer exception per value class.
             value_constructor = resolve_value_constructor(node.func, expected_type)
             if value_constructor is not None:
-                constructor, constructor_type, constructor_name, force_node, iterable_item_type = value_constructor
+                constructor_type_id, constructor_type, constructor_name, force_node, iterable_item_type = value_constructor
                 value_arguments = [
                     (expression(argument.value), True)
                     if isinstance(argument, ast.Starred)
@@ -2644,7 +2640,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 _INTERNAL_NODE_IDS.add(definition_id)
 
                 def construct_value(
-                    _constructor=constructor,
+                    _constructor_type_id=constructor_type_id,
                     _constructor_name=constructor_name,
                     _positional_names=tuple(positional_names),
                     _starred_flags=tuple(starred_flags),
@@ -2657,6 +2653,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                             positional.extend(value)
                         else:
                             positional.append(value)
+                    _constructor = _resolve_type_constructor(_constructor_type_id)
                     if _constructor is None:
                         raise RuntimeError("CAD kernel is required to execute value constructor " + _constructor_name)
                     try:

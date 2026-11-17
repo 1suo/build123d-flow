@@ -45,16 +45,26 @@ not a second production graph editor or execution coordinator.
   opaque cross-worker handles, node-output retention, and a persistent
   generator frame for nested build123d context managers. Native Python/CAD
   objects never cross the worker boundary.
+- CAD outputs retain their opaque handle and carry a bounded optional mesh
+  payload. `public/preview/build123d-preview.js` is the declared Perigram
+  preview surface and renders those meshes without importing Vue or a
+  third-party renderer.
 - The Perigram host's plugin-runtime bridge now strips its host-only
   `readSet` recorder before structured-cloning graph invocations into the
-  plugin worker. Perigram's procedural evaluator now also assigns one
-  execution id per graph preview and carries it to every node (including
-  nested subgraphs). These host changes and regression tests are on Perigram's
-  `staging` branch (commit `a6d0769e`).
+  plugin worker. Perigram's procedural evaluator assigns one execution id
+  per graph preview, carries it to every node (including nested subgraphs),
+  and calls an optional `context.finalizeExecution(executionId)` after
+  success or failure. `usePluginRuntime.finalizeExecution` sends the cleanup
+  RPC to every loaded plugin runtime. These host changes and regression tests
+  are on Perigram's `staging` branch (commit `a6d0769e`).
 - CI validates the listing and node definitions against the actual pinned
   Perigram SDK/core, runs kernel-free Python tests, tests the JavaScript
-  runtime entry, and runs a real Pyodide/OCP nested BuildPart/BuildSketch
-  integration test.
+  runtime entry and preview surface, and runs a real Pyodide/OCP nested
+  BuildPart/BuildSketch integration test.
+- CI packages an installable `build123d-flow-perigram-plugin.zip` containing
+  `listing.json`, the runtime entry, Python sources, the complete Pyodide
+  distribution, the staged wheelhouse, and the preview surface. The artifact
+  is published as `build123d-flow-perigram-plugin` on each successful run.
 
 The internal scope binding/result operations are marked preview-safe
 (`read`) because they only manage runtime-local builder lifecycle; they do
@@ -68,11 +78,12 @@ operations.
    deployment, including plugin install, provider registration, graph preview,
    and cancellation. The CI runtime tests currently use the real Pyodide/OCP
    engine but a worker-contract harness for the Perigram host.
-2. Wire the exposed `clearExecution(executionId)` API into the host's
-   graph-completion/stale-preview lifecycle so completed runs release native
-   handles immediately. Until that host hook is connected, the runtime bounds
-   retained sessions (16) and opaque handles (8192); cancellation terminates
-   the isolated Python worker and releases all of its memory.
+2. Ensure the Perigram staging app supplies
+   `context.finalizeExecution: pluginRuntime.finalizeExecution` when it calls
+   `evaluateProceduralGraph`. The evaluator and worker cleanup RPC are now
+   implemented and contract-tested; the deployed app wiring still needs a
+   real browser run. The runtime also bounds retained sessions (16) and
+   opaque handles (8192), and cancellation terminates the isolated worker.
 3. Exercise the packaged plugin in the deployed Perigram staging browser:
    install the listing/assets, register providers, run a translated CAD graph,
    render its preview channel, cancel and rerun, then uninstall/reinstall.

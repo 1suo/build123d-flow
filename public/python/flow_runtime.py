@@ -3248,6 +3248,18 @@ def _python_import_reference(obj, imports, alias):
 
 
 
+def _resolve_type_constructor(type_id):
+    """Resolve a native value constructor only when an evaluated graph requests it."""
+    if b3d is None:
+        return None
+    try:
+        type_record = _type_catalog().resolve_type(type_id)
+    except CatalogError:
+        return None
+    constructor = getattr(b3d, type_record["name"], None)
+    return constructor if inspect.isclass(constructor) else None
+
+
 def _translator_services():
     """Expose only the graph-lowering services required by the kernel-free translator."""
     from python_translator import TranslatorServices
@@ -3265,6 +3277,7 @@ def _translator_services():
         api_signature=_api_signature,
         call_with_coercion=_call_with_coercion,
         python_loop_last=_python_loop_last,
+        resolve_type_constructor=_resolve_type_constructor,
     )
 
 

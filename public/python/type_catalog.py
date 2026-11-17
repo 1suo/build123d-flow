@@ -12,7 +12,7 @@ import math
 from typing import Any, Mapping, get_args
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class CatalogError(ValueError):

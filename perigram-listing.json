@@ -1,0 +1,26 @@
+{
+  "pluginId": "build123d-flow",
+  "name": "build123d",
+  "version": "0.1.0",
+  "description": "Local-first procedural CAD provider using Python AST translation, Pyodide, and OCP.wasm.",
+  "declarations": {
+    "types": [
+      {
+        "id": "build123d.shape",
+        "class": "item",
+        "name": "build123d Shape"
+      }
+    ],
+    "runtimes": [
+      {
+        "id": "build123d-pyodide",
+        "language": "javascript",
+        "version": "314.0.7-r17",
+        "entry": "/perigram-runtime.js",
+        "targets": [
+          "browser"
+        ]
+      }
+    ]
+  }
+}

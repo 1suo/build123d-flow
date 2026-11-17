@@ -1,30 +1,27 @@
 import type { SocketDefinition } from "../types";
 
-const GEOMETRY_TYPES = new Set([
-  "Shape", "Solid", "Compound", "Face", "Edge", "Wire", "Shell", "Part", "Sketch",
-]);
-
-export function isGeometryType(type: string): boolean {
-  return GEOMETRY_TYPES.has(type);
+/** Geometry identity is emitted by runtime discovery, not a UI name allowlist. */
+export function isGeometryType(socket: Pick<SocketDefinition, "is_geometry">): boolean {
+  return socket.is_geometry === true;
 }
 
 export function isGeometrySocket(socket: SocketDefinition): boolean {
-  return isGeometryType(socket.type) || isGeometryType(socket.item_type ?? "");
+  return isGeometryType(socket);
 }
 
 export function socketTypeLabel(socket: SocketDefinition): string {
   const structure = socket.data_structure;
-  if (!structure || structure === "item") return socket.type;
+  const semanticLabel = socket.item_type ?? socket.type;
+  if (!structure || structure === "item") return semanticLabel;
   if (structure === "dict") return `Dict[${socket.key_type || "Any"}, ${socket.value_type || "Any"}]`;
-  const itemType = socket.item_type || socket.type;
   const label = structure === "tree" ? "Tree" : structure[0].toUpperCase() + structure.slice(1);
-  return `${label}[${itemType}]`;
+  return `${label}[${semanticLabel}]`;
 }
 
 export function socketColor(socket: SocketDefinition): string {
+  if (socket.is_geometry) return "var(--socket-geometry)";
   const type = socket.item_type || socket.value_type || socket.type;
-  if (GEOMETRY_TYPES.has(type)) return "var(--socket-geometry)";
-  if (["Number", "Boolean", "Vector2", "Vector3", "Rotation", "Plane", "Location", "Axis", "Color", "Matrix"].includes(type)) return "var(--socket-numeric)";
+  if (["Number", "Boolean"].includes(type)) return "var(--socket-numeric)";
   if (["String", "Code", "Enum"].includes(type)) return "var(--socket-text)";
   return "var(--socket-generic)";
 }

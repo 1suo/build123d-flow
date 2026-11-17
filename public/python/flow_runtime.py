@@ -1833,6 +1833,7 @@ def discover(include_full=True):
     # open-ended and preview-eligible; runtime values decide whether it contains
     # geometry. Collection item capability is independent of collection shape.
     for definition in found.values():
+        input_socket_ids = {id(socket) for socket in definition.get("inputs", [])}
         for socket in definition.get("inputs", []) + definition.get("outputs", []):
             socket_type = socket.get("type", "Any")
             record = type_records_by_socket.get(socket_type)
@@ -1841,6 +1842,12 @@ def discover(include_full=True):
                 socket["type_mro"] = record.get("mro", [])
                 if record.get("is_geometry"):
                     socket["is_geometry"] = True
+                if record.get("collection_kind") and socket.get("data_structure", "item") == "item":
+                    socket["data_structure"] = record["collection_kind"]
+                    if id(socket) in input_socket_ids:
+                        socket["data_access"] = "structure"
+                    if socket.get("item_type") in (None, "", "Any"):
+                        socket["item_type"] = record.get("iterable_item_type") or "Any"
             item_type = socket.get("item_type")
             item_record = type_records_by_socket.get(item_type)
             if item_record:

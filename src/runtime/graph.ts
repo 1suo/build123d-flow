@@ -146,12 +146,20 @@ function effectiveOutput(
     if (structure === "tree") inferred = "tree";
     else if (["list", "tuple"].includes(structure) && inferred !== "tree") inferred = "list";
   }
+  const itemShape = output.dataShape ?? {
+    kind: "item" as const,
+    type: output.typeLabel ?? output.valueType,
+    ...(output.typeId ? { type_id: output.typeId } : {}),
+    ...(output.typeMro ? { type_mro: [...output.typeMro] } : {}),
+    ...(output.isGeometry ? { is_geometry: true } : {}),
+  };
   return inferred ? {
     ...output,
     collection: inferred,
     itemType: output.valueType,
     itemTypeLabel: output.typeLabel,
     itemGeometry: output.isGeometry,
+    dataShape: { kind: inferred, item: itemShape },
   } : output;
 }
 

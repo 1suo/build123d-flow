@@ -139,6 +139,15 @@ class RecursiveDataContractTests(unittest.TestCase):
         )
         self.assertEqual(result, "reflected")
 
+    def test_discovered_enum_identity_is_not_collapsed_to_generic_enum(self):
+        import enum
+
+        class NativeEnum(enum.Enum):
+            FIRST = 1
+
+        NativeEnum.__module__ = "build123d.enums"
+        self.assertEqual(runtime._type_name(NativeEnum), "NativeEnum")
+
     def test_discovered_value_serialization_uses_protocols_not_type_names(self):
         from type_catalog import _serialize_discovered_value
 

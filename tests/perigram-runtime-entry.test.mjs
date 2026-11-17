@@ -98,6 +98,8 @@ test("cancellation terminates and the next invocation boots a clean Python worke
   controller.abort();
   await assert.rejects(cancelled, /cancelled/);
   assert.equal(workers[0].terminated, true);
+  assert.equal(await runtime.clearExecution("graph-1"), false);
+  assert.equal(workers.length, 1);
 
   const result = await runtime.execute("build123d.Box", {
     node: { id: "box-retried" },

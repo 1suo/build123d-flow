@@ -68,14 +68,15 @@ operations.
    deployment, including plugin install, provider registration, graph preview,
    and cancellation. The CI runtime tests currently use the real Pyodide/OCP
    engine but a worker-contract harness for the Perigram host.
-2. Deliver tessellated CAD preview artifacts through a declared Perigram
-   preview surface/renderer; native opaque handles are in place, but preview
-   serialization and renderer lifecycle are not yet implemented.
-3. Add graph-run/session cleanup hooks so completed or superseded previews
+2. Add graph-run/session cleanup hooks so completed or superseded previews
    release all opaque handles immediately rather than relying on the bounded
-   runtime-session LRU.
-4. Exercise browser authoring plus install, upgrade, uninstall, concurrent
-   previews, memory limits, diagnostics, and deterministic cache invalidation.
+   runtime-session LRU. The current runtime bounds sessions and native handles,
+   and worker cancellation terminates the isolated Python process.
+3. Exercise the packaged plugin in the deployed Perigram staging browser:
+   install the listing/assets, register providers, run a translated CAD graph,
+   render its preview channel, cancel and rerun, then uninstall/reinstall.
+4. Exercise concurrent previews, memory pressure, diagnostics, and
+   deterministic cache invalidation under real browser lifecycle conditions.
 
 The old endpoint-mode Python executor under Perigram's
 `workers/build123d` is explicitly transitional and is not the target

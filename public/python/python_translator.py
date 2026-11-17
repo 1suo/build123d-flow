@@ -3,6 +3,26 @@
 The parser is independent of the CAD evaluator. The caller supplies the active
 production catalog/runtime contract; no CAD package is imported here.
 """
+
+class TranslatorServices(typing.NamedTuple):
+    """Narrow runtime services required to lower syntax into graph records."""
+
+    b3d: object
+    catalog_nodes: dict
+    internal_node_ids: set
+    catalog_callables: dict
+    python_getitem: object
+    catalog_signatures: dict
+    catalog_hint_targets: dict
+    python_getattr: object
+    socket_data_structure: object
+    type_name: object
+    discovered_input_type_sets: object
+    api_signature: object
+    call_with_coercion: object
+    python_loop_last: object
+
+
 from __future__ import annotations
 
 import ast
@@ -26,27 +46,27 @@ import collections
 import collections.abc
 from type_catalog import CatalogError, TypeCatalog
 
-def import_python_code(source, runtime, catalog):
+def import_python_code(source, services, catalog):
     """Parse a conservative, non-executing Python subset into the native graph format.
 
     Imports are inspected, never executed. Unsupported statements fail with a source
     location instead of being silently dropped or evaluated.
     """
     # Bind the current production catalog/evaluator contract explicitly for this translation.
-    b3d = runtime.b3d
-    _CATALOG = runtime._CATALOG
-    _INTERNAL_NODE_IDS = runtime._INTERNAL_NODE_IDS
-    _CATALOG_CALLABLES = runtime._CATALOG_CALLABLES
-    _python_getitem = runtime._python_getitem
-    _CATALOG_SIGNATURES = runtime._CATALOG_SIGNATURES
-    _CATALOG_HINT_TARGETS = runtime._CATALOG_HINT_TARGETS
-    _python_getattr = runtime._python_getattr
-    _socket_data_structure = runtime._socket_data_structure
-    _type_name = runtime._type_name
-    _discovered_input_type_sets = runtime._discovered_input_type_sets
-    _api_signature = runtime._api_signature
-    _call_with_coercion = runtime._call_with_coercion
-    _python_loop_last = runtime._python_loop_last
+    b3d = services.b3d
+    _CATALOG = services.catalog_nodes
+    _INTERNAL_NODE_IDS = services.internal_node_ids
+    _CATALOG_CALLABLES = services.catalog_callables
+    _python_getitem = services.python_getitem
+    _CATALOG_SIGNATURES = services.catalog_signatures
+    _CATALOG_HINT_TARGETS = services.catalog_hint_targets
+    _python_getattr = services.python_getattr
+    _socket_data_structure = services.socket_data_structure
+    _type_name = services.type_name
+    _discovered_input_type_sets = services.discovered_input_type_sets
+    _api_signature = services.api_signature
+    _call_with_coercion = services.call_with_coercion
+    _python_loop_last = services.python_loop_last
 
     import ast
     if not isinstance(source, str) or not source.strip():

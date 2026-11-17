@@ -41,9 +41,18 @@ endpoints, and non-JSON values.
 The adapter tests run without importing build123d or OCP. CI additionally
 checks generated node definitions with the actual
 `@perigram/plugin-sdk/nodes` validator and graph documents with the actual
-`packages/core` graph validator from the pinned Perigram revision `b5e2065f839854c1695aec742faa94dcf3a39824`. This is
-stronger than a local copy of those schemas, but it does not yet prove
-provider dispatch or runtime execution.
+`packages/core` graph validator from the pinned Perigram revision
+`b5e2065f839854c1695aec742faa94dcf3a39824`.
+
+A kernel-free Python per-operation dispatcher now consumes the discovered
+catalog, merges node parameters with wired inputs, maps item-access lists and
+trees, honors longest/shortest/cross matching, preserves independent Python
+loop axes, and binds discovered instance-method receivers. It rejects
+non-empty execution-scope paths rather than silently running builder-scoped
+operations outside their context. This dispatcher is not yet wired to a
+Perigram JavaScript runtime entry, and native outputs are not yet represented
+by execution-scoped opaque references. The tests prove Python-side dispatch
+semantics, not end-to-end host dispatch.
 
 ## Remaining production gates
 

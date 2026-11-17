@@ -2570,15 +2570,21 @@ def evaluate_graph_json(payload, include_previews=True):
                     args = restore_scope_value(value.get("args", []))
                     kwargs = restore_scope_value(value.get("kwargs", {}))
                     return constructor(*args, **kwargs)
-                if object_type == "Plane":
+                if all(key in value for key in ("origin", "x_dir", "z_dir")):
                     return constructor(
                         origin=restore_scope_value(value["origin"]),
                         x_dir=restore_scope_value(value["x_dir"]),
                         z_dir=restore_scope_value(value["z_dir"]),
                     )
-                if object_type == "Location":
-                    return constructor(restore_scope_value(value["value"]))
-                return constructor(*restore_scope_value(value["value"]))
+                if "value" in value:
+                    payload = restore_scope_value(value["value"])
+                    try:
+                        return constructor(payload)
+                    except TypeError:
+                        return constructor(*payload)
+                raise ValueError(
+                    "Discovered value object has no reconstruction contract: " + object_type
+                )
             return {key: restore_scope_value(item) for key, item in value.items()}
         return value
 
@@ -3427,13 +3433,15 @@ def export_python_code(payload):
                             kwargs = ["{}={}".format(key, scope_code_value(item))
                                       for key, item in value.get("kwargs", {}).items()]
                             return "b3d.{}({})".format(object_type, ", ".join(args + kwargs))
-                        if object_type == "Plane":
+                        if all(key in value for key in ("origin", "x_dir", "z_dir")):
                             fields = ["{}={}".format(key, scope_code_value(value[key]))
                                       for key in ("origin", "x_dir", "z_dir")]
-                            return "b3d.Plane(" + ", ".join(fields) + ")"
-                        if object_type == "Location":
-                            return "b3d.Location(" + scope_code_value(value["value"]) + ")"
-                        return "b3d.Vector(" + ", ".join(scope_code_value(item) for item in value["value"]) + ")"
+                            return "b3d.{}({})".format(object_type, ", ".join(fields))
+                        if "value" in value:
+                            return "b3d.{}({})".format(object_type, scope_code_value(value["value"]))
+                        raise ValueError(
+                            "Discovered value object has no reconstruction contract: " + object_type
+                        )"
                     return "{" + ", ".join(repr(key) + ": " + scope_code_value(item)
                                             for key, item in value.items()) + "}"
                 return repr(value)

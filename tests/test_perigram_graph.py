@@ -166,6 +166,38 @@ class PerigramGraphAdapterTests(unittest.TestCase):
             ],
         }])
 
+    def test_graph_edges_and_parameters_use_normalized_port_ids(self):
+        result = translate_graph("source -> target", {
+            "nodes": [
+                {
+                    "id": "source",
+                    "data": {"definition": {"id": "build123d.Source"}, "params": {}},
+                },
+                {
+                    "id": "target",
+                    "data": {
+                        "definition": {"id": "build123d.VarArgs"},
+                        "params": {"*args": [1, 2], "**kwargs": {"x": 3}},
+                    },
+                },
+            ],
+            "edges": [{
+                "id": "wire",
+                "source": "source",
+                "target": "target",
+                "sourceHandle": "_private",
+                "targetHandle": "*args",
+            }],
+            "execution_scopes": [],
+        })
+        target = next(node for node in result["nodes"] if node["id"] == "target")
+        self.assertEqual(target["config"]["parameters"], {
+            "varargs_args": [1, 2],
+            "kwargs_kwargs": {"x": 3},
+        })
+        self.assertEqual(result["edges"][0]["source"]["port"], "p__private")
+        self.assertEqual(result["edges"][0]["target"]["port"], "varargs_args")
+
     def test_edges_require_existing_nodes_and_named_ports(self):
         with self.assertRaises(PerigramGraphError):
             translate_graph("x", {

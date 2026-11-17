@@ -505,13 +505,25 @@ def _safe_default(value):
             return json.loads(json.dumps(value, allow_nan=False)), repr(value), False, True
         except (TypeError, ValueError, OverflowError):
             pass
-    if type(value).__name__.lower() == "vector" and all(hasattr(value, axis) for axis in ("X", "Y", "Z")):
+    # Generic value-object protocol: serialize iterable discovered value
+    # objects only when every component is a JSON primitive. Geometry objects
+    # remain opaque and are never flattened into coordinate arrays.
+    is_geometry = (
+        b3d is not None
+        and isinstance(getattr(b3d, "Shape", None), type)
+        and isinstance(value, b3d.Shape)
+    )
+    if not is_geometry and not isinstance(value, (str, bytes, bytearray)):
         try:
-            vector = [float(value.X), float(value.Y), float(value.Z)]
-            json.dumps(vector, allow_nan=False)
-            return vector, repr(value), False, True
+            components = list(iter(value))
+            if components and all(
+                item is None or isinstance(item, (bool, int, float, str))
+                for item in components
+            ):
+                json.dumps(components, allow_nan=False)
+                return components, repr(value), False, True
         except (TypeError, ValueError, OverflowError):
-            return None, repr(value), False, False
+            pass
     return None, repr(value), False, False
 
 

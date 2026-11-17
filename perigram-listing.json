@@ -15,7 +15,7 @@
       {
         "id": "build123d-pyodide",
         "language": "javascript",
-        "version": "314.0.7-r17",
+        "version": "314.0.7-r18",
         "entry": "/perigram-runtime.js",
         "targets": [
           "browser"

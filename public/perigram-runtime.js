@@ -180,6 +180,11 @@ export async function createRuntime({ createWorker } = {}) {
       });
     },
 
+    async clearExecution(executionId) {
+      const state = await ensureWorker();
+      return await state.call("clearExecution", { executionId: String(executionId) });
+    },
+
     async clearRuntime() {
       const state = await ensureWorker();
       await state.call("clearRuntime");

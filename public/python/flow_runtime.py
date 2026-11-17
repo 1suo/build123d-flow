@@ -2500,8 +2500,16 @@ def execute_discovered_operation(operation_id, inputs, config=None):
     parameters = config.get("parameters") or {}
     if not isinstance(parameters, collections.abc.Mapping):
         raise TypeError("Node parameters must be a port-id mapping")
-    params = dict(parameters)
-    params.update(inputs)
+    aliases = (
+        (config.get("pythonPortNames") or {}).get("inputs") or {}
+    )
+    original_name = lambda name: aliases.get(name, name)
+    params = {
+        original_name(name): value for name, value in parameters.items()
+    }
+    params.update({
+        original_name(name): value for name, value in inputs.items()
+    })
     definition = _CATALOG.get(operation_id)
     if definition is None:
         raise KeyError("Unknown discovered operation: " + str(operation_id))
@@ -2613,6 +2621,7 @@ def execute_discovered_operation(operation_id, inputs, config=None):
     }
     stream_groups = {}
     for input_name, sources in (config.get("inputSources") or {}).items():
+        input_name = original_name(input_name)
         if not isinstance(sources, list) or len(sources) != 1:
             continue
         source = sources[0]

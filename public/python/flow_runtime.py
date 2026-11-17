@@ -279,6 +279,8 @@ def _resolve_self_annotation(annotation, owner):
 
 def _semantic_annotation(annotation):
     """Select the nominal value type while leaving collection shape to metadata."""
+    if annotation is typing.Any or annotation is inspect.Signature.empty:
+        return None
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
     if origin is typing.Annotated:

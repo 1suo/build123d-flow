@@ -978,25 +978,8 @@ def _register_flow_nodes(found, callables):
     _add_node(found, callables, "core.convert.to_string", "To String", "Conversions", lambda value: str(value),
               [("value", "Any")], "String")
 
-    # Vector operations use build123d's native Vector type.
-    _add_node(found, callables, "core.vector.add", "Vector Add", "Spatial", lambda a, b: a + b,
-              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.subtract", "Vector Subtract", "Spatial", lambda a, b: a - b,
-              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.scale", "Vector Scale", "Spatial",
-              lambda vector_value, factor: vector_value * factor,
-              [("vector_value", "Vector3"), ("factor", "Number")], "Vector3")
-    _add_node(found, callables, "core.vector.dot", "Dot Product", "Spatial", lambda a, b: a.dot(b),
-              [("a", "Vector3"), ("b", "Vector3")], "Number")
-    _add_node(found, callables, "core.vector.cross", "Cross Product", "Spatial",
-              lambda a, b: a.cross(b),
-              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.length", "Vector Length", "Spatial",
-              lambda value: value.length,
-              [("value", "Vector3")], "Number")
-    _add_node(found, callables, "core.vector.normalize", "Normalize", "Spatial",
-              lambda value: value.normalized(),
-              [("value", "Vector3")], "Vector3")
+    # CAD vector operations are discovered from build123d's actual API.
+    # Do not maintain a second hardcoded Vector node family here.
 
     # First-class collection construction and transformation nodes.
     _add_node(found, callables, "core.list.length", "List Length", "Collections",

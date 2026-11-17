@@ -29,6 +29,8 @@ export interface CadPortDefinition {
   readonly valueType: CadValueType;
   readonly collection: CadCollectionShape;
   readonly itemType?: CadValueType;
+  readonly typeLineage?: readonly string[];
+  readonly itemTypeLineage?: readonly string[];
   /** Recursive provider data layout; independent of item mapping policy. */
   readonly dataShape?: DataShape;
   /** Geometry capability discovered from the provider's type registry. */
@@ -171,6 +173,8 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
     collection,
     ...(socket.data_shape ? { dataShape: socket.data_shape } : {}),
     ...(collection !== "item" ? { itemType: RUNTIME_TYPE_MAP[sourceType] ?? sourceType } : {}),
+    ...(socket.type_mro?.length ? { typeLineage: socket.type_mro } : {}),
+    ...(socket.item_type_mro?.length ? { itemTypeLineage: socket.item_type_mro } : {}),
     ...(socket.is_geometry ? { geometry: true } : {}),
     ...(socket.item_is_geometry ? { itemGeometry: true } : {}),
     ...(socket.runtime_inspectable || sourceType === "Any" ? { runtimeInspectable: true } : {}),

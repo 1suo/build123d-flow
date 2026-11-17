@@ -20,21 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Test kernel-free translator and discovered value contracts
-        run: PYTHONPATH=public/python python -m unittest discover -s tests -p 'test_*.py' -v
-      - uses: actions/checkout@v4
-        with:
-          repository: Perigram/perigram
-          ref: b5e2065f839854c1695aec742faa94dcf3a39824
-          path: perigram
-      - name: Validate against actual Perigram SDK and core contracts
-        run: node tests/test_perigram_sdk_contract.mjs
-        env:
-          PERIGRAM_REPO: perigram
-          PYTHONPATH: public/python
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -70,11 +55,29 @@ jobs:
             public/pyodide/v314.0.7/full
             public/python/wheels
           key: ${{ steps.pyodide-staged-cache.outputs.cache-primary-key }}
-      - run: npm install
-      - name: Build production bundle
+      - name: Install JavaScript dependencies
+        run: npm install
+      - name: Production build
         run: npm run build
         env:
           GITHUB_PAGES: "true"
+      - name: Typecheck
+        run: npm run typecheck
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test kernel-free translator and discovered value contracts
+        run: PYTHONPATH=public/python python -m unittest discover -s tests -p 'test_*.py' -v
+      - uses: actions/checkout@v4
+        with:
+          repository: Perigram/perigram
+          ref: b5e2065f839854c1695aec742faa94dcf3a39824
+          path: perigram
+      - name: Validate against actual Perigram SDK and core contracts
+        run: node tests/test_perigram_sdk_contract.mjs
+        env:
+          PERIGRAM_REPO: perigram
+          PYTHONPATH: public/python
       - uses: actions/upload-pages-artifact@v3
         if: github.event_name != 'pull_request'
         with:

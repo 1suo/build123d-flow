@@ -171,6 +171,14 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         except CatalogError:
             return False
 
+    def previewable_type(type_name):
+        if type_name == "Any":
+            return True
+        try:
+            return bool(type_catalog.resolve_type(type_name).get("is_geometry"))
+        except CatalogError:
+            return False
+
     def normalize_data_shape(socket):
         if isinstance(socket.get("data_shape"), dict):
             return
@@ -352,7 +360,8 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         node_id = "import_{}".format(counter)
         builder_scope_active = any(
             next((scope.get("name") for scope in execution_scopes if scope.get("id") == scope_id), None)
-            in {"BuildPart", "BuildSketch", "BuildLine"}
+            and next((scope.get("result_attribute") for scope in execution_scopes
+                      if scope.get("id") == scope_id), None)
             for scope_id in active_scope_ids
         )
         # A Python loop is a data-mapping scope: each operation is represented
@@ -1202,7 +1211,6 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         # unless a typed value socket explicitly requires a concrete geometry.
         if (
             type_record.get("is_geometry")
-            and constructor_type != "Face"
             and expected_type in (None, "Any")
         ):
             return None
@@ -2625,9 +2633,6 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     if keyword.arg is None:
                         raise ValueError("Expanded constructor arguments are unsupported at line {}".format(node.lineno))
                     kwargs[keyword.arg] = expression(keyword.value)
-                if node.args and node.keywords and constructor_type in {"Plane", "Location"}:
-                    raise ValueError("{} cannot mix positional and keyword arguments at line {}".format(
-                        constructor_type, node.lineno))
                 if not force_node and all(item[0] == "literal" for item in values) and all(
                     item[0] == "literal" for item in kwargs.values()
                 ):
@@ -3615,7 +3620,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 links.append(("fallback", fallback[1], fallback[2]))
         node_id = add_node(definition_id, params, links, line)
         node = next(item for item in graph_nodes if item["id"] == node_id)
-        node["data"]["visible"] = output_type in {"Shape", "Solid", "Compound", "Part", "Sketch"}
+        node["data"]["visible"] = previewable_type(output_type)
         return ("ref", node_id, "result")
 
     def process_statements(statements):
@@ -3744,13 +3749,9 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     execution_scopes.append(descriptor)
                     dependencies = scope_reference_ids([args, kwargs])
                     active_scope_ids.append(scope_id)
-                    binding_type = {
-                        "BuildPart": "BuildPart", "BuildSketch": "BuildSketch",
-                        "BuildLine": "BuildLine",
-                    }.get(manager_name, manager_name)
                     binding_node = add_scope_node(
                         scope_id, "binding", statement.lineno,
-                        output_type=binding_type,
+                        output_type=manager_name,
                         dependencies=dependencies,
                     )
                     if optional is not None:
@@ -3759,14 +3760,20 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 process_statements(statement.body)
                 for scope_id, manager_name, optional in reversed(entered_contexts):
                     active_scope_ids.pop()
-                    output_type = {
-                        "BuildPart": "Part", "BuildSketch": "Sketch", "BuildLine": "Wire",
-                    }.get(manager_name, "Any")
-                    should_emit_result = optional is not None or manager_name in {"BuildPart", "BuildSketch", "BuildLine"}
+                    result_definition = (
+                        definitions.get(manager["id"] + ".property." + result_attribute)
+                        if result_attribute else None
+                    )
+                    result_socket = (
+                        result_definition.get("outputs", [{}])[0]
+                        if result_definition else {}
+                    )
+                    output_type = result_socket.get("type", "Any")
+                    should_emit_result = optional is not None or result_attribute is not None
                     if should_emit_result:
                         result_node = add_scope_node(
                             scope_id, "result", statement.lineno, output_type,
-                            output_type in {"Shape", "Part", "Sketch", "Wire"}
+                            previewable_type(output_type)
                         )
                         scope_result_nodes[scope_id] = result_node
                 continue

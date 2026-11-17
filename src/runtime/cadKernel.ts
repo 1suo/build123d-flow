@@ -1,4 +1,4 @@
-import type { NodeDefinition, SocketDefinition, GraphDocument, GraphNode, EvaluationResult, MeshPreview } from "../types";
+import type { NodeDefinition, SocketDefinition, SocketDataShape, GraphDocument, GraphNode, EvaluationResult, MeshPreview } from "../types";
 import type { PythonRuntime } from "./pythonRuntime";
 
 /**
@@ -36,6 +36,7 @@ export interface CadPortDefinition {
   readonly itemType?: CadValueType;
   readonly itemTypeLabel?: string;
   readonly itemGeometry?: boolean;
+  readonly dataShape?: SocketDataShape;
   readonly access?: CadInputAccess;
   readonly required?: boolean;
   readonly defaultValue?: unknown;
@@ -162,9 +163,11 @@ function semanticValueType(type: string, typeId?: string): CadValueType {
 }
 
 function portCollection(socket: SocketDefinition): CadCollectionShape {
-  // Shape is declared by discovery metadata, never inferred from a type label.
-  const shape = socket.data_structure ?? "item";
-  return shape === "dict" ? "map" : shape;
+  // Recursive discovery metadata is authoritative; the flat field is legacy.
+  const shape = socket.data_shape?.kind ?? socket.data_structure ?? "item";
+  if (shape === "dict") return "map";
+  if (shape === "union") return "stream";
+  return shape;
 }
 
 function cadPort(socket: SocketDefinition): CadPortDefinition {
@@ -181,6 +184,7 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
     ...(socket.type_mro?.length ? { typeMro: socket.type_mro } : {}),
     ...(socket.is_geometry ? { isGeometry: true } : {}),
     collection,
+    ...(socket.data_shape ? { dataShape: socket.data_shape } : {}),
     ...(collection !== "item" ? {
       itemType: valueType,
       itemTypeLabel: sourceType,
@@ -234,11 +238,36 @@ export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationD
   };
 }
 
+function shapeContainsGeometry(shape: SocketDataShape | undefined): boolean {
+  if (!shape) return false;
+  if (shape.kind === "item") return shape.is_geometry === true;
+  if (shape.kind === "list" || shape.kind === "tree" || shape.kind === "set") {
+    return shapeContainsGeometry(shape.item);
+  }
+  if (shape.kind === "map") return shapeContainsGeometry(shape.value);
+  if (shape.kind === "tuple" || shape.kind === "union") {
+    return shape.items.some(shapeContainsGeometry) || shape.options.some(shapeContainsGeometry);
+  }
+  return false;
+}
+
+function shapeTypeLabel(shape: SocketDataShape): string {
+  if (shape.kind === "item") return shape.type ?? shape.type_id ?? "Any";
+  if (shape.kind === "list" || shape.kind === "tree" || shape.kind === "set") {
+    const label = shape.kind === "tree" ? "Tree" : shape.kind[0].toUpperCase() + shape.kind.slice(1);
+    return `${label}[${shapeTypeLabel(shape.item)}]`;
+  }
+  if (shape.kind === "map") return `Map[${shapeTypeLabel(shape.key)}, ${shapeTypeLabel(shape.value)}]`;
+  if (shape.kind === "tuple") return `Tuple[${shape.items.map(shapeTypeLabel).join(", ")}]`;
+  return `OneOf[${shape.options.map(shapeTypeLabel).join(" | ")}]`;
+}
+
 export function isCadGeometryPort(port: CadPortDefinition): boolean {
-  return port.isGeometry === true || port.itemGeometry === true;
+  return port.isGeometry === true || port.itemGeometry === true || shapeContainsGeometry(port.dataShape);
 }
 
 export function cadPortTypeLabel(port: CadPortDefinition): string {
+  if (port.dataShape) return shapeTypeLabel(port.dataShape);
   const value = port.itemTypeLabel ?? port.typeLabel ?? port.itemType ?? port.valueType;
   if (port.collection === "item") return value;
   const label = port.collection === "map" ? "Map" : port.collection[0].toUpperCase() + port.collection.slice(1);

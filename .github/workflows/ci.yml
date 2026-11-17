@@ -2,7 +2,7 @@ name: Build and deploy
 
 on:
   push:
-    branches: [main, engineering-translator-work]
+    branches: [main, engineering-translator-work, translator-acceptance]
   pull_request:
   workflow_dispatch:
 

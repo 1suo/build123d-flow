@@ -59,6 +59,9 @@ def package_plugin(dist: Path, listing_path: Path, output: Path) -> Path:
     include_roots = ("python", "pyodide", "preview")
     with ZipFile(output, "w", compression=ZIP_DEFLATED, compresslevel=6) as archive:
         archive.write(listing_path, "listing.json")
+        readme_path = listing_path.parent / "PERIGRAM_PLUGIN.md"
+        if readme_path.is_file():
+            archive.write(readme_path, "README.md")
         archive.write(dist / "perigram-runtime.js", "perigram-runtime.js")
         for root_name in include_roots:
             root = dist / root_name

@@ -2,12 +2,20 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 const root = process.env.PERIGRAM_REPO;
 if (!root) throw new Error('PERIGRAM_REPO must point to a Perigram checkout');
 
 const sdk = await import(pathToFileURL(path.join(root, 'packages/plugin-sdk/src/node-contract.js')));
+const listingSdk = await import(pathToFileURL(path.join(root, 'packages/plugin-sdk/src/listing.js')));
 const graph = await import(pathToFileURL(path.join(root, 'packages/core/src/graph.js')));
+const listing = JSON.parse(await readFile('perigram-listing.json', 'utf8'));
+const parsedListing = listingSdk.parseListing(listing);
+assert.equal(parsedListing.pluginId, 'build123d-flow');
+assert.equal(parsedListing.declarations.runtimes[0].id, 'build123d-pyodide');
+assert.equal(parsedListing.declarations.runtimes[0].entry, '/perigram-runtime.js');
+
 
 const python = spawnSync('python', ['-c', `
 import json

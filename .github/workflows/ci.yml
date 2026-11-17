@@ -79,7 +79,7 @@ jobs:
       - name: Gate 1 - translate complete upstream corpus without CAD kernel
         run: python -S scripts/test_upstream_translator.py "$RUNNER_TEMP/build123d_catalog.json" "$RUNNER_TEMP/upstream-translator-results.json"
       - name: Compile Python sources
-        run: python -m py_compile public/python/flow_runtime.py public/python/type_catalog.py scripts/generate_type_catalog.py scripts/test_upstream_translator.py scripts/test_upstream_kernel.py tests/graph_workflows.py tests/test_type_catalog.py tests/test_discovery_catalog.py tests/test_kernel_free_catalog.py tests/test_graph_workflows_native.py
+        run: python -m py_compile public/python/flow_runtime.py public/python/python_translator.py public/python/type_catalog.py scripts/generate_type_catalog.py scripts/test_upstream_translator.py scripts/test_upstream_kernel.py tests/graph_workflows.py tests/test_type_catalog.py tests/test_discovery_catalog.py tests/test_kernel_free_catalog.py tests/test_graph_workflows_native.py
       - name: Run kernel-backed discovery tests
         run: python -m unittest discover -s tests -p 'test_discovery_catalog.py'
         env:

@@ -70,6 +70,8 @@ test("Perigram runtime dispatches invocation inputs and graph execution identity
   }, {});
 
   assert.deepEqual(result, { result: 12 });
+  assert.equal(await runtime.clearExecution("graph-1"), true);
+  assert.equal(worker.messages.some(item => item.method === "clearExecution"), true);
   assert.equal(worker.lastExecution.operationId, "build123d.Box");
   assert.deepEqual(worker.lastExecution.inputs, { width: 12 });
   assert.equal(worker.lastExecution.config.nodeId, "box-node");

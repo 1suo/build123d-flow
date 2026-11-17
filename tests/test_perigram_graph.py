@@ -176,7 +176,13 @@ class PerigramGraphAdapterTests(unittest.TestCase):
                 {
                     "id": "target",
                     "data": {
-                        "definition": {"id": "build123d.VarArgs"},
+                        "definition": {
+                            "id": "build123d.VarArgs",
+                            "inputs": [
+                                {"name": "*args", "type": "Any"},
+                                {"name": "**kwargs", "type": "Any"},
+                            ],
+                        },
                         "params": {"*args": [1, 2], "**kwargs": {"x": 3}},
                     },
                 },
@@ -194,6 +200,10 @@ class PerigramGraphAdapterTests(unittest.TestCase):
         self.assertEqual(target["config"]["parameters"], {
             "varargs_args": [1, 2],
             "kwargs_kwargs": {"x": 3},
+        })
+        self.assertEqual(target["config"]["pythonPortNames"]["inputs"], {
+            "varargs_args": "*args",
+            "kwargs_kwargs": "**kwargs",
         })
         self.assertEqual(result["edges"][0]["source"]["port"], "p__private")
         self.assertEqual(result["edges"][0]["target"]["port"], "varargs_args")

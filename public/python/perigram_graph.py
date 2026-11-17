@@ -36,11 +36,9 @@ def _require_json(value: Any, context: str) -> None:
 def _provider_for_type(type_name: str, explicit_provider: str | None = None) -> str:
     if explicit_provider:
         provider = str(explicit_provider).lower()
-    elif type_name.startswith("build123d."):
-        provider = BUILD123D_PROVIDER
     else:
-        # Unqualified/discovered Python types stay open-world. Do not assume
-        # that every non-primitive type belongs to the CAD kernel.
+        # Provider ownership comes from discovery metadata, never from a
+        # type-name prefix. Unknown nominal types remain open-world Python.
         provider = PYTHON_PROVIDER
     if not PROVIDER_PATTERN.fullmatch(provider):
         raise PerigramGraphError(f"Invalid semantic type provider: {provider}")

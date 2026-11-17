@@ -99,6 +99,28 @@ class RecursiveDataContractTests(unittest.TestCase):
         self.assertEqual(socket["data_structure"], "list")
         self.assertEqual(socket["data_access"], "structure")
 
+    def test_discovered_value_serialization_uses_protocols_not_type_names(self):
+        from type_catalog import _serialize_discovered_value
+
+        class Vector:
+            def __iter__(self):
+                return iter((1.0, 2.0, 3.0))
+
+        class Rotation:
+            def to_tuple(self):
+                return (10.0, 20.0, 30.0)
+
+        Vector.__module__ = "build123d.geometry"
+        Rotation.__module__ = "build123d.geometry"
+        self.assertEqual(_serialize_discovered_value(Vector()), {
+            "__flow_object__": "Vector",
+            "value": [1.0, 2.0, 3.0],
+        })
+        self.assertEqual(_serialize_discovered_value(Rotation()), {
+            "__flow_object__": "Rotation",
+            "value": [10.0, 20.0, 30.0],
+        })
+
     def test_discovered_class_identity_is_not_reduced_to_vector3(self):
         class Vector:
             pass

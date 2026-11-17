@@ -714,10 +714,12 @@ def _invoke_discovered_operator_callable(native_invoke, method, mapped, signatur
     )
     receiver = mapped.get(receiver_name)
     operand = mapped.get(parameters[0].name)
+    bound_method = getattr(receiver, method, None)
+    if not callable(bound_method):
+        return native_invoke(mapped)
     if method.startswith("__r"):
         # Let Python try the left operand before reflected dispatch.
         return operation(operand, receiver)
-    bound_method = getattr(receiver, method, None)
     if callable(bound_method):
         bound_parameters = [
             parameter for parameter in signature.parameters.values()

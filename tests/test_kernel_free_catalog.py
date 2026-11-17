@@ -80,6 +80,22 @@ face = Face(wire)
         ]
         self.assertIn("outer_wire", input_names, input_names)
         self.assertNotIn("obj", input_names, input_names)
+
+        inline_graph = runtime.import_python_code("""
+from build123d import Wire, Face
+face = Face(Wire.make_polygon([(0, 0), (1, 0), (1, 1), (0, 1)], close=True))
+""")
+        inline_face_node = next(
+            node for node in inline_graph["nodes"]
+            if node.get("data", {}).get("definition", {}).get("id", "")
+            .rsplit(".overload-", 1)[0].endswith(".Face")
+        )
+        inline_input_names = [
+            socket["name"]
+            for socket in inline_face_node["data"]["definition"]["inputs"]
+        ]
+        self.assertIn("outer_wire", inline_input_names, inline_input_names)
+        self.assertNotIn("obj", inline_input_names, inline_input_names)
         self.assertIsNone(runtime.b3d)
 
     def test_production_interpreter_translates_box_plus_cylinder_without_kernel(self):

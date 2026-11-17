@@ -2213,7 +2213,7 @@ def _validate_stream_items(definition, params, stream_shapes):
         target_types = list(input_socket.get("variants") or [])
         if not target_types:
             target_types = [input_socket.get("type")]
-        if any(target in ("Any", "List", "Tuple", "Set", "Dict") for target in target_types):
+        if "Any" in target_types:
             continue
         geometry_types, object_types = _discovered_input_type_sets()
         geometry_target = any(target in geometry_types for target in target_types)

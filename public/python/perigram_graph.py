@@ -47,6 +47,42 @@ def _provider_for_type(type_name: str, explicit_provider: str | None = None) -> 
     return provider
 
 
+PORT_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\Z")
+
+
+def _port_identifier(name: str) -> str:
+    """Map Python parameter names to stable Perigram port identifiers."""
+    original = str(name)
+    if original.startswith("**"):
+        candidate = "kwargs_" + original[2:]
+    elif original.startswith("*"):
+        candidate = "varargs_" + original[1:]
+    else:
+        candidate = original
+    candidate = re.sub(r"[^A-Za-z0-9._-]+", "_", candidate)
+    if not candidate or not candidate[0].isalnum():
+        candidate = "p_" + candidate
+    if len(candidate) > 128:
+        suffix = hashlib.sha256(original.encode("utf-8")).hexdigest()[:8]
+        candidate = candidate[:119] + "-" + suffix
+    if not PORT_IDENTIFIER.fullmatch(candidate):
+        raise PerigramGraphError(f"Cannot normalize Python port name: {original!r}")
+    return candidate
+
+
+def _normalize_loop_sources(sources: Any) -> list[dict[str, Any]]:
+    normalized = []
+    for source in sources or []:
+        if not isinstance(source, Mapping):
+            raise PerigramGraphError("Python loop source descriptors must be objects")
+        item = dict(source)
+        item["output_name"] = _port_identifier(
+            source.get("output_name") or "result"
+        )
+        normalized.append(item)
+    return normalized
+
+
 def semantic_descriptor(
     type_name: str | None,
     provider: str | None = None,
@@ -94,7 +130,7 @@ def normalize_port(socket: Mapping[str, Any]) -> dict[str, Any]:
     if not name:
         raise PerigramGraphError("A discovered socket has no stable name")
     result = {
-        "id": name,
+        "id": _port_identifier(name),
         "label": str(socket.get("label") or name),
         "shape": transport_shape(socket),
         "semantic": semantic_descriptor(
@@ -127,8 +163,16 @@ def normalize_node_definition(definition: Mapping[str, Any]) -> dict[str, Any]:
     provider = _operation_provider(definition)
     if not PROVIDER_PATTERN.fullmatch(provider):
         raise PerigramGraphError(f"Invalid provider id: {provider}")
-    inputs = [normalize_port(port) for port in definition.get("inputs", [])]
-    outputs = [normalize_port(port) for port in definition.get("outputs", [])]
+    raw_inputs = list(definition.get("inputs", []))
+    raw_outputs = list(definition.get("outputs", []))
+    inputs = [normalize_port(port) for port in raw_inputs]
+    outputs = [normalize_port(port) for port in raw_outputs]
+    for ports, direction in ((inputs, "inputs"), (outputs, "outputs")):
+        identifiers = [port["id"] for port in ports]
+        if len(identifiers) != len(set(identifiers)):
+            raise PerigramGraphError(
+                f"Python {direction} for {operation_id} collide after port-id normalization"
+            )
     execution_kind = definition.get("execution_kind", "pure")
     if execution_kind not in {"pure", "read", "stateful", "proposal", "commit", "effect", "control"}:
         raise PerigramGraphError(f"Unsupported execution kind for {operation_id}: {execution_kind}")
@@ -159,6 +203,24 @@ def normalize_node_definition(definition: Mapping[str, Any]) -> dict[str, Any]:
         "label": "build123d" if provider == BUILD123D_PROVIDER else "Python",
         "keywords": ["cad", "geometry"] if provider == BUILD123D_PROVIDER else ["python", "language"],
     }
+    configuration = dict(definition.get("configuration") or {})
+    input_aliases = {
+        port["id"]: str(socket.get("name") or socket.get("id") or "")
+        for socket, port in zip(raw_inputs, inputs)
+        if port["id"] != str(socket.get("name") or socket.get("id") or "")
+    }
+    output_aliases = {
+        port["id"]: str(socket.get("name") or socket.get("id") or "")
+        for socket, port in zip(raw_outputs, outputs)
+        if port["id"] != str(socket.get("name") or socket.get("id") or "")
+    }
+    if input_aliases or output_aliases:
+        configuration["pythonPortNames"] = {
+            "inputs": input_aliases,
+            "outputs": output_aliases,
+        }
+    if configuration:
+        result["configuration"] = configuration
     _require_json(result, f"Node definition {provider}.{operation_id}")
     return result
 
@@ -187,10 +249,14 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
         if not all((target_node, target_port, source_node)):
             continue
         source_data = source_nodes_by_id.get(source_node, {}).get("data") or {}
-        incoming_sources.setdefault(target_node, {}).setdefault(target_port, []).append({
+        incoming_sources.setdefault(target_node, {}).setdefault(
+            _port_identifier(target_port), []
+        ).append({
             "nodeId": source_node,
-            "outputId": source_port,
-            "pythonLoopSources": source_data.get("python_loop_sources") or [],
+            "outputId": _port_identifier(source_port),
+            "pythonLoopSources": _normalize_loop_sources(
+                source_data.get("python_loop_sources") or []
+            ),
         })
 
     normalized_nodes = []
@@ -208,8 +274,11 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
         if not operation_id:
             raise PerigramGraphError(f"Node {node_id} has no discovered operation identity")
         provider = _operation_provider(definition)
+        raw_params = data.get("params") or {}
         config = {
-            "parameters": data.get("params") or {},
+            "parameters": {
+                _port_identifier(name): value for name, value in raw_params.items()
+            },
             "executionScopePath": data.get("execution_scope_path") or [],
             # Perigram invokes operations individually. Carry the source
             # context-manager descriptors with each node so a stateful
@@ -220,7 +289,7 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
         if data.get("data_matching"):
             config["dataMatching"] = data["data_matching"]
         if data.get("python_loop_sources"):
-            config["pythonLoopSources"] = data["python_loop_sources"]
+            config["pythonLoopSources"] = _normalize_loop_sources(data["python_loop_sources"])
         normalized_nodes.append({
             "id": node_id,
             "operation": {
@@ -239,8 +308,8 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
             raise PerigramGraphError("Translator edges must be objects")
         source_node = str(edge.get("source") or "")
         target_node = str(edge.get("target") or "")
-        source_port = str(edge.get("sourceHandle") or "result")
-        target_port = str(edge.get("targetHandle") or "")
+        source_port = _port_identifier(str(edge.get("sourceHandle") or "result"))
+        target_port = _port_identifier(str(edge.get("targetHandle") or ""))
         edge_id = str(edge.get("id") or f"edge-{index}")
         if not all((source_node, target_node, source_port, target_port)):
             raise PerigramGraphError(f"Edge {edge_id} is missing an endpoint or port")

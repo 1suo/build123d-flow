@@ -2703,6 +2703,11 @@ def evaluate_graph_json(payload, include_previews=True):
         if isinstance(value, list):
             return [restore_scope_value(item) for item in value]
         if isinstance(value, dict):
+            if "__flow_mapping__" in value:
+                return {
+                    restore_scope_value(key): restore_scope_value(item)
+                    for key, item in value["__flow_mapping__"]
+                }
             if "__flow_tuple__" in value:
                 return tuple(restore_scope_value(item) for item in value["__flow_tuple__"])
             if "__flow_attrgetter__" in value:

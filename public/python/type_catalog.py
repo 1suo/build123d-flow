@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import enum
 import inspect
+import collections.abc
 import math
 import typing
 from typing import Any, Mapping, get_args
@@ -167,6 +168,23 @@ def build_type_registry(classes, nodes, geometry_base=None):
             if inspect.isclass(owner)
         ]
         bases = [_qualified_name(base) for base in getattr(cls, "__bases__", ())]
+        declared_mro = set(getattr(cls, "__mro__", ()))
+        if dict in declared_mro or collections.abc.Mapping in declared_mro:
+            collection_kind = "dict"
+        elif set in declared_mro or frozenset in declared_mro or collections.abc.Set in declared_mro:
+            collection_kind = "set"
+        elif tuple in declared_mro:
+            collection_kind = "tuple"
+        elif (
+            list in declared_mro
+            or collections.abc.Sequence in declared_mro
+            or collections.abc.MutableSequence in declared_mro
+            or collections.abc.Collection in declared_mro
+            or collections.abc.Iterable in declared_mro
+        ):
+            collection_kind = "list"
+        else:
+            collection_kind = None
         try:
             is_enum = issubclass(cls, enum.Enum)
         except TypeError:
@@ -287,6 +305,7 @@ def build_type_registry(classes, nodes, geometry_base=None):
             "context_result_attribute": context_result_attribute,
             "context_result_type": context_result_type,
             "supports_iteration": callable(iterator),
+            "collection_kind": collection_kind,
             "iterable_item_type": iterable_item_type,
             "is_enum": is_enum,
             "enum_members": enum_members,

@@ -359,9 +359,8 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         counter += 1
         node_id = "import_{}".format(counter)
         builder_scope_active = any(
-            next((scope.get("name") for scope in execution_scopes if scope.get("id") == scope_id), None)
-            and next((scope.get("result_attribute") for scope in execution_scopes
-                      if scope.get("id") == scope_id), None)
+            next((scope.get("result_attribute") for scope in execution_scopes
+                  if scope.get("id") == scope_id), None)
             for scope_id in active_scope_ids
         )
         # A Python loop is a data-mapping scope: each operation is represented
@@ -3760,10 +3759,11 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 process_statements(statement.body)
                 for scope_id, manager_name, optional in reversed(entered_contexts):
                     active_scope_ids.pop()
-                    result_definition = (
-                        definitions.get(manager["id"] + ".property." + result_attribute)
-                        if result_attribute else None
-                    )
+                    result_property_id = next((
+                        member_id for member_id in manager.get("member_node_ids", [])
+                        if member_id.endswith(".property." + str(result_attribute))
+                    ), None) if result_attribute else None
+                    result_definition = definitions.get(result_property_id) if result_property_id else None
                     result_socket = (
                         result_definition.get("outputs", [{}])[0]
                         if result_definition else {}
@@ -3775,6 +3775,15 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                             scope_id, "result", statement.lineno, output_type,
                             previewable_type(output_type)
                         )
+                        result_graph_node = next(item for item in graph_nodes if item["id"] == result_node)
+                        result_output = result_graph_node["data"]["definition"]["outputs"][0]
+                        for key in (
+                            "is_geometry", "semantic_type_id", "type_mro",
+                            "item_is_geometry", "item_semantic_type_id",
+                            "item_type_mro", "runtime_inspectable",
+                        ):
+                            if key in result_socket:
+                                result_output[key] = result_socket[key]
                         scope_result_nodes[scope_id] = result_node
                 continue
             if isinstance(statement, ast.Expr):

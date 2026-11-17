@@ -34,7 +34,6 @@ def import_python_code(source, runtime, catalog):
     """
     # Bind the current production catalog/evaluator contract explicitly for this translation.
     b3d = runtime.b3d
-    discover = runtime.discover
     _DISCOVERY_REPORT = runtime._DISCOVERY_REPORT
     _CATALOG = runtime._CATALOG
     _INTERNAL_NODE_IDS = runtime._INTERNAL_NODE_IDS
@@ -129,22 +128,6 @@ def import_python_code(source, runtime, catalog):
 
     # Import is an explicit action, so load the full API catalog lazily here.
     # This makes class methods/properties available without slowing normal startup.
-    if not _DISCOVERY_REPORT.get("include_full"):
-        discover(include_full=True)
-        _DISCOVERY_REPORT = runtime._DISCOVERY_REPORT
-        _CATALOG = runtime._CATALOG
-        _INTERNAL_NODE_IDS = runtime._INTERNAL_NODE_IDS
-        _CATALOG_CALLABLES = runtime._CATALOG_CALLABLES
-        _python_getitem = runtime._python_getitem
-        _CATALOG_SIGNATURES = runtime._CATALOG_SIGNATURES
-        _CATALOG_HINT_TARGETS = runtime._CATALOG_HINT_TARGETS
-        _python_getattr = runtime._python_getattr
-        _socket_data_structure = runtime._socket_data_structure
-        _type_name = runtime._type_name
-        _discovered_input_type_sets = runtime._discovered_input_type_sets
-        _api_signature = runtime._api_signature
-        _call_with_coercion = runtime._call_with_coercion
-        _python_loop_last = runtime._python_loop_last
     definitions = _CATALOG
     type_catalog = catalog
 

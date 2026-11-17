@@ -20,7 +20,7 @@ class ScalarRepresentationShapeTests(unittest.TestCase):
             "type_mro": ["build123d.geometry.Vector"],
         })
         self.assertNotIn("data_structure", metadata)
-        self.assertNotEqual(metadata.get("data_access"), "structure")
+        self.assertEqual(metadata.get("data_access"), "structure")
 
 
 if __name__ == "__main__":

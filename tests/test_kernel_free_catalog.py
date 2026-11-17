@@ -535,6 +535,28 @@ wire = Wire.make_circle(5)
             },
         })
 
+    def test_declared_custom_collection_subclasses_keep_collection_shape(self):
+        from flow_runtime import _annotation_data_shape
+
+        class ShapeList(list):
+            pass
+
+        class AttributeMap(dict):
+            pass
+
+        self.assertEqual(
+            _annotation_data_shape(ShapeList),
+            {"kind": "list", "item": {"kind": "item", "type": "Any"}},
+        )
+        self.assertEqual(
+            _annotation_data_shape(AttributeMap),
+            {
+                "kind": "map",
+                "key": {"kind": "item", "type": "Any"},
+                "value": {"kind": "item", "type": "Any"},
+            },
+        )
+
     def test_tuple_union_and_nested_collection_shapes_are_preserved(self):
         import typing
         from flow_runtime import _annotation_data_shape

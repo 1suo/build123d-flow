@@ -535,6 +535,27 @@ wire = Wire.make_circle(5)
             },
         })
 
+    def test_discovered_iterable_item_type_fills_any_data_shape_leaf(self):
+        from flow_runtime import _replace_any_shape_leaf
+
+        shape = {
+            "kind": "tree",
+            "item": {
+                "kind": "list",
+                "item": {"kind": "item", "type": "Any"},
+            },
+        }
+        self.assertEqual(
+            _replace_any_shape_leaf(shape, "Edge"),
+            {
+                "kind": "tree",
+                "item": {
+                    "kind": "list",
+                    "item": {"kind": "item", "type": "Edge"},
+                },
+            },
+        )
+
     def test_declared_custom_collection_subclasses_keep_collection_shape(self):
         from flow_runtime import _annotation_data_shape
 

@@ -230,6 +230,23 @@ def _operation_provider(definition: Mapping[str, Any]) -> str:
     return PYTHON_PROVIDER if source in {"python", "flow"} else BUILD123D_PROVIDER
 
 
+def _contains_build123d_semantic(semantic: Any) -> bool:
+    if not isinstance(semantic, Mapping):
+        return False
+    kind = semantic.get("kind")
+    if kind == "nominal":
+        return semantic.get("provider") == BUILD123D_PROVIDER
+    if kind == "tuple":
+        return any(_contains_build123d_semantic(item) for item in semantic.get("items", []))
+    if kind == "union":
+        return any(_contains_build123d_semantic(item) for item in semantic.get("options", []))
+    if kind == "map":
+        return _contains_build123d_semantic(semantic.get("key")) or _contains_build123d_semantic(semantic.get("value"))
+    if kind == "list":
+        return _contains_build123d_semantic(semantic.get("item"))
+    return False
+
+
 def normalize_node_definition(definition: Mapping[str, Any]) -> dict[str, Any]:
     """Publish one discovered operation as a Perigram node definition."""
     operation_id = str(definition.get("id") or "")
@@ -270,6 +287,8 @@ def normalize_node_definition(definition: Mapping[str, Any]) -> dict[str, Any]:
             "idempotent": execution_kind == "pure",
         },
     }
+    if any(_contains_build123d_semantic(port["semantic"]) for port in outputs):
+        result["preview"] = {"renderer": "cad-mesh"}
     description = str(definition.get("description") or "")
     if description:
         result["description"] = description

@@ -60,7 +60,7 @@ class DiscoveredOperationDispatchTests(unittest.TestCase):
                 definition, add, {"a": [1, 2], "b": [10, 20, 30]},
                 {"dataMatching": "cross"},
             ),
-            {"result": [11, 21, 31, 12, 22, 32]},
+            {"result": [[11, 21, 31], [12, 22, 32]]},
         )
 
     def test_shared_python_loop_source_keeps_inputs_aligned_even_under_cross_mode(self):

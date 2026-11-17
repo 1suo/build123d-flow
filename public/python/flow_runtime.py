@@ -2547,7 +2547,7 @@ def execute_discovered_operation(operation_id, inputs, config=None):
             hint_target=hint_target,
         )
 
-    operator_method = definition.get("operator", {}).get("method")
+    operator_method = (definition.get("operator") or {}).get("method")
     if operator_method in _PYTHON_BINARY_OPERATORS:
         native_invoke = invoke
 

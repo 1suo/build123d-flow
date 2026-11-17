@@ -171,6 +171,29 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         except CatalogError:
             return False
 
+    def normalize_data_shape(socket):
+        if isinstance(socket.get("data_shape"), dict):
+            return
+        structure = _socket_data_structure(socket)
+        item_type = socket.get("item_type", "Any")
+        item_shape = {"kind": "item", "type": item_type}
+        if structure in {"list", "tree", "set"}:
+            socket["data_shape"] = {"kind": structure, "item": item_shape}
+        elif structure == "tuple":
+            element_types = socket.get("item_types") or [item_type]
+            socket["data_shape"] = {
+                "kind": "tuple",
+                "items": [{"kind": "item", "type": value_type} for value_type in element_types],
+            }
+        elif structure == "dict":
+            socket["data_shape"] = {
+                "kind": "map",
+                "key": {"kind": "item", "type": socket.get("key_type", "Any")},
+                "value": {"kind": "item", "type": socket.get("value_type", "Any")},
+            }
+        else:
+            socket["data_shape"] = {"kind": "item", "type": socket.get("type", "Any")}
+
     def resolve_member(member_name, receiver_type, property_only=False):
         """Resolve a member by the receiver's discovered Python MRO order."""
         candidates = []
@@ -4281,4 +4304,10 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
     process_statements(tree.body)
     if not graph_nodes:
         raise ValueError("No supported build123d operations were found")
+    # Every emitted graph socket carries the same recursive shape contract,
+    # including synthetic loop, unpack, scope, and collection nodes.
+    for graph_node in graph_nodes:
+        graph_definition = graph_node.get("data", {}).get("definition", {})
+        for socket in graph_definition.get("inputs", []) + graph_definition.get("outputs", []):
+            normalize_data_shape(socket)
     return {"nodes": graph_nodes, "edges": graph_edges, "execution_scopes": execution_scopes}

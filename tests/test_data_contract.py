@@ -99,6 +99,46 @@ class RecursiveDataContractTests(unittest.TestCase):
         self.assertEqual(socket["data_structure"], "list")
         self.assertEqual(socket["data_access"], "structure")
 
+    def test_native_operator_dispatch_uses_runtime_subclass_override(self):
+        import inspect
+
+        class Base:
+            def __xor__(self, position):
+                return "base"
+
+        class Derived(Base):
+            def __xor__(self, position):
+                return "derived"
+
+        signature = inspect.signature(Base.__xor__)
+        result = runtime._invoke_discovered_operator_callable(
+            lambda mapped: Base.__xor__(mapped["self"], mapped["position"]),
+            "__xor__",
+            {"self": Derived(), "position": 0},
+            signature,
+        )
+        self.assertEqual(result, "derived")
+
+    def test_reflected_operator_dispatch_uses_python_protocol(self):
+        import inspect
+
+        class Left:
+            def __mul__(self, other):
+                return NotImplemented
+
+        class Right:
+            def __rmul__(self, other):
+                return "reflected"
+
+        signature = inspect.signature(Right.__rmul__)
+        result = runtime._invoke_discovered_operator_callable(
+            lambda mapped: Right.__rmul__(mapped["self"], mapped["other"]),
+            "__rmul__",
+            {"self": Right(), "other": Left()},
+            signature,
+        )
+        self.assertEqual(result, "reflected")
+
     def test_discovered_value_serialization_uses_protocols_not_type_names(self):
         from type_catalog import _serialize_discovered_value
 

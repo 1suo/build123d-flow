@@ -30,16 +30,13 @@ function compatibleTypes(
   source: string,
   target: string,
   sourceGeometry = false,
-  targetGeometry = false,
   sourceLineage: readonly string[] = [],
-  targetLineage: readonly string[] = [],
   sourceIdentity = source,
   targetIdentity = target,
 ): boolean {
   if (target === "any" || source === "any" || source === target ||
-      sourceLineage.includes(targetIdentity) || targetLineage.includes(sourceIdentity)) return true;
+      sourceLineage.includes(targetIdentity)) return true;
   if (target === "geometry") return sourceGeometry;
-  if (source === "geometry") return targetGeometry;
   return false;
 }
 
@@ -56,14 +53,12 @@ function portTypesCompatible(
     ? [itemType(target), ...(target.variants ?? [])]
     : [target.valueType, ...(target.variants ?? [])];
   const sourceGeometry = sourceItems ? source.itemGeometry === true : source.geometry === true;
-  const targetGeometry = targetItems ? target.itemGeometry === true : target.geometry === true;
   const sourceLineage = sourceItems ? source.itemTypeLineage ?? [] : source.typeLineage ?? [];
-  const targetLineage = targetItems ? target.itemTypeLineage ?? [] : target.typeLineage ?? [];
   const sourceIdentity = sourceItems ? source.itemTypeIdentity ?? itemType(source) : source.typeIdentity ?? source.valueType;
   const targetIdentity = targetItems ? target.itemTypeIdentity ?? itemType(target) : target.typeIdentity ?? target.valueType;
   return sourceTypes.some((sourceType) =>
     targetTypes.some((targetType) =>
-      compatibleTypes(sourceType, targetType, sourceGeometry, targetGeometry, sourceLineage, targetLineage, sourceIdentity, targetIdentity))
+      compatibleTypes(sourceType, targetType, sourceGeometry, sourceLineage, sourceIdentity, targetIdentity))
   );
 }
 

@@ -172,11 +172,18 @@ function compatible(source: CadPortDefinition, target: CadPortDefinition): boole
   }
   if (sourceStructure !== "item" && targetAccess !== "item") {
     const targetStructure = structureOf(target);
-    if (targetStructure !== "item" && targetStructure !== sourceStructure &&
-        !(targetStructure === "tree" && sourceStructure === "list")) return false;
+    if (targetStructure !== "item" && targetStructure !== "stream"
+        && targetStructure !== sourceStructure
+        && !(targetStructure === "tree" && sourceStructure === "list")) return false;
     return portTypesCompatible(source, target, false, false);
   }
-  if (sourceStructure === "item" && targetAccess !== "item") return false;
+  const targetStructure = structureOf(target);
+  if (
+    sourceStructure === "item"
+    && targetAccess !== "item"
+    && targetStructure !== "item"
+    && targetStructure !== "stream"
+  ) return false;
   return portTypesCompatible(source, target);
 }
 

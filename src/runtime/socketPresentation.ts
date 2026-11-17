@@ -8,7 +8,8 @@ function shapeContainsGeometry(shape: SocketDataShape | undefined): boolean {
   }
   if (shape.kind === "map") return shapeContainsGeometry(shape.value);
   if (shape.kind === "tuple") return shape.items.some(shapeContainsGeometry);
-  return shape.options.some(shapeContainsGeometry);
+  if (shape.kind === "union") return shape.options.some(shapeContainsGeometry);
+  return false;
 }
 
 /** Geometry identity is emitted by runtime discovery, not a UI name allowlist. */
@@ -28,7 +29,8 @@ function shapeLabel(shape: SocketDataShape): string {
   }
   if (shape.kind === "map") return `Map[${shapeLabel(shape.key)}, ${shapeLabel(shape.value)}]`;
   if (shape.kind === "tuple") return `Tuple[${shape.items.map(shapeLabel).join(", ")}]`;
-  return `OneOf[${shape.options.map(shapeLabel).join(" | ")}]`;
+  if (shape.kind === "union") return `OneOf[${shape.options.map(shapeLabel).join(" | ")}]`;
+  return "Any";
 }
 
 export function socketTypeLabel(socket: SocketDefinition): string {

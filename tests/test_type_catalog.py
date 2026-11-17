@@ -64,7 +64,7 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
         }
         registry = build_type_registry([base, child], nodes)
         catalog = TypeCatalog({
-            "schema_version": 5,
+            "schema_version": 6,
             "types": list(registry.values()),
             "nodes": list(nodes.values()),
         })
@@ -79,7 +79,7 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
         second = type("Duplicate", (), {"__module__": "build123d.beta"})
         registry = build_type_registry([first, second], {})
         catalog = TypeCatalog({
-            "schema_version": 5,
+            "schema_version": 6,
             "types": list(registry.values()),
             "nodes": [],
         })
@@ -108,7 +108,7 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
         })
         with self.assertRaises(CatalogError):
             TypeCatalog({
-                "schema_version": 5,
+                "schema_version": 6,
                 "types": list(registry.values()),
                 "nodes": [],
             })
@@ -116,7 +116,7 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
     def test_mro_must_be_ordered_and_unique(self):
         with self.assertRaises(CatalogError):
             TypeCatalog({
-                "schema_version": 5,
+                "schema_version": 6,
                 "types": [{
                     "id": "build123d.Invalid",
                     "name": "Invalid",
@@ -132,7 +132,7 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
         Unit.__module__ = "build123d.units"
         registry = build_type_registry([Unit], {})
         catalog = TypeCatalog({
-            "schema_version": 5,
+            "schema_version": 6,
             "types": list(registry.values()),
             "nodes": [],
         })
@@ -161,7 +161,7 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
         Plane.__module__ = "build123d.geometry"
         registry = build_type_registry([Plane], {})
         catalog = TypeCatalog({
-            "schema_version": 5,
+            "schema_version": 6,
             "types": list(registry.values()),
             "nodes": [],
         })
@@ -184,7 +184,7 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
         Plane.__module__ = "build123d.geometry"
         registry = build_type_registry([Plane], {})
         catalog = TypeCatalog({
-            "schema_version": 5,
+            "schema_version": 6,
             "types": list(registry.values()),
             "nodes": [],
         })
@@ -205,7 +205,7 @@ class GeneratedTypeRegistryTests(unittest.TestCase):
         symbols = build_symbol_registry(module)
         registry = build_type_registry([Rotation], {})
         catalog = TypeCatalog({
-            "schema_version": 5,
+            "schema_version": 6,
             "types": list(registry.values()),
             "nodes": [],
             "symbols": symbols,

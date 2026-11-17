@@ -3033,50 +3033,47 @@ def _coerce_annotation(value, annotation):
                 return value if isinstance(value, annotation) else annotation[value] if isinstance(value, str) else annotation(value)
         except (TypeError, KeyError, ValueError):
             pass
-        name = annotation.__name__.lower()
-        if name == "vector" and isinstance(value, (list, tuple)):
-            return b3d.Vector(*value)
-        if name == "rotation" and isinstance(value, (list, tuple)):
-            return b3d.Rotation(tuple(value))
-        if name == "plane" and isinstance(value, dict):
-            return b3d.Plane(**value)
-        if name == "location" and isinstance(value, dict):
-            return b3d.Location(**value)
-        if name == "location" and isinstance(value, (list, tuple)):
-            return b3d.Location(*value)
-        if name == "axis" and isinstance(value, (list, tuple)):
-            return b3d.Axis(*value)
-        if name == "color" and isinstance(value, (list, tuple)):
-            return b3d.Color(*value)
-        if name == "matrix" and isinstance(value, (list, tuple)):
-            # A 4×3 affine row list is the JSON shape of a Matrix.
-            return b3d.Matrix(value if any(isinstance(row, (list, tuple)) for row in value) else [list(value)])
-        if annotation is bool:
-            return bool(value)
-        if annotation is int:
-            return int(value)
-        if annotation is float:
-            return float(value)
-        if annotation is str:
-            return str(value)
+        if isinstance(value, annotation):
+            return value
+        if annotation in (bool, int, float, str):
+            return annotation(value)
+        # Rehydrate discovered non-geometry value classes generically. The
+        # catalog supplies class identity; constructor binding supplies shape.
+        # No per-type Vector/Rotation/Plane codec table is maintained.
+        if isinstance(value, dict):
+            try:
+                return annotation(**value)
+            except (TypeError, ValueError):
+                pass
+        if isinstance(value, (list, tuple)):
+            try:
+                return annotation(value)
+            except (TypeError, ValueError):
+                return annotation(*value)
     return value
 
 
 def _coerce_graph_receiver(value, socket):
-    """Restore JSON-serialized build123d value objects before native method lookup."""
-    value_types = {
-        "Vector2": b3d.Vector,
-        "Vector3": b3d.Vector,
-        "Rotation": b3d.Rotation,
-        "Plane": b3d.Plane,
-        "Location": b3d.Location,
-        "Axis": b3d.Axis,
-        "Color": b3d.Color,
-        "Matrix": b3d.Matrix,
-    }
-    annotation = value_types.get(socket.get("type"))
-    return _coerce_annotation(value, annotation) if annotation is not None else value
-
+    """Restore a discovered value object from its open semantic type identity."""
+    if b3d is None or not isinstance(socket, dict):
+        return value
+    type_id = socket.get("semantic_type_id")
+    record = _TYPE_REGISTRY.get(type_id) if type_id else None
+    if record is None:
+        socket_type = socket.get("type")
+        record = next(
+            (item for item in _TYPE_REGISTRY.values()
+             if item.get("socket_type") == socket_type and not item.get("is_geometry")),
+            None,
+        )
+    if not record or record.get("is_geometry"):
+        return value
+    try:
+        module = importlib.import_module(record["module"])
+        annotation = getattr(module, record["name"])
+    except (ImportError, AttributeError):
+        return value
+    return _coerce_annotation(value, annotation)
 
 def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):
     if hint_target is False:

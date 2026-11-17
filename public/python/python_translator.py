@@ -1153,6 +1153,31 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                                 break
                         except CatalogError:
                             continue
+                # Iterable value objects (e.g. Vector) can satisfy a
+                # collection-annotated overload such as Iterable[float].
+                # Compare discovered element capabilities rather than relying
+                # on class names or treating every iterable geometry as a list.
+                target_item_type = socket.get("item_type")
+                if not target_item_type:
+                    shape_contract = socket.get("data_shape", {})
+                    if shape_contract.get("kind") in {"list", "tree", "set"}:
+                        child_shape = shape_contract.get("item", {})
+                        if child_shape.get("kind") == "item":
+                            target_item_type = child_shape.get("type")
+                if target_item_type and target_item_type != "Any":
+                    try:
+                        source_record = type_catalog.resolve_type(inferred_type)
+                    except CatalogError:
+                        source_record = {}
+                    source_item_type = source_record.get("iterable_item_type")
+                    if source_item_type == target_item_type:
+                        score += 12
+                    elif source_item_type:
+                        try:
+                            if type_catalog.is_subtype(source_item_type, target_item_type):
+                                score += 8
+                        except CatalogError:
+                            pass
             if shape in {"tuple", "list", "set", "dict"}:
                 if structure == shape:
                     score += 8

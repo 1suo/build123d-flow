@@ -256,7 +256,7 @@ async function invoke(method, payload) {
   if (method === "getProviderDefinitions") {
     const result = pyodide.runPython(
       "import json, flow_runtime, perigram_graph; " +
-      "items=json.loads(flow_runtime.catalog_json()); " +
+      "items=flow_runtime.discover(include_full=True); " +
       "json.dumps(perigram_graph.provider_definitions({item['id']: item for item in items}))"
     );
     return JSON.parse(result);

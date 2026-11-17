@@ -2304,7 +2304,7 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
             grouped_names.setdefault(group_index, []).append(name)
             grouped_matching[group_index] = group_matching
     if len(grouped_names) == 1:
-        group_inputs, group_index = next(iter(grouped_names.items()))
+        group_index, group_inputs = next(iter(grouped_names.items()))
         group_mode = grouped_matching[group_index]
         if group_mode != matching:
             return _map_item_inputs(

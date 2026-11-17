@@ -2547,7 +2547,12 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
         child_shapes = dict(stream_shapes)
         for name, value in zip(names, row):
             child[name] = value
-            if stream_shapes[name] == "list" or not isinstance(value, (list, tuple)):
+            if stream_shapes[name] == "list" and isinstance(value, list):
+                # Runtime loop mapping can introduce additional nested
+                # branches even when the declared producer is a flat list.
+                # Promote that branch to a tree and keep mapping recursively.
+                child_shapes[name] = "tree"
+            elif stream_shapes[name] == "list" or not isinstance(value, (list, tuple)):
                 child_shapes.pop(name, None)
         results.append(_map_item_inputs(
             child, child_shapes, invoke, matching, path + (index,), depth + 1,

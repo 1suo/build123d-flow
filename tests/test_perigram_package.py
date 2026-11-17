@@ -34,11 +34,13 @@ class PerigramPluginPackageTests(unittest.TestCase):
                 },
             }), encoding="utf-8")
 
+            (root / "PERIGRAM_PLUGIN.md").write_text("Installation notes", encoding="utf-8")
             result = package_plugin(dist, listing_path, output)
             self.assertEqual(result, output)
             with ZipFile(output) as archive:
                 names = set(archive.namelist())
             self.assertIn("listing.json", names)
+            self.assertIn("README.md", names)
             self.assertIn("perigram-runtime.js", names)
             self.assertIn("preview/build123d-preview.js", names)
             self.assertIn("python/wheels/test-wheel.whl", names)

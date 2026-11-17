@@ -35,7 +35,7 @@ endpoints, and non-JSON values.
 The adapter tests run without importing build123d or OCP. CI additionally
 checks generated node definitions with the actual
 `@perigram/plugin-sdk/nodes` validator and graph documents with the actual
-`packages/core` graph validator from Perigram's `staging` branch. This is
+`packages/core` graph validator from the pinned Perigram revision `b5e2065f839854c1695aec742faa94dcf3a39824`. This is
 stronger than a local copy of those schemas, but it does not yet prove
 provider dispatch or runtime execution.
 

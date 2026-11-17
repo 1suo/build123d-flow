@@ -75,16 +75,25 @@ test("Perigram runtime dispatches invocation inputs and graph execution identity
   runtime.dispose();
 });
 
-test("builder scopes require a per-evaluation execution id", async () => {
+test("builder scope operations share the graph session when the host omits a run id", async () => {
   const worker = new FakeWorker();
   const runtime = await createRuntime({ createWorker: () => worker });
-  await assert.rejects(
-    runtime.execute("core.python.scope.binding", {
-      node: { id: "scope-node" },
-      config: { graphId: "graph-1", executionScopePath: ["scope-1"] },
-      inputs: {}
-    }, {}),
-    /requires a host executionId/
-  );
+  const context = {};
+  await runtime.execute("core.python.scope.binding", {
+    node: { id: "scope-node" },
+    config: { graphId: "graph-1", executionScopePath: ["scope-1"] },
+    inputs: {},
+    context
+  }, {});
+  await runtime.execute("build123d.Box", {
+    node: { id: "box-node" },
+    config: { graphId: "graph-1", executionScopePath: ["scope-1"] },
+    inputs: { width: 2 },
+    context
+  }, {});
+  const executions = worker.messages.filter(item => item.method === "executeDiscoveredOperation");
+  assert.equal(executions.length, 2);
+  assert.equal(executions[0].payload.config.executionId, "graph-1");
+  assert.equal(executions[1].payload.config.executionId, "graph-1");
   runtime.dispose();
 });

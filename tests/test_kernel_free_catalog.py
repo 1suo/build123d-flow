@@ -659,6 +659,7 @@ wire = Wire.make_circle(5)
 
     def test_vector_iterability_is_discovered_for_iterable_overloads(self):
         vector = self.catalog.resolve_type("Vector")
+        self.assertTrue(vector.get("supports_iteration"))
         self.assertEqual(vector.get("iterable_item_type"), "Number")
         graph = runtime.import_python_code("""
 from build123d import Vector, Vertex
@@ -700,10 +701,12 @@ vertex = Vertex(Vector(1, 2, 3))
 
     def test_non_string_class_mapping_keys_survive_literal_serialization(self):
         graph = runtime.import_python_code("""
-class Lookup:
+class Lookup(BasePartObject):
     values = {4: "tetrahedron", 6: "cube"}
     def __init__(self, face_count):
-        self.value = self.values[face_count]
+        selected = self.values[face_count]
+        super().__init__(part=Box(1, 1, 1))
+        self.label = selected
 item = Lookup(4)
 """)
         serialized = repr(graph)

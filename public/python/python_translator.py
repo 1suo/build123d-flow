@@ -1088,10 +1088,24 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 return None
         return value
 
+    def serialize_discovered_value(value):
+        value_type = type(value)
+        if getattr(value_type, "__module__", "").split(".")[0] != "build123d":
+            return None
+        try:
+            record = catalog.resolve_type(
+                value_type.__module__ + "." + value_type.__name__
+            )
+        except CatalogError:
+            return None
+        if record.get("is_geometry"):
+            return None
+        return _serialize_discovered_value(value)
+
     def is_discovered_literal(value):
         if value is None or isinstance(value, (bool, int, float, str, enum.Enum)):
             return True
-        return _serialize_discovered_value(value) is not None
+        return serialize_discovered_value(value) is not None
 
     def literal_json_value(value):
         if isinstance(value, enum.Enum):
@@ -1113,7 +1127,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             return {"__flow_tuple__": [literal_json_value(item) for item in value]}
         if isinstance(value, list):
             return [literal_json_value(item) for item in value]
-        serialized = _serialize_discovered_value(value)
+        serialized = serialize_discovered_value(value)
         if serialized is not None:
             return literal_json_value(serialized)
         return value
@@ -3419,7 +3433,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             return {key: encode_scope_value(item) for key, item in value.items()}
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
-        serialized = _serialize_discovered_value(value)
+        serialized = serialize_discovered_value(value)
         if serialized is not None:
             return encode_scope_value(serialized)
         raise ValueError("Unsupported context-manager argument value: " + type(value).__name__)

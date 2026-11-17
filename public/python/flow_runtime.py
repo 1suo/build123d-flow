@@ -2464,6 +2464,131 @@ def _graph_plan(nodes, edges):
     return incoming, outgoing, order
 
 
+def execute_discovered_operation(operation_id, inputs, config=None):
+    """Execute one catalog operation for a host-owned procedural graph.
+
+    The host supplies already-resolved port values and owns graph traversal.
+    This function owns only Python invocation semantics and item mapping.
+    """
+    config = config or {}
+    if config.get("executionScopePath"):
+        raise RuntimeError(
+            "This stateless operation dispatcher cannot execute nodes inside "
+            "Python context-manager scopes"
+        )
+    if not isinstance(inputs, collections.abc.Mapping):
+        raise TypeError("Operation inputs must be a port-id mapping")
+    definition = _CATALOG.get(operation_id)
+    if definition is None:
+        raise KeyError("Unknown discovered operation: " + str(operation_id))
+    params = dict(inputs)
+    callable_obj = _resolve_callable(operation_id)
+    signature = _CATALOG_SIGNATURES.get(operation_id)
+    hint_target = _CATALOG_HINT_TARGETS.get(operation_id)
+
+    receiver_socket = next(
+        (item for item in definition.get("inputs", [])
+         if item.get("name") in {"self", "cls"}),
+        None,
+    )
+    signature_parameters = list(signature.parameters.values()) if signature else []
+    is_instance_method = (
+        receiver_socket is not None
+        and signature_parameters
+        and signature_parameters[0].name == receiver_socket["name"]
+        and ".operator." not in operation_id
+        and not operation_id.startswith("core.python.method.")
+    )
+    if is_instance_method:
+        receiver_name = receiver_socket["name"]
+        method_name = operation_id.rsplit(".", 1)[-1]
+        bound_signature = signature.replace(parameters=signature_parameters[1:])
+
+        def invoke(mapped):
+            receiver_value = _coerce_graph_receiver(
+                mapped.get(receiver_name), receiver_socket
+            )
+            if receiver_value is None:
+                raise TypeError(
+                    "Method {} requires receiver input '{}'".format(
+                        method_name, receiver_name
+                    )
+                )
+            bound_method = getattr(receiver_value, method_name)
+            arguments = {
+                name: value for name, value in mapped.items()
+                if name != receiver_name
+                and not name.startswith("__flow_iteration_")
+            }
+            return _call_with_coercion(
+                bound_method,
+                arguments,
+                signature=bound_signature,
+                hint_target=hint_target,
+            )
+    else:
+        invoke = lambda mapped: _call_with_coercion(
+            callable_obj,
+            {
+                name: value for name, value in mapped.items()
+                if not name.startswith("__flow_iteration_")
+            },
+            signature=signature,
+            hint_target=hint_target,
+        )
+
+    operator_method = definition.get("operator", {}).get("method")
+    if operator_method in _PYTHON_BINARY_OPERATORS:
+        native_invoke = invoke
+
+        def invoke(mapped):
+            return _invoke_discovered_operator_callable(
+                native_invoke, operator_method, mapped, signature
+            )
+
+    condition_names = [
+        socket.get("name") for socket in definition.get("inputs", [])
+        if str(socket.get("name", "")).startswith("__flow_condition_")
+    ]
+    if condition_names:
+        unguarded_invoke = invoke
+
+        def invoke(mapped):
+            if any(not bool(mapped.get(name, False)) for name in condition_names):
+                return None
+            return unguarded_invoke({
+                name: value for name, value in mapped.items()
+                if name not in condition_names
+            })
+
+    stream_shapes = {}
+    for socket in definition.get("inputs", []):
+        name = socket.get("name")
+        if name not in params:
+            continue
+        access = socket.get("data_access")
+        if access is None:
+            access = "structure" if _socket_data_structure(socket) != "item" else "item"
+        value = params[name]
+        if access == "item" and isinstance(value, (list, tuple)):
+            stream_shapes[name] = (
+                "tree"
+                if any(isinstance(item, (list, tuple)) for item in value)
+                else "list"
+            )
+    result = _map_item_inputs(
+        params,
+        stream_shapes,
+        invoke,
+        matching=config.get(
+            "dataMatching",
+            definition.get("data_matching", "longest"),
+        ),
+        _validate=lambda: _validate_stream_items(definition, params, stream_shapes),
+    )
+    return {"result": result}
+
+
 def evaluate_graph_json(payload, include_previews=True):
     """Evaluate a graph; optionally skip viewport tessellation for kernel acceptance."""
     global _LAST_SHAPE

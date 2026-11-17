@@ -3441,7 +3441,7 @@ def export_python_code(payload):
                             return "b3d.{}({})".format(object_type, scope_code_value(value["value"]))
                         raise ValueError(
                             "Discovered value object has no reconstruction contract: " + object_type
-                        )"
+                        )
                     return "{" + ", ".join(repr(key) + ": " + scope_code_value(item)
                                             for key, item in value.items()) + "}"
                 return repr(value)

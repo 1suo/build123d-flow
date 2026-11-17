@@ -37,6 +37,7 @@ export interface CadPortDefinition {
   readonly itemTypeLabel?: string;
   readonly itemGeometry?: boolean;
   readonly dataShape?: SocketDataShape;
+  readonly dataRepresentation?: "value" | "collection" | "dynamic";
   readonly access?: CadInputAccess;
   readonly required?: boolean;
   readonly defaultValue?: unknown;
@@ -163,6 +164,8 @@ function semanticValueType(type: string, typeId?: string): CadValueType {
 }
 
 function portCollection(socket: SocketDefinition): CadCollectionShape {
+  // Alternate encodings of one nominal value must never become a stream.
+  if (socket.data_representation === "value") return "item";
   // Recursive discovery metadata is authoritative; the flat field is legacy.
   const shape = socket.data_shape?.kind ?? socket.data_structure ?? "item";
   if (shape === "dict") return "map";
@@ -185,6 +188,7 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
     ...(socket.is_geometry ? { isGeometry: true } : {}),
     collection,
     ...(socket.data_shape ? { dataShape: socket.data_shape } : {}),
+    ...(socket.data_representation ? { dataRepresentation: socket.data_representation } : {}),
     ...(collection !== "item" ? {
       itemType: valueType,
       itemTypeLabel: sourceType,

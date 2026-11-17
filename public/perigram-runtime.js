@@ -181,6 +181,8 @@ export async function createRuntime({ createWorker } = {}) {
     },
 
     async clearExecution(executionId) {
+      if (disposed) return false;
+      if (!activeState && !statePromise) return false;
       const state = await ensureWorker();
       return await state.call("clearExecution", { executionId: String(executionId) });
     },

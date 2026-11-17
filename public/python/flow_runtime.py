@@ -2873,8 +2873,113 @@ def evaluate_graph_json(payload, include_previews=True):
 
 
 
+def _resolve_discovered_type(identity):
+    """Resolve a type from the runtime-discovered registry, never a family allowlist."""
+    if not isinstance(identity, str) or not identity:
+        return None
+    record = _TYPE_REGISTRY.get(identity)
+    if record is None:
+        matches = [
+            item for item in _TYPE_REGISTRY.values()
+            if item.get("name") == identity
+        ]
+        if len(matches) > 1:
+            raise TypeError(
+                "Ambiguous discovered type {!r}: {}".format(
+                    identity, ", ".join(item["id"] for item in matches)
+                )
+            )
+        record = matches[0] if matches else None
+    if record is not None:
+        module = importlib.import_module(record["module"])
+        return getattr(module, record["name"])
+    # During early bootstrap the registry may not yet be populated. Resolve
+    # only an actual public symbol exported by the loaded build123d package.
+    if b3d is not None and "." not in identity:
+        return getattr(b3d, identity, None)
+    return None
+
+
+def _construct_discovered_type(annotation, value):
+    """Construct a discovered value type from its JSON-shaped public value."""
+    if isinstance(value, collections.abc.Mapping):
+        try:
+            return annotation(**value)
+        except (TypeError, ValueError):
+            return annotation(value)
+    if isinstance(value, (list, tuple)):
+        try:
+            signature = inspect.signature(annotation)
+            parameters = list(signature.parameters.values())
+            positional = [
+                item for item in parameters
+                if item.kind in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
+            has_varargs = any(
+                item.kind == inspect.Parameter.VAR_POSITIONAL
+                for item in parameters
+            )
+        except (TypeError, ValueError):
+            positional, has_varargs = [], True
+        if len(positional) > 1 or has_varargs:
+            try:
+                return annotation(*value)
+            except (TypeError, ValueError):
+                pass
+        try:
+            return annotation(value)
+        except (TypeError, ValueError):
+            return annotation(*value)
+    return annotation(value)
+
+
+def _restore_discovered_value(value):
+    """Restore catalog-serialized enums and public objects recursively."""
+    if isinstance(value, list):
+        return [_restore_discovered_value(item) for item in value]
+    if not isinstance(value, collections.abc.Mapping):
+        return value
+    if "__flow_enum__" in value:
+        module_name, class_name, member_name = value["__flow_enum__"]
+        enum_type = getattr(importlib.import_module(module_name), class_name)
+        return getattr(enum_type, member_name)
+    if "__flow_object__" in value:
+        annotation = _resolve_discovered_type(str(value["__flow_object__"]))
+        if annotation is None:
+            raise TypeError(
+                "Value references undiscovered type: " + str(value["__flow_object__"])
+            )
+        if "args" in value or "kwargs" in value:
+            args = _restore_discovered_value(value.get("args", []))
+            kwargs = _restore_discovered_value(value.get("kwargs", {}))
+            return annotation(*args, **kwargs)
+        if "origin" in value and "x_dir" in value and "z_dir" in value:
+            return annotation(
+                origin=_restore_discovered_value(value["origin"]),
+                x_dir=_restore_discovered_value(value["x_dir"]),
+                z_dir=_restore_discovered_value(value["z_dir"]),
+            )
+        if "value" in value:
+            return _construct_discovered_type(
+                annotation, _restore_discovered_value(value["value"])
+            )
+        raise TypeError(
+            "Discovered object value has no constructor payload: "
+            + str(value["__flow_object__"])
+        )
+    return {
+        key: _restore_discovered_value(item)
+        for key, item in value.items()
+    }
+
+
 def _coerce_annotation(value, annotation):
-    """Convert JSON-shaped values into the Python collection and geometry types a method declares."""
+    """Restore and coerce values using discovered type metadata and annotations."""
+    if isinstance(value, (list, collections.abc.Mapping)):
+        value = _restore_discovered_value(value)
     if annotation is None or annotation is inspect.Signature.empty or annotation is typing.Any:
         return value
     origin = typing.get_origin(annotation)
@@ -2883,42 +2988,6 @@ def _coerce_annotation(value, annotation):
         if value is None and type(None) in args:
             return None
         candidates = [candidate for candidate in args if candidate is not type(None)]
-        # If a union accepts both a domain object and its fixed tuple
-        # representation, try the object constructor generically before
-        # falling back to the tuple alternative.
-        if isinstance(value, (list, tuple)) and any(
-            typing.get_origin(candidate) is tuple for candidate in candidates
-        ):
-            object_candidates = [
-                candidate for candidate in candidates
-                if inspect.isclass(candidate)
-                and not issubclass(candidate, (str, bytes, bool, int, float, complex))
-            ]
-            for candidate in object_candidates:
-                try:
-                    return candidate(value)
-                except Exception:
-                    continue
-        # A CAD value may itself be iterable (Shape, Sketch, Compound).
-        # When a union accepts both that domain object and Iterable[Domain],
-        # preserve an already-correct object before considering collection
-        # coercion. Otherwise an overloaded method silently receives a list
-        # of its faces/solids instead of the original shape.
-        for candidate in candidates:
-            candidate_types = []
-            if inspect.isclass(candidate):
-                candidate_types.append(candidate)
-            elif isinstance(candidate, typing.TypeVar):
-                candidate_types.extend(candidate.__constraints__)
-                if candidate.__bound__ is not None:
-                    candidate_types.append(candidate.__bound__)
-            for candidate_type in candidate_types:
-                if inspect.isclass(candidate_type):
-                    try:
-                        if isinstance(value, candidate_type):
-                            return value
-                    except TypeError:
-                        continue
         for candidate in candidates:
             try:
                 converted = _coerce_annotation(value, candidate)
@@ -2926,7 +2995,7 @@ def _coerce_annotation(value, annotation):
                     inspect.isclass(candidate) and isinstance(value, candidate)
                 ):
                     return converted
-            except Exception:
+            except (TypeError, ValueError):
                 continue
         return value
     if origin in (list, collections.abc.Sequence, collections.abc.MutableSequence,
@@ -2936,69 +3005,46 @@ def _coerce_annotation(value, annotation):
     if origin is tuple:
         if len(args) == 2 and args[1] is Ellipsis:
             return tuple(_coerce_annotation(item, args[0]) for item in value)
-        return tuple(_coerce_annotation(item, args[index] if index < len(args) else typing.Any)
-                     for index, item in enumerate(value))
+        return tuple(
+            _coerce_annotation(item, args[index] if index < len(args) else typing.Any)
+            for index, item in enumerate(value)
+        )
     if origin in (set, frozenset, collections.abc.Set, collections.abc.MutableSet):
         item_type = args[0] if args else typing.Any
         items = (_coerce_annotation(item, item_type) for item in value)
         return frozenset(items) if origin is frozenset else set(items)
     if origin in (dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping):
         key_type, value_type = args if len(args) > 1 else (typing.Any, typing.Any)
-        return {_coerce_annotation(key, key_type): _coerce_annotation(item, value_type)
-                for key, item in value.items()}
+        return {
+            _coerce_annotation(key, key_type): _coerce_annotation(item, value_type)
+            for key, item in value.items()
+        }
     if origin is typing.Literal:
         if value in args:
             return value
         raise ValueError("Expected one of: " + ", ".join(map(str, args)))
     if inspect.isclass(annotation):
         try:
+            if isinstance(value, annotation):
+                return value
+        except TypeError:
+            pass
+        try:
             if issubclass(annotation, enum.Enum):
-                return value if isinstance(value, annotation) else annotation[value] if isinstance(value, str) else annotation(value)
+                return annotation[value] if isinstance(value, str) else annotation(value)
         except (TypeError, KeyError, ValueError):
             pass
-        name = annotation.__name__.lower()
-        if name == "vector" and isinstance(value, (list, tuple)):
-            return b3d.Vector(*value)
-        if name == "rotation" and isinstance(value, (list, tuple)):
-            return b3d.Rotation(tuple(value))
-        if name == "plane" and isinstance(value, dict):
-            return b3d.Plane(**value)
-        if name == "location" and isinstance(value, dict):
-            return b3d.Location(**value)
-        if name == "location" and isinstance(value, (list, tuple)):
-            return b3d.Location(*value)
-        if name == "axis" and isinstance(value, (list, tuple)):
-            return b3d.Axis(*value)
-        if name == "color" and isinstance(value, (list, tuple)):
-            return b3d.Color(*value)
-        if name == "matrix" and isinstance(value, (list, tuple)):
-            # A 4×3 affine row list is the JSON shape of a Matrix.
-            return b3d.Matrix(value if any(isinstance(row, (list, tuple)) for row in value) else [list(value)])
-        if annotation is bool:
-            return bool(value)
-        if annotation is int:
-            return int(value)
-        if annotation is float:
-            return float(value)
-        if annotation is str:
-            return str(value)
+        if annotation in (bool, int, float, str):
+            return annotation(value)
+        if isinstance(value, (list, tuple, collections.abc.Mapping)):
+            return _construct_discovered_type(annotation, value)
     return value
 
 
 def _coerce_graph_receiver(value, socket):
-    """Restore JSON-serialized build123d value objects before native method lookup."""
-    value_types = {
-        "Vector2": b3d.Vector,
-        "Vector3": b3d.Vector,
-        "Rotation": b3d.Rotation,
-        "Plane": b3d.Plane,
-        "Location": b3d.Location,
-        "Axis": b3d.Axis,
-        "Color": b3d.Color,
-        "Matrix": b3d.Matrix,
-    }
-    annotation = value_types.get(socket.get("type"))
-    return _coerce_annotation(value, annotation) if annotation is not None else value
+    """Restore a receiver using its discovered semantic type identity."""
+    annotation = _resolve_discovered_type(socket.get("type"))
+    return _coerce_annotation(value, annotation)
 
 
 def _call_with_coercion(callable_obj, params, signature=None, hint_target=None):

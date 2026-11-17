@@ -57,6 +57,8 @@ jobs:
           key: ${{ steps.pyodide-staged-cache.outputs.cache-primary-key }}
       - name: Install JavaScript dependencies
         run: npm install
+      - name: Test Perigram JavaScript runtime entry
+        run: node --test tests/perigram-runtime-entry.test.mjs
       - name: Production build
         run: npm run build
         env:

@@ -275,10 +275,19 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
             raise PerigramGraphError(f"Node {node_id} has no discovered operation identity")
         provider = _operation_provider(definition)
         raw_params = data.get("params") or {}
+        raw_inputs = list(definition.get("inputs", []))
+        input_aliases = {
+            _port_identifier(str(port.get("name") or port.get("id") or "")):
+                str(port.get("name") or port.get("id") or "")
+            for port in raw_inputs
+            if _port_identifier(str(port.get("name") or port.get("id") or ""))
+                != str(port.get("name") or port.get("id") or "")
+        }
         config = {
             "parameters": {
                 _port_identifier(name): value for name, value in raw_params.items()
             },
+            "pythonPortNames": {"inputs": input_aliases},
             "executionScopePath": data.get("execution_scope_path") or [],
             # Perigram invokes operations individually. Carry the source
             # context-manager descriptors with each node so a stateful

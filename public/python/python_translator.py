@@ -412,8 +412,12 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                         output_socket["item_types"] = receiver_output["item_types"]
             if (
                 output_socket.get("item_type") in (None, "", "Any")
-                and (output_socket.get("data_structure") == "list"
-                     or output_socket.get("type") in {"List", "Locations", "LocationList", "ShapeList"})
+                and (
+                    output_socket.get("data_structure") in {"list", "tree", "set"}
+                    or bool(
+                        type_catalog.resolve_type(output_socket.get("type", "")).get("supports_iteration")
+                    )
+                )
                 and linked_item_types
             ):
                 output_socket["item_type"] = linked_item_types[0]

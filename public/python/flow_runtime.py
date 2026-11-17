@@ -702,9 +702,9 @@ def _register_kernel_discovery_overrides():
     if b3d is None:
         raise RuntimeError("build123d is required for API discovery")
     for method, presentation in {
-        "__add__": {"name": "Shape + (Union)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-        "__sub__": {"name": "Shape − (Difference)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-        "__and__": {"name": "Shape & (Intersection)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
+        "__add__": {"name": "Shape + (Union)", "category": "Shape Operators", "palette_category": "API", "palette_section": "Discovered operators"},
+        "__sub__": {"name": "Shape − (Difference)", "category": "Shape Operators", "palette_category": "API", "palette_section": "Discovered operators"},
+        "__and__": {"name": "Shape & (Intersection)", "category": "Shape Operators", "palette_category": "API", "palette_section": "Discovered operators"},
     }.items():
         node_id = b3d.Shape.__module__ + "." + b3d.Shape.__name__ + ".operator." + method
         _NODE_METADATA_OVERRIDES[node_id] = presentation
@@ -721,7 +721,8 @@ _FLOW_PALETTE = {
     "Utilities": ("Math", "Numeric utilities"),
     "Constants": ("Math", "Constants"),
     "Values": ("Data", "Literal values"),
-    "Boolean": ("Boolean", "Boolean operations"),
+    # Boolean value/logic nodes share the Logic palette; there is no Boolean tab.
+    "Boolean": ("Logic", "Boolean operations"),
     "Preview": ("Inspect", "Preview styling"),
 }
 

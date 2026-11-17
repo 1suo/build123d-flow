@@ -417,6 +417,8 @@ def _semantic_annotation(annotation):
         dict, typing.Dict, collections.abc.Mapping,
         collections.abc.MutableMapping,
     }
+    if origin is tuple:
+        return None
     if origin in collection_origins:
         return _semantic_annotation(args[0]) if args else None
     if origin in mapping_origins:
@@ -427,7 +429,9 @@ def _semantic_annotation(annotation):
         for candidate in candidates:
             candidate_origin = typing.get_origin(candidate)
             candidate_args = typing.get_args(candidate)
-            if candidate_origin in collection_origins:
+            if candidate_origin is tuple:
+                candidate = None
+            elif candidate_origin in collection_origins:
                 candidate = candidate_args[0] if candidate_args else None
             elif candidate_origin in mapping_origins:
                 candidate = candidate_args[1] if len(candidate_args) > 1 else None

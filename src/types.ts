@@ -34,6 +34,8 @@ export interface SocketDefinition {
   value_type?: SocketType;
   /** Recursive structure, including tuple positions and map key/value types. */
   data_shape?: SocketDataShape;
+  /** Whether a collection-shaped alternative encodes one nominal value or a stream. */
+  data_representation?: "value" | "collection" | "dynamic";
   /** Legacy outer shape retained for older catalog consumers. */
   data_structure?: "item" | "list" | "tree" | "tuple" | "set" | "dict";
   /** How an input consumes incoming data: one item at a time or as a whole structure. */

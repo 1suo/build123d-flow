@@ -30,7 +30,6 @@ from type_catalog import CatalogError, TypeCatalog
 class TranslatorServices(typing.NamedTuple):
     """Narrow runtime services required to lower syntax into graph records."""
 
-    b3d: object
     catalog_nodes: dict
     internal_node_ids: set
     catalog_callables: dict
@@ -57,7 +56,8 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
     if not isinstance(catalog, TypeCatalog):
         raise TypeError("Translator requires an explicit versioned TypeCatalog")
     # Bind the current production catalog/evaluator contract explicitly for this translation.
-    b3d = services.b3d
+    # Translation must never receive or inspect live CAD-kernel objects.
+    b3d = None
     _CATALOG = services.catalog_nodes
     _INTERNAL_NODE_IDS = services.internal_node_ids
     _CATALOG_CALLABLES = services.catalog_callables

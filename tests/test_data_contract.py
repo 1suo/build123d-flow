@@ -87,7 +87,7 @@ class RecursiveDataContractTests(unittest.TestCase):
                 return (1, 2, 3)[index]
 
         socket = runtime._receiver_socket(IterableDomain)
-        self.assertEqual(socket["type"], "Any")
+        self.assertEqual(socket["type"], "IterableDomain")
         self.assertEqual(socket["data_access"], "item")
         self.assertNotIn("data_structure", socket)
 

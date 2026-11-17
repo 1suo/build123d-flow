@@ -74,6 +74,21 @@ result = box + cylinder
         self.assertIsNone(runtime.b3d)
         self.assertNotIn("build123d", sys.modules)
 
+    def test_extracted_translator_module_is_kernel_free(self):
+        from python_translator import import_python_code
+
+        source = """
+from build123d import Box, Cylinder
+box = Box(10, 10, 10)
+cylinder = Cylinder(2, 10)
+result = box + cylinder
+"""
+        graph = import_python_code(source, runtime)
+        self.assertTrue(graph.get("nodes"))
+        self.assertIsNone(runtime.b3d)
+        self.assertNotIn("build123d", sys.modules)
+        self.assertNotIn("OCP", sys.modules)
+
     def test_upstream_graph_validator_rejects_unregistered_embedded_node(self):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))

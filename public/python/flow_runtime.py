@@ -690,14 +690,6 @@ def _invoke_discovered_operator_callable(native_invoke, method, mapped, signatur
     return operation(receiver, operand)
 
 
-def _register_kernel_discovery_overrides():
-    """Register presentation overrides only when the real kernel is available."""
-    if b3d is None:
-        raise RuntimeError("build123d is required for API discovery")
-    # Native operators retain their discovered owner, signature, and provenance.
-    # Palette semantics are not rewritten by a Shape-specific hardcoded table.
-
-
 _FLOW_PALETTE = {
     "Math": ("Math", "Arithmetic & trigonometry"),
     "Logic": ("Logic", "Logic"),
@@ -709,7 +701,6 @@ _FLOW_PALETTE = {
     "Utilities": ("Math", "Numeric utilities"),
     "Constants": ("Math", "Constants"),
     "Values": ("Data", "Literal values"),
-    "Boolean": ("Boolean", "Boolean operations"),
     "Preview": ("Inspect", "Preview styling"),
 }
 
@@ -1290,7 +1281,6 @@ def discover(include_full=True):
     global _CATALOG, _CATALOG_CALLABLES, _CATALOG_SIGNATURES, _CATALOG_HINT_TARGETS, _EVAL_CACHE, _PREVIEW_CACHE, _SYMBOL_REGISTRY
     if b3d is None:
         raise RuntimeError("build123d is required for API discovery; load a generated catalog instead")
-    _register_kernel_discovery_overrides()
     found = {}
     callables = {}
     signatures = {}

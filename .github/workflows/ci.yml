@@ -23,8 +23,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Test Perigram graph adapter (kernel-free)
-        run: PYTHONPATH=public/python python -m unittest discover -s tests -p 'test_perigram_graph.py' -v
+      - name: Test kernel-free translator and discovered value contracts
+        run: PYTHONPATH=public/python python -m unittest discover -s tests -p 'test_*.py' -v
       - uses: actions/checkout@v4
         with:
           repository: Perigram/perigram

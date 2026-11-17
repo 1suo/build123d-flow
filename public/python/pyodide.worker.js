@@ -105,15 +105,18 @@ async function loadSources(baseUrl) {
     fetchText(perigramAdapterUrl, "Perigram graph adapter")
   ]);
   validateRuntimeSource(runtime, runtimeUrl.href);
-  if (!/^class\\s+TranslatorServices\\b/m.test(translator) ||
-      !/^def\\s+import_python_code\\s*\\(/m.test(translator)) {
+  if (!catalog.includes("class TypeCatalog")) {
+    throw new Error("Refusing incomplete type catalog from " + catalogUrl.href);
+  }
+  if (!translator.includes("class TranslatorServices") ||
+      !translator.includes("def import_python_code(")) {
     throw new Error("Refusing incomplete Python translator from " + translatorUrl.href);
   }
-  if (!/^def\\s+provider_definitions\\s*\\(/m.test(perigramAdapter)) {
+  if (!perigramAdapter.includes("def provider_definitions(")) {
     throw new Error("Refusing incomplete Perigram adapter from " + perigramAdapterUrl.href);
   }
   const sourceRevision = await fingerprint(
-    setup + "\\0" + runtime + "\\0" + catalog + "\\0" + translator + "\\0" + perigramAdapter
+    [setup, runtime, catalog, translator, perigramAdapter].join(String.fromCharCode(0))
   );
   return { setup, runtime, catalog, translator, perigramAdapter, sourceRevision };
 }

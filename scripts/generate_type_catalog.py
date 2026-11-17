@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Generate the versioned build123d API catalog from the installed real kernel."""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from importlib.metadata import version
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PYTHON_DIR = ROOT / "public" / "python"
+sys.path.insert(0, str(PYTHON_DIR))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+
+    import flow_runtime
+
+    payload = json.loads(flow_runtime.catalog_bundle_json())
+    ocp_version = version("cadquery-ocp-novtk")
+    if ocp_version != "8.0.1.1.0":
+        raise SystemExit("Expected cadquery-ocp-novtk 8.0.1.1.0, discovered " + ocp_version)
+    payload["ocp_distribution_version"] = ocp_version
+    payload["python_version"] = sys.version.split()[0]
+    expected_build123d_version = "0.13.1.dev342+g03b257b1c"
+    if payload.get("build123d_version") != expected_build123d_version:
+        raise SystemExit(
+            "Expected build123d from upstream corpus commit {} ({}), discovered {}".format(
+                "03b257b1ce8f15c9f9c3fb726533798578b3f1c3",
+                expected_build123d_version,
+                payload.get("build123d_version"),
+            )
+        )
+    if not payload.get("types") or not payload.get("nodes"):
+        raise SystemExit("Discovery produced an empty type or node registry")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        "Generated build123d {} catalog: {} types, {} nodes".format(
+            payload["build123d_version"], len(payload["types"]), len(payload["nodes"])
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

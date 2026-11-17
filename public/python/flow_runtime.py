@@ -241,11 +241,19 @@ def _receiver_socket(owner):
         collections.abc.Set, collections.abc.MutableSet,
     })
     if collection_receiver:
+        if dict in declared_bases or collections.abc.Mapping in declared_bases:
+            structure, socket_type = "dict", "Dict"
+        elif set in declared_bases or frozenset in declared_bases or collections.abc.Set in declared_bases:
+            structure, socket_type = "set", "Set"
+        elif tuple in declared_bases:
+            structure, socket_type = "tuple", "Tuple"
+        else:
+            structure, socket_type = "list", "List"
         return {
-            "name": "self", "label": "collection", "type": "List",
+            "name": "self", "label": "collection", "type": socket_type,
             "annotation": str(owner), "required": True,
             "variants": [receiver_type],
-            "data_structure": "list", "item_type": "Any",
+            "data_structure": structure, "item_type": "Any",
             "data_access": "structure",
         }
     return {

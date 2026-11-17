@@ -1,14 +1,13 @@
 # Minimal browser bootstrap for build123d-flow.
-# Unlike build123d-sandbox, this app renders tessellated meshes in Three.js
-# and does not need ocp_vscode / ocp-tessellate.
+# The application renders tessellated meshes in Three.js and does not use
+# build123d's optional ocp_vscode / ocp-tessellate presentation stack.
 
 import micropip
-import importlib.metadata
 import os
 import json
 from pathlib import Path
 
-restored_environment = os.environ.get('BUILD123D_FLOW_ENV_RESTORED') == '1'
+restored_environment = os.environ.get("BUILD123D_FLOW_ENV_RESTORED") == "1"
 
 micropip.set_index_urls([])
 OCP_VERSION = "8.0.1.1.post202609241841"
@@ -16,7 +15,7 @@ OCP_VERSION = "8.0.1.1.post202609241841"
 print("Preparing browser-compatible dependencies…")
 
 # Pillow's native extension is unavailable in Pyodide. build123d only needs
-# this small color parser in the paths used by this app.
+# this small color parser in the paths used by this application.
 micropip.add_mock_package("pillow", "12.2.0", modules={
     "PIL": "",
     "PIL.Image": "",
@@ -42,20 +41,20 @@ micropip.add_mock_package("pillow", "12.2.0", modules={
 micropip.add_mock_package("cadquery-ocp-novtk", OCP_VERSION, modules={})
 micropip.add_mock_package("cadquery-ocp", OCP_VERSION, modules={})
 
-# build123d imports this package only for optional GLTF PBR material injection.
-# The app has its own Three.js renderer and does not expose build123d's GLTF
-# material pipeline. Keep ordinary build123d imports lightweight; fail explicitly
-# if that unsupported export path is invoked with PBR materials.
+# build123d imports this package for optional GLTF PBR material injection.
+# The app has its own Three.js renderer; unsupported PBR export must fail
+# explicitly rather than replacing or mutating upstream build123d behavior.
 micropip.add_mock_package("threejs-materials", "1.2.5", modules={
     "threejs_materials": (
         "class PbrProperties: pass\n"
         "def inject_materials(*args, **kwargs):\n"
-        "    raise NotImplementedError('GLTF PBR material injection is not available in build123d-flow')\n"
+        "    raise NotImplementedError('GLTF PBR material injection is unavailable in build123d-flow')\n"
     ),
 })
 
-# build123d imports Mesher at package import time; 3MF is unused here, so
-# register the same import-only stub each session and install it only once.
+# lib3mf is unavailable in Pyodide. Register only an import-time compatibility
+# namespace so build123d itself can load. Any attempted Lib3MF operation fails
+# explicitly; never replace build123d.Mesher or any other upstream API.
 micropip.add_mock_package("lib3mf", "2.4.1", modules={
     "lib3mf": (
         "from enum import Enum\n"
@@ -64,7 +63,9 @@ micropip.add_mock_package("lib3mf", "2.4.1", modules={
         "    Inch = 3\n    Foot = 4\n    Meter = 5\n"
         "class _ObjectType(Enum):\n"
         "    Other = 0\n    Model = 1\n    Support = 2\n    SolidSupport = 3\n"
-        "class _Unavailable: pass\n"
+        "class _Unavailable:\n"
+        "    def __init__(self, *args, **kwargs):\n"
+        "        raise NotImplementedError('Lib3MF operations are unavailable in the browser runtime')\n"
         "class Lib3MF:\n"
         "    __file__ = '/lib3mf/__init__.py'\n"
         "    ModelUnit = _ModelUnit\n    ObjectType = _ObjectType\n"
@@ -78,9 +79,9 @@ if not restored_environment:
     manifest_path = Path("/python/wheels/manifest.json")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     wheel_paths = [f"emfs:/python/wheels/{item['filename']}" for item in manifest]
-    print(f"Installing {len(wheel_paths)} pre-staged PyPI wheels…")
+    print(f"Installing {len(wheel_paths)} pre-staged Python wheels…")
     await micropip.install(wheel_paths, deps=False)
-    print("Installed pre-staged PyPI wheels")
+    print("Installed pre-staged Python wheels")
 else:
     print("Restored Python environment; verifying required packages…")
 
@@ -93,96 +94,4 @@ print("Importing build123d…")
 import build123d
 import build123d.exporters
 
-# Lib3MF is a native dependency that is not available in Pyodide. Preserve the
-# useful STL-reading subset of Mesher through OCP's native STL reader; 3MF
-# operations remain explicitly unsupported in the browser runtime.
-class _BrowserMesher:
-    def __init__(self, unit=build123d.Unit.MM):
-        # Graph enum sockets cross the JS/Python boundary as option strings
-        # (for example 'MM'), while build123d.import_stl expects a Unit member.
-        if isinstance(unit, str):
-            unit_name = unit.rsplit('.', 1)[-1]
-            try:
-                unit = build123d.Unit[unit_name]
-            except KeyError:
-                unit = build123d.Unit(unit)
-        self.unit = unit
-
-    def read(self, file_name):
-        import math
-        import os
-        from OCP.BRepBuilderAPI import (
-            BRepBuilderAPI_MakeFace,
-            BRepBuilderAPI_MakePolygon,
-            BRepBuilderAPI_MakeSolid,
-            BRepBuilderAPI_Sewing,
-        )
-        from OCP.BRepGProp import BRepGProp
-        from OCP.GProp import GProp_GProps
-        from OCP.RWStl import RWStl
-        from OCP.TopAbs import TopAbs_ShapeEnum
-        from OCP.TopExp import TopExp_Explorer
-        from OCP.TopoDS import TopoDS, TopoDS_Compound
-        from build123d.topology.shape_core import downcast
-        from build123d.topology.three_d import Solid
-        from build123d.topology.two_d import Shell
-
-        if not str(file_name).lower().endswith(".stl"):
-            raise NotImplementedError("3MF import is not available in build123d-flow")
-        stl_path = os.path.abspath(os.fspath(file_name))
-        if not os.path.isfile(stl_path):
-            raise FileNotFoundError(
-                "STL file not found in browser filesystem: {} (cwd: {})".format(
-                    stl_path, os.getcwd()
-                )
-            )
-
-        # Match build123d.Mesher.read: return one editable Shape per mesh.
-        # import_stl() only creates a triangulated reference Face, which has no
-        # topological vertices/edges and cannot support the example's editing ops.
-        triangulation = RWStl.ReadFile_s(stl_path)
-        points = [triangulation.Node(i) for i in range(1, triangulation.NbNodes() + 1)]
-        sewing = BRepBuilderAPI_Sewing()
-        for index in range(1, triangulation.NbTriangles() + 1):
-            triangle = triangulation.Triangle(index)
-            vertices = [points[triangle.Value(i) - 1] for i in (1, 2, 3)]
-            polygon = BRepBuilderAPI_MakePolygon(
-                vertices[0], vertices[1], vertices[2], Close=True
-            )
-            face = BRepBuilderAPI_MakeFace(polygon.Wire()).Face()
-            properties = GProp_GProps()
-            BRepGProp.SurfaceProperties_s(face, properties)
-            if properties.Mass() != 0:
-                sewing.Add(face)
-        sewing.Perform()
-        sewed = downcast(sewing.SewedShape())
-        if isinstance(sewed, TopoDS_Compound):
-            shells = []
-            explorer = TopExp_Explorer(sewed, TopAbs_ShapeEnum.TopAbs_SHELL)
-            while explorer.More():
-                shells.append(Shell(TopoDS.Shell(explorer.Current())))
-                explorer.Next()
-        else:
-            shells = [Shell(sewed)]
-        if not shells:
-            raise ValueError("STL file contains no usable triangular faces: {}".format(stl_path))
-        outer_shell = max(shells, key=lambda shell: math.prod(shell.bounding_box().size))
-        inner_shells = [shell for shell in shells if shell is not outer_shell]
-        if not outer_shell.is_manifold:
-            shape = outer_shell
-        else:
-            solid_builder = BRepBuilderAPI_MakeSolid(outer_shell.wrapped)
-            for inner_shell in inner_shells:
-                solid_builder.Add(inner_shell.wrapped)
-            shape = Solid(solid_builder.Solid())
-        return [shape]
-
-# API discovery walks canonical module namespaces, not only the package
-# re-exports. Replace the class in both locations so discovered Mesher nodes
-# invoke the browser implementation instead of the Lib3MF-backed native class.
-import build123d.mesher as build123d_mesher
-_BrowserMesher.__module__ = build123d_mesher.__name__
-_BrowserMesher.__name__ = "Mesher"
-build123d_mesher.Mesher = _BrowserMesher
-build123d.Mesher = _BrowserMesher
 print("Imported build123d and exporters")

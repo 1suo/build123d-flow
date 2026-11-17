@@ -2453,7 +2453,10 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
         # Tree recursion follows nested loop lists, not tuple payloads such as
         # coordinates passed to Vector(*tuple(v)).
         if shape == "tree":
-            if isinstance(value, list):
+            # Only native Python lists represent mapped branches here.
+            # ShapeList and other discovered collection subclasses are
+            # semantic collection values and must remain intact as leaves.
+            if type(value) is list:
                 sequences[name] = list(value)
         elif shape in ("list", "tuple") and isinstance(value, (list, tuple)):
             sequences[name] = list(value)
@@ -2547,7 +2550,7 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
         child_shapes = dict(stream_shapes)
         for name, value in zip(names, row):
             child[name] = value
-            if stream_shapes[name] == "list" and isinstance(value, list):
+            if stream_shapes[name] == "list" and type(value) is list:
                 # Runtime loop mapping can introduce additional nested
                 # branches even when the declared producer is a flat list.
                 # Promote that branch to a tree and keep mapping recursively.

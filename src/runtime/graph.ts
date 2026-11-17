@@ -26,13 +26,16 @@ export function createGraphNode(
   };
 }
 
-const GEOMETRY_TYPES = new Set([
-  "geometry", "solid", "shell", "face", "wire", "edge", "vertex", "curve", "surface", "mesh",
-]);
-
-function compatibleTypes(source: string, target: string): boolean {
+function compatibleTypes(
+  source: string,
+  target: string,
+  sourceGeometry = false,
+  targetGeometry = false,
+): boolean {
   if (target === "any" || source === "any" || source === target) return true;
-  return target === "geometry" && GEOMETRY_TYPES.has(source);
+  if (target === "geometry") return sourceGeometry;
+  if (source === "geometry") return targetGeometry;
+  return false;
 }
 
 function portTypesCompatible(
@@ -47,8 +50,11 @@ function portTypesCompatible(
   const targetTypes = targetItems
     ? [itemType(target), ...(target.variants ?? [])]
     : [target.valueType, ...(target.variants ?? [])];
+  const sourceGeometry = sourceItems ? source.itemGeometry === true : source.geometry === true;
+  const targetGeometry = targetItems ? target.itemGeometry === true : target.geometry === true;
   return sourceTypes.some((sourceType) =>
-    targetTypes.some((targetType) => compatibleTypes(sourceType, targetType))
+    targetTypes.some((targetType) =>
+      compatibleTypes(sourceType, targetType, sourceGeometry, targetGeometry))
   );
 }
 

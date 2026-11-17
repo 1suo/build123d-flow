@@ -17,6 +17,7 @@ GRAPH_VERSION = 1
 BUILD123D_PROVIDER = "build123d"
 PYTHON_PROVIDER = "perigram.python"
 OPERATION_VERSION = "1"
+RUNTIME_ID = "build123d-pyodide"
 SUPPORTED_SHAPES = {"item", "list", "tree", "map", "tuple", "stream"}
 PROVIDER_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
 

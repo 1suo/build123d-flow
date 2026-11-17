@@ -588,9 +588,8 @@ def _annotation_metadata(annotation):
         )
         if value_representation_only and inspect.isclass(semantic_type):
             # A list/tuple of primitive components is an alternate encoding
-            # of one nominal value (for example Vector or Rotation), not a
-            # stream of independent values.
-            metadata["data_shape"] = _annotation_data_shape(semantic_type)
+            # of one nominal value (for example Vector or Rotation). Preserve
+            # the union contract but consume its representation as a whole.
             metadata["data_access"] = "structure"
         elif collection_args:
             metadata["data_access"] = "structure"

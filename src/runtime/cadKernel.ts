@@ -1,4 +1,4 @@
-import type { NodeDefinition, SocketDefinition, GraphDocument, GraphNode, EvaluationResult, MeshPreview } from "../types";
+import type { NodeDefinition, SocketDefinition, DataShape, GraphDocument, GraphNode, EvaluationResult, MeshPreview } from "../types";
 import type { PythonRuntime } from "./pythonRuntime";
 
 /**
@@ -29,6 +29,8 @@ export interface CadPortDefinition {
   readonly valueType: CadValueType;
   readonly collection: CadCollectionShape;
   readonly itemType?: CadValueType;
+  /** Recursive provider data layout; independent of item mapping policy. */
+  readonly dataShape?: DataShape;
   /** Geometry capability discovered from the provider's type registry. */
   readonly geometry?: boolean;
   readonly itemGeometry?: boolean;
@@ -167,6 +169,7 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
     label: socket.label ?? socket.name,
     valueType: RUNTIME_TYPE_MAP[sourceType] ?? sourceType,
     collection,
+    ...(socket.data_shape ? { dataShape: socket.data_shape } : {}),
     ...(collection !== "item" ? { itemType: RUNTIME_TYPE_MAP[sourceType] ?? sourceType } : {}),
     ...(socket.is_geometry ? { geometry: true } : {}),
     ...(socket.item_is_geometry ? { itemGeometry: true } : {}),

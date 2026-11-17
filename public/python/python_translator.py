@@ -524,6 +524,10 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 "data_access": "item",
             })
             iteration_links.append((input_name, frame["node_id"], frame["output_name"]))
+        for socket in node_definition.get("inputs", []) + node_definition.get("outputs", []):
+            normalize_data_shape(socket)
+            if socket.get("type") == "Any" or socket.get("item_type") == "Any":
+                socket["runtime_inspectable"] = True
         data = {"definition": node_definition, "params": params,
                 "execution_scope_path": list(active_scope_ids),
                 "visible": not active_conditions and not builder_scope_active and any(

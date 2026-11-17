@@ -58,14 +58,17 @@ class RecursiveDataContractTests(unittest.TestCase):
         class FakeShape:
             pass
 
-        first, second = FakeShape(), FakeShape()
+        first, second, mapping_key = FakeShape(), FakeShape(), FakeShape()
         fake_kernel = SimpleNamespace(Shape=FakeShape)
         with patch.object(runtime, "b3d", fake_kernel):
             discovered = list(runtime._iter_shapes({
-                "branch-a": [first],
+                mapping_key: [first],
                 "branch-b": ({second},),
             }))
-        self.assertEqual({id(value) for value in discovered}, {id(first), id(second)})
+        self.assertEqual(
+            {id(value) for value in discovered},
+            {id(first), id(second), id(mapping_key)},
+        )
 
     def test_recursive_shape_discovery_ignores_cycles(self):
         class FakeShape:

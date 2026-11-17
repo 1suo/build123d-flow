@@ -7,7 +7,7 @@ const root = process.cwd();
 const runtimeDirectory = path.join(root, "public/pyodide/v314.0.7/full");
 const wheelsDirectory = path.join(root, "public/python/wheels");
 const { loadPyodide } = await import(pathToFileURL(path.join(runtimeDirectory, "pyodide.mjs")).href);
-const pyodide = await loadPyodide({ indexURL: pathToFileURL(runtimeDirectory + path.sep).href });
+const pyodide = await loadPyodide({ indexURL: runtimeDirectory + path.sep });
 
 try {
   await pyodide.loadPackage(["micropip"]);

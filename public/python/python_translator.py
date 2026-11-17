@@ -25,7 +25,7 @@ import typing
 import types
 import collections
 import collections.abc
-from type_catalog import CatalogError, TypeCatalog
+from type_catalog import CatalogError, TypeCatalog, _serialize_discovered_value
 
 
 _MISSING = object()
@@ -1066,51 +1066,24 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             return value.name
         if isinstance(value, dict) and "__flow_enum__" in value:
             return value["__flow_enum__"][2]
-        if b3d is not None and isinstance(value, b3d.Axis):
-            return {
-                "__flow_object__": "Axis",
-                "value": [list(value.position), list(value.direction)],
-            }
-        if b3d is not None and isinstance(value, b3d.Plane):
-            return {
-                "__flow_object__": "Plane",
-                "origin": list(value.origin),
-                "x_dir": list(value.x_dir),
-                "z_dir": list(value.z_dir),
-            }
-        if b3d is not None and isinstance(value, b3d.Location):
-            return {"__flow_object__": "Location", "value": list(value.to_tuple())}
-        if b3d is not None and isinstance(value, b3d.Vector):
-            return {"__flow_object__": "Vector", "value": list(value)}
         if isinstance(value, dict):
             if "__flow_object__" in value:
-                object_type = value["__flow_object__"]
-                if all(key in value for key in ("origin", "x_dir", "z_dir")):
-                    return {
-                        "__flow_object__": object_type,
-                        **{
-                            key: literal_json_value(value[key])
-                            for key in ("origin", "x_dir", "z_dir")
-                        },
-                    }
-                if "value" in value:
-                    return {
-                        "__flow_object__": object_type,
-                        "value": literal_json_value(value["value"]),
-                    }
-                args = [literal_json_value(item) for item in value.get("args", [])]
-                kwargs = {key: literal_json_value(item)
-                          for key, item in value.get("kwargs", {}).items()}
                 return {
-                    "__flow_object__": object_type,
-                    "args": args,
-                    "kwargs": kwargs,
+                    "__flow_object__": value["__flow_object__"],
+                    **{
+                        key: literal_json_value(item)
+                        for key, item in value.items()
+                        if key != "__flow_object__"
+                    },
                 }
             return {key: literal_json_value(item) for key, item in value.items()}
         if isinstance(value, tuple):
             return {"__flow_tuple__": [literal_json_value(item) for item in value]}
         if isinstance(value, list):
             return [literal_json_value(item) for item in value]
+        serialized = _serialize_discovered_value(value)
+        if serialized is not None:
+            return literal_json_value(serialized)
         return value
 
     def materialize_literal(value):

@@ -50,7 +50,7 @@ not a second production graph editor or execution coordinator.
   plugin worker. Perigram's procedural evaluator now also assigns one
   execution id per graph preview and carries it to every node (including
   nested subgraphs). These host changes and regression tests are on Perigram's
-  `staging` branch (commit `d7836c42`).
+  `staging` branch (commit `a6d0769e`).
 - CI validates the listing and node definitions against the actual pinned
   Perigram SDK/core, runs kernel-free Python tests, tests the JavaScript
   runtime entry, and runs a real Pyodide/OCP nested BuildPart/BuildSketch

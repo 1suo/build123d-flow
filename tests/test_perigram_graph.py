@@ -58,6 +58,9 @@ class PerigramGraphAdapterTests(unittest.TestCase):
             "typeId": "my_package.CustomValue",
         })
 
+    def test_type_labels_do_not_implicitly_define_transport_shape(self):
+        self.assertEqual(transport_shape({"name": "values", "type": "List"}), "item")
+
     def test_python_collection_structures_map_to_perigram_shapes(self):
         self.assertEqual(transport_shape({
             "name": "values", "type": "Any", "data_structure": "set"

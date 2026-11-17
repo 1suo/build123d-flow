@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import flow_runtime
@@ -27,6 +28,29 @@ class DiscoveredValueCoercionTests(unittest.TestCase):
                 [1, 2, 3], {"type": "vendor.geometry.Translation"}
             )
         self.assertEqual(result.coordinates, (1, 2, 3))
+
+    def test_exported_alias_resolves_through_discovered_symbol_registry(self):
+        alias = {
+            "Vector3": {
+                "kind": "type",
+                "type_id": "vendor.geometry.Translation",
+            }
+        }
+        registry = {
+            "vendor.geometry.Translation": {
+                "id": "vendor.geometry.Translation",
+                "module": "fake.geometry",
+                "name": "Translation",
+            }
+        }
+        with patch.object(flow_runtime, "_SYMBOL_REGISTRY", alias), patch.object(
+            flow_runtime, "_TYPE_REGISTRY", registry
+        ), patch.object(
+            flow_runtime.importlib, "import_module",
+            return_value=SimpleNamespace(Translation=self.Translation),
+        ):
+            resolved = flow_runtime._resolve_discovered_type("Vector3")
+        self.assertIs(resolved, self.Translation)
 
     def test_single_sequence_constructor_is_detected_from_signature(self):
         result = flow_runtime._construct_discovered_type(

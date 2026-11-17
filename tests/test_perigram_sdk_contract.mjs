@@ -148,9 +148,11 @@ const executionGraph = {
   ]
 };
 const executionContexts = [];
+const finalizedExecutionIds = [];
 const executionResult = await proceduralEvaluator.evaluateProceduralGraph({
   graph: executionGraph,
   inputBindings: { number: 3 },
+  context: { finalizeExecution: async executionId => finalizedExecutionIds.push(executionId) },
   resolveNodeDefinition: () => ({
     provider: 'test.provider',
     id: 'double',
@@ -168,6 +170,7 @@ assert.deepEqual(executionResult.outputs, { result: 12 });
 assert.equal(executionContexts.length, 2);
 assert.match(executionContexts[0].executionId, /^graph-preview-/);
 assert.equal(executionContexts[1].executionId, executionContexts[0].executionId);
+assert.deepEqual(finalizedExecutionIds, [executionContexts[0].executionId]);
 
 class ContractWorker {
   constructor() {
@@ -186,6 +189,11 @@ class ContractWorker {
       this.invocation = input;
       queueMicrotask(() => this.onmessage?.({
         data: { type: 'result', invocationId: message.invocationId, value: input }
+      }));
+    }
+    if (message.type === 'clear-execution') {
+      queueMicrotask(() => this.onmessage?.({
+        data: { type: 'result', invocationId: message.invocationId, value: true }
       }));
     }
   }
@@ -221,6 +229,10 @@ assert.deepEqual(contractWorker.invocation.context, {
   executionId: executionContexts[0].executionId
 });
 assert.equal(contractWorker.invocation.inputs.width, 4);
+assert.deepEqual(await pluginRuntime.finalizeExecution(executionContexts[0].executionId), [true]);
+assert.equal(contractWorker.messages.some(message =>
+  message.type === 'clear-execution' && message.executionId === executionContexts[0].executionId
+), true);
 pluginRuntime.dispose();
 assert.equal(contractWorker.terminated, true);
 

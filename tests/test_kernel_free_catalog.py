@@ -613,6 +613,35 @@ wire = Wire.make_circle(5)
             },
         )
 
+    def test_nested_runtime_lists_promote_to_tree_mapping(self):
+        from flow_runtime import _map_item_inputs
+
+        result = _map_item_inputs(
+            {"value": [[[1, 2], [3]], [[4]]]},
+            {"value": "list"},
+            lambda values: values["value"] * 2,
+            "longest",
+        )
+        self.assertEqual(result, [[[2, 4], [6]], [[8]]])
+
+    def test_vector_iterability_is_discovered_for_iterable_overloads(self):
+        vector = self.catalog.resolve_type("Vector")
+        self.assertEqual(vector.get("iterable_item_type"), "Number")
+        graph = runtime.import_python_code("""
+from build123d import Vector, Vertex
+vertex = Vertex(Vector(1, 2, 3))
+""")
+        vertex_node = next(
+            node for node in graph["nodes"]
+            if node.get("data", {}).get("definition", {}).get("id", "")
+            .rsplit(".overload-", 1)[0].endswith(".Vertex")
+        )
+        input_names = [
+            socket["name"]
+            for socket in vertex_node["data"]["definition"]["inputs"]
+        ]
+        self.assertEqual(input_names, ["v"], input_names)
+
     def test_tuple_union_and_nested_collection_shapes_are_preserved(self):
         import typing
         from flow_runtime import _annotation_data_shape

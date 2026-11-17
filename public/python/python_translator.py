@@ -1049,13 +1049,39 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
 
         def overload_argument_score(argument, socket):
             shape = literal_argument_shape(argument)
-            if shape is None:
-                return 0
+            # Resolve already-bound variable/attribute references to their
+            # discovered semantic type. Literal-only scoring cannot distinguish
+            # overloads such as Face(TopoDS_Face | Plane) vs Face(Wire), or
+            # Vertex(TopoDS_Vertex) vs Vertex(VectorLike).
+            inferred_type = None
+            if isinstance(argument, ast.Name):
+                reference = variables.get(argument.id)
+            elif isinstance(argument, ast.Attribute):
+                reference = variables.get(ast.unparse(argument))
+            else:
+                reference = None
+            if reference is not None:
+                try:
+                    inferred_type = reference_type(reference)
+                except (CatalogError, TypeError, ValueError):
+                    inferred_type = None
+
             access = socket.get("data_access")
             structure = socket.get("data_structure")
             target_types = set(socket.get("variants") or [socket.get("type", "Any")])
+            score = 0
+            if inferred_type and inferred_type != "Any":
+                if inferred_type in target_types:
+                    score += 24
+                else:
+                    for target_type in target_types:
+                        try:
+                            if type_catalog.is_subtype(inferred_type, target_type):
+                                score += 16
+                                break
+                        except CatalogError:
+                            continue
             if shape in {"tuple", "list", "set", "dict"}:
-                score = 0
                 if structure == shape:
                     score += 8
                 if access == "structure":
@@ -1066,7 +1092,9 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 if target_types.intersection(geometry_types | object_types):
                     score -= 3
                 return score
-            score = 1 if access in (None, "item") else -1
+            score += 1 if access in (None, "item") else -1
+            if not isinstance(argument, ast.Constant):
+                return score
             value = argument.value
             if isinstance(value, bool):
                 score += 3 if "Boolean" in target_types else 0

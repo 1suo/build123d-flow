@@ -3037,6 +3037,10 @@ def _coerce_annotation(value, annotation):
             return value
         if annotation in (bool, int, float, str):
             return annotation(value)
+        type_id = getattr(annotation, "__module__", "") + "." + getattr(annotation, "__name__", "")
+        record = _TYPE_REGISTRY.get(type_id)
+        if not record or record.get("is_geometry"):
+            return value
         # Rehydrate discovered non-geometry value classes generically. The
         # catalog supplies class identity; constructor binding supplies shape.
         # No per-type Vector/Rotation/Plane codec table is maintained.

@@ -1809,11 +1809,35 @@ def discover(include_full=True):
                 socket["item_type_mro"] = item_record.get("mro", [])
                 if item_record.get("is_geometry"):
                     socket["item_is_geometry"] = True
-            for variant in socket.get("variants", []):
-                variant_record = type_records_by_socket.get(variant)
+            variant_records = [
+                type_records_by_socket.get(variant)
+                for variant in socket.get("variants", [])
+            ]
+            for variant_record in variant_records:
                 if variant_record and variant_record.get("is_geometry"):
                     socket["variants_include_geometry"] = True
-            if socket_type == "Any" or item_type == "Any":
+            # Collection receiver sockets are typed as a structural container;
+            # discover their element identity from the declared iterable API.
+            if socket.get("item_type") in (None, "", "Any") and variant_records:
+                iterable_records = [
+                    record for record in variant_records
+                    if record and record.get("supports_iteration")
+                    and record.get("iterable_item_type")
+                ]
+                if len(iterable_records) == len(variant_records):
+                    discovered_items = {
+                        record["iterable_item_type"] for record in iterable_records
+                    }
+                    if len(discovered_items) == 1:
+                        discovered_item = discovered_items.pop()
+                        socket["item_type"] = discovered_item
+                        item_record = type_records_by_socket.get(discovered_item)
+                        if item_record:
+                            socket["item_semantic_type_id"] = item_record["id"]
+                            socket["item_type_mro"] = item_record.get("mro", [])
+                            if item_record.get("is_geometry"):
+                                socket["item_is_geometry"] = True
+            if socket_type == "Any" or socket.get("item_type") == "Any":
                 socket["runtime_inspectable"] = True
     report["type_count"] = len(type_registry)
     symbol_registry = build_symbol_registry(b3d, modules)

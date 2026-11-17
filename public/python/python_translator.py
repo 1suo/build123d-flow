@@ -4,25 +4,6 @@ The parser is independent of the CAD evaluator. The caller supplies the active
 production catalog/runtime contract; no CAD package is imported here.
 """
 
-class TranslatorServices(typing.NamedTuple):
-    """Narrow runtime services required to lower syntax into graph records."""
-
-    b3d: object
-    catalog_nodes: dict
-    internal_node_ids: set
-    catalog_callables: dict
-    python_getitem: object
-    catalog_signatures: dict
-    catalog_hint_targets: dict
-    python_getattr: object
-    socket_data_structure: object
-    type_name: object
-    discovered_input_type_sets: object
-    api_signature: object
-    call_with_coercion: object
-    python_loop_last: object
-
-
 from __future__ import annotations
 
 import ast
@@ -45,6 +26,25 @@ import types
 import collections
 import collections.abc
 from type_catalog import CatalogError, TypeCatalog
+
+class TranslatorServices(typing.NamedTuple):
+    """Narrow runtime services required to lower syntax into graph records."""
+
+    b3d: object
+    catalog_nodes: dict
+    internal_node_ids: set
+    catalog_callables: dict
+    python_getitem: object
+    catalog_signatures: dict
+    catalog_hint_targets: dict
+    python_getattr: object
+    socket_data_structure: object
+    type_name: object
+    discovered_input_type_sets: object
+    api_signature: object
+    call_with_coercion: object
+    python_loop_last: object
+
 
 def import_python_code(source, services, catalog):
     """Parse a conservative, non-executing Python subset into the native graph format.

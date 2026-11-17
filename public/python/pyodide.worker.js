@@ -2,7 +2,7 @@
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
 
 const PYODIDE_VERSION = "314.0.7";
-const RUNTIME_REVISION = "2026-11-17-r15";
+const RUNTIME_REVISION = "2026-11-17-r16";
 const ENV_MARKER = ".build123d-flow-environment-v7";
 
 let pyodide = null;
@@ -96,29 +96,33 @@ async function loadSources(baseUrl) {
   const setupUrl = new URL("python/setup.py?v=" + RUNTIME_REVISION, base);
   const catalogUrl = new URL("python/type_catalog.py?v=" + RUNTIME_REVISION, base);
   const translatorUrl = new URL("python/python_translator.py?v=" + RUNTIME_REVISION, base);
-  const [setup, runtime, catalog, translator] = await Promise.all([
+  const perigramAdapterUrl = new URL("python/perigram_graph.py?v=" + RUNTIME_REVISION, base);
+  const [setup, runtime, catalog, translator, perigramAdapter] = await Promise.all([
     fetchText(setupUrl, "Python dependency setup"),
     fetchText(runtimeUrl, "graph runtime"),
     fetchText(catalogUrl, "kernel-free type catalog"),
-    fetchText(translatorUrl, "kernel-free Python translator")
+    fetchText(translatorUrl, "kernel-free Python translator"),
+    fetchText(perigramAdapterUrl, "Perigram graph adapter")
   ]);
   validateRuntimeSource(runtime, runtimeUrl.href);
-  if (!/^class\s+TypeCatalog\b/m.test(catalog)) {
-    throw new Error("Refusing incomplete type catalog from " + catalogUrl.href);
-  }
-  if (!/^class\s+TranslatorServices\b/m.test(translator) ||
-      !/^def\s+import_python_code\s*\(/m.test(translator)) {
+  if (!/^class\\s+TranslatorServices\\b/m.test(translator) ||
+      !/^def\\s+import_python_code\\s*\\(/m.test(translator)) {
     throw new Error("Refusing incomplete Python translator from " + translatorUrl.href);
   }
-  const sourceRevision = await fingerprint(setup + "\0" + runtime + "\0" + catalog + "\0" + translator);
-  return { setup, runtime, catalog, translator, sourceRevision };
+  if (!/^def\\s+provider_definitions\\s*\\(/m.test(perigramAdapter)) {
+    throw new Error("Refusing incomplete Perigram adapter from " + perigramAdapterUrl.href);
+  }
+  const sourceRevision = await fingerprint(
+    setup + "\\0" + runtime + "\\0" + catalog + "\\0" + translator + "\\0" + perigramAdapter
+  );
+  return { setup, runtime, catalog, translator, perigramAdapter, sourceRevision };
 }
 
 async function initializePython(baseUrl) {
   status("Fetching versioned Python runtime…");
   // Validate the actual downloaded source before spending time loading Pyodide
   // or installing build123d. This catches stale CDN/service-worker responses.
-  const { setup, runtime, catalog, translator, sourceRevision } = await loadSources(baseUrl);
+  const { setup, runtime, catalog, translator, perigramAdapter, sourceRevision } = await loadSources(baseUrl);
   const environmentRevision = RUNTIME_REVISION + ":" + PYODIDE_VERSION + ":" + sourceRevision;
   const indexURL = new URL(
     "pyodide/v" + PYODIDE_VERSION + "/full/",
@@ -171,6 +175,7 @@ async function initializePython(baseUrl) {
   status("Importing graph runtime…");
   pyodide.FS.writeFile("/type_catalog.py", catalog);
   pyodide.FS.writeFile("/python_translator.py", translator);
+  pyodide.FS.writeFile("/perigram_graph.py", perigramAdapter);
   pyodide.FS.writeFile("/flow_runtime.py", runtime);
   await pyodide.runPythonAsync(
     "import sys, importlib.util; " +
@@ -179,7 +184,8 @@ async function initializePython(baseUrl) {
     "module = importlib.util.module_from_spec(spec); " +
     "sys.modules['flow_runtime'] = module; " +
     "spec.loader.exec_module(module); " +
-    "globals()['flow_runtime'] = module"
+    "globals()['flow_runtime'] = module; " +
+    "import perigram_graph; globals()['perigram_graph'] = perigram_graph"
   );
 
   const validation = JSON.parse(pyodide.runPython(
@@ -187,9 +193,10 @@ async function initializePython(baseUrl) {
     "m.__file__, " +
     "callable(getattr(m, 'import_python_code', None)), " +
     "callable(getattr(m, 'export_python_code', None)), " +
-    "callable(getattr(m, 'evaluate_graph_json', None))))"
+    "callable(getattr(m, 'evaluate_graph_json', None)), " +
+    "callable(getattr(sys.modules['perigram_graph'], 'provider_definitions', None))))"
   ));
-  if (!validation[1] || !validation[2] || !validation[3]) {
+  if (!validation[1] || !validation[2] || !validation[3] || !validation[4]) {
     throw new Error("Loaded graph runtime failed API validation: " + JSON.stringify(validation));
   }
 
@@ -242,6 +249,14 @@ async function invoke(method, payload) {
   }
   if (method === "getCatalog") {
     return JSON.parse(pyodide.runPython("flow_runtime.catalog_json()"));
+  }
+  if (method === "getProviderDefinitions") {
+    const result = pyodide.runPython(
+      "import json, flow_runtime, perigram_graph; " +
+      "items=json.loads(flow_runtime.catalog_json()); " +
+      "json.dumps(perigram_graph.provider_definitions({item['id']: item for item in items}))"
+    );
+    return JSON.parse(result);
   }
   if (method === "discoverCatalog") {
     return JSON.parse(await pyodide.runPythonAsync("flow_runtime.discover_full()"));

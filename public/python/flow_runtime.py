@@ -695,7 +695,24 @@ def _invoke_discovered_operator_callable(native_invoke, method, mapped, signatur
     receiver = mapped.get(receiver_name)
     operand = mapped.get(parameters[0].name)
     if method.startswith("__r"):
+        # Let Python try the left operand before reflected dispatch.
         return operation(operand, receiver)
+    bound_method = getattr(receiver, method, None)
+    if callable(bound_method):
+        bound_parameters = [
+            parameter for parameter in signature.parameters.values()
+            if parameter.name not in ("self", "cls")
+        ]
+        bound_signature = signature.replace(parameters=bound_parameters)
+        arguments = {
+            name: value for name, value in mapped.items()
+            if name != receiver_name and not name.startswith("__flow_iteration_")
+        }
+        result = _call_with_coercion(
+            bound_method, arguments, signature=bound_signature
+        )
+        if result is not NotImplemented:
+            return result
     return operation(receiver, operand)
 
 _FLOW_PALETTE = {

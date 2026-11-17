@@ -236,4 +236,32 @@ assert.equal(contractWorker.messages.some(message =>
 pluginRuntime.dispose();
 assert.equal(contractWorker.terminated, true);
 
+const previousSelf = globalThis.self;
+const workerMessages = [];
+globalThis.self = { postMessage: message => workerMessages.push(message) };
+try {
+  await import(pathToFileURL(path.join(root, 'composables/plugin-runtime.worker.js')));
+  const runtimeSource = `export async function createRuntime() {
+    return {
+      providers: [],
+      execute: async () => ({}),
+      clearExecution: async executionId => executionId === 'run-cleanup-1'
+    };
+  }`;
+  const runtimeUrl = 'data:text/javascript;base64,' + Buffer.from(runtimeSource).toString('base64');
+  await globalThis.self.onmessage({ data: { type: 'initialize', entryUrl: runtimeUrl } });
+  assert.equal(workerMessages.at(-1).type, 'ready');
+  await globalThis.self.onmessage({
+    data: { type: 'clear-execution', invocationId: 'cleanup-1', executionId: 'run-cleanup-1' }
+  });
+  assert.deepEqual(workerMessages.at(-1), {
+    type: 'result',
+    invocationId: 'cleanup-1',
+    value: true
+  });
+} finally {
+  if (previousSelf === undefined) delete globalThis.self;
+  else globalThis.self = previousSelf;
+}
+
 console.log('Perigram procedural preview and plugin worker context contracts passed');

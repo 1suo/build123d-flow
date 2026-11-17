@@ -107,6 +107,24 @@ class LiveDiscoveryCatalogTests(unittest.TestCase):
         self.assertEqual(socket.get("data_access"), "structure")
         self.assertEqual(socket.get("data_structure"), "list")
 
+    def test_context_manager_result_properties_are_discovered(self):
+        discovered = []
+        for record in runtime._TYPE_REGISTRY.values():
+            attribute = record.get("context_result_attribute")
+            if not attribute:
+                continue
+            property_id = next((
+                owner_id + ".property." + attribute
+                for owner_id in record.get("mro", ())
+                if owner_id + ".property." + attribute in runtime._CATALOG
+            ), None)
+            self.assertIsNotNone(property_id)
+            output = runtime._CATALOG[property_id]["outputs"][0]
+            self.assertTrue(output.get("is_geometry"))
+            self.assertEqual(output["type"], record.get("context_result_type"))
+            discovered.append(record["id"])
+        self.assertTrue(discovered, "No context-manager result property was discovered")
+
     def test_box_geometry_capability_is_discovered_on_its_constructor_output(self):
         box_type = runtime.b3d.Box
         identity = box_type.__module__ + "." + box_type.__name__

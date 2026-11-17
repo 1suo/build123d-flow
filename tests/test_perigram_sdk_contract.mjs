@@ -211,7 +211,7 @@ const hostInvocation = {
 };
 await pluginRuntime.execute(
   { organizationId: 'org-1', pluginId: 'build123d-flow', version: '0.1.0' },
-  { id: 'build123d-pyodide', version: '314.0.7-r17', entryUrl: '/perigram-runtime.js', targets: ['browser'] },
+  { id: 'build123d-pyodide', version: '314.0.7-r18', entryUrl: '/perigram-runtime.js', targets: ['browser'] },
   'build123d.Box',
   hostInvocation,
   { execution: { kind: 'pure', runtime: 'build123d-pyodide', targets: ['browser'], capabilities: [] } }

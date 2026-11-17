@@ -234,11 +234,7 @@ def build_type_registry(classes, nodes, geometry_base=None):
                 inspect.isclass(geometry_base)
                 and issubclass(cls, geometry_base)
             ),
-            "socket_type": (
-                "Vector3" if name == "Vector"
-                else "Enum" if is_enum
-                else name
-            ),
+            "socket_type": "Enum" if is_enum else name,
             "supports_context_manager": supports_context_manager,
             "supports_iteration": callable(iterator),
             "iterable_item_type": iterable_item_type,

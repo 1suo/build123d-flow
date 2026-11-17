@@ -1,7 +1,8 @@
-export type SocketType =
-  | "Number" | "Boolean" | "String" | "Vector3" | "Plane" | "Location"
-  | "Shape" | "Solid" | "Compound" | "Face" | "Edge" | "Wire" | "Shell" | "Part" | "Sketch"
-  | "Vector2" | "Rotation" | "Axis" | "Color" | "Matrix" | "List" | "Tuple" | "Set" | "Dict" | "Enum" | "Code" | "Any";
+export type BuiltinSocketType =
+  | "Number" | "Boolean" | "String" | "List" | "Tuple" | "Set" | "Dict" | "Enum" | "Code" | "Any";
+
+/** Discovered nominal API types are open-world; no CAD class allowlist lives in the UI. */
+export type SocketType = BuiltinSocketType | (string & {});
 
 export interface SocketDefinition {
   name: string;
@@ -12,6 +13,13 @@ export interface SocketDefinition {
   default?: unknown;
   default_repr?: string;
   options?: string[];
+  /** Canonical identity and provider emitted by runtime discovery. */
+  type_id?: string;
+  type_provider?: string;
+  /** Discovered Python MRO identities, used for nominal subtype compatibility. */
+  type_mro?: string[];
+  /** True only when discovery confirms this nominal type is CAD geometry. */
+  is_geometry?: boolean;
   /** Semantic type of an individual value; independent of its container shape. */
   item_type?: SocketType;
   key_type?: SocketType;

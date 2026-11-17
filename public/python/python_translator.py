@@ -1299,6 +1299,20 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         if isinstance(value, dict) and "__flow_enum__" in value:
             return value["__flow_enum__"][2]
         if isinstance(value, dict):
+            if "__flow_mapping__" in value:
+                return {
+                    "__flow_mapping__": [
+                        [literal_json_value(key), literal_json_value(item)]
+                        for key, item in value["__flow_mapping__"]
+                    ]
+                }
+            if not all(isinstance(key, str) for key in value):
+                return {
+                    "__flow_mapping__": [
+                        [literal_json_value(key), literal_json_value(item)]
+                        for key, item in value.items()
+                    ]
+                }
             if "__flow_object__" in value:
                 return {
                     "__flow_object__": value["__flow_object__"],
@@ -1320,6 +1334,11 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
 
     def materialize_literal(value):
         if isinstance(value, dict):
+            if "__flow_mapping__" in value:
+                return {
+                    materialize_literal(key): materialize_literal(item)
+                    for key, item in value["__flow_mapping__"]
+                }
             if "__flow_callable__" in value:
                 module_name, qualified_name = value["__flow_callable__"]
                 target = importlib.import_module(module_name)

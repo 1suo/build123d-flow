@@ -109,6 +109,8 @@ def semantic_descriptor(
 
 def transport_shape(socket: Mapping[str, Any]) -> str:
     """Derive the outer transport shape from recursive data metadata."""
+    if socket.get("data_representation") == "value":
+        return "item"
     data_shape = socket.get("data_shape")
     if isinstance(data_shape, Mapping):
         kind = data_shape.get("kind")
@@ -178,6 +180,28 @@ def _semantic_from_data_shape(
     return semantic_descriptor(fallback_type or "Any", fallback_provider)
 
 
+def _semantic_for_socket(socket: Mapping[str, Any]) -> dict[str, Any]:
+    fallback_type = socket.get("type_id") or socket.get("type")
+    fallback_provider = socket.get("type_provider") or socket.get("provider")
+    data_shape = socket.get("data_shape")
+    if socket.get("data_representation") == "value":
+        semantic = semantic_descriptor(fallback_type or "Any", fallback_provider)
+        if isinstance(data_shape, Mapping) and data_shape.get("kind") == "union":
+            representations = [
+                _semantic_from_data_shape(option)
+                for option in data_shape.get("options", [])
+                if not (
+                    isinstance(option, Mapping)
+                    and option.get("kind") == "item"
+                    and option.get("type_id") == socket.get("type_id")
+                )
+            ]
+            if representations:
+                semantic["representations"] = representations
+        return semantic
+    return _semantic_from_data_shape(data_shape, fallback_type, fallback_provider)
+
+
 def normalize_port(socket: Mapping[str, Any]) -> dict[str, Any]:
     name = str(socket.get("name") or socket.get("id") or "")
     if not name:
@@ -186,11 +210,7 @@ def normalize_port(socket: Mapping[str, Any]) -> dict[str, Any]:
         "id": _port_identifier(name),
         "label": str(socket.get("label") or name),
         "shape": transport_shape(socket),
-        "semantic": _semantic_from_data_shape(
-            socket.get("data_shape"),
-            socket.get("type_id") or socket.get("type"),
-            socket.get("type_provider") or socket.get("provider"),
-        ),
+        "semantic": _semantic_for_socket(socket),
         "required": socket.get("required") is not False,
     }
     if "default" in socket:

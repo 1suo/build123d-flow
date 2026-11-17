@@ -44,6 +44,25 @@ class PerigramGraphAdapterTests(unittest.TestCase):
         })
         self.assertEqual(result["metadata"]["source"]["language"], "python")
 
+    def test_non_json_native_values_fail_closed(self):
+        with self.assertRaises(PerigramGraphError):
+            normalize_node_definition({
+                "id": "build123d.BadDefault",
+                "inputs": [{"name": "value", "type": "Any", "default": object()}],
+                "outputs": [],
+            })
+
+    def test_non_finite_numbers_fail_closed(self):
+        with self.assertRaises(PerigramGraphError):
+            translate_graph("x", {
+                "nodes": [{
+                    "id": "n1", "data": {
+                        "definition": {"id": "build123d.Bad"},
+                        "params": {"value": float("nan")},
+                    }
+                }], "edges": [],
+            })
+
     def test_missing_operation_identity_fails_closed(self):
         with self.assertRaises(PerigramGraphError):
             translate_graph("x", {"nodes": [{"id": "n", "data": {}}], "edges": []})

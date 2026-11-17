@@ -70,20 +70,21 @@ export async function createRuntime({ createWorker } = {}) {
       for (const request of pending.values()) request.reject(error);
       pending.clear();
       if (activeState === state) activeState = null;
+      worker.terminate();
     };
 
-    worker.postMessage({
-      type: "initialize",
-      baseUrl: new URL("./", import.meta.url).href
-    });
-    await ready;
-    const definitions = await state.call("getProviderDefinitions");
-    if (!Array.isArray(definitions)) {
-      state.terminate(new Error("build123d provider discovery must return an array"));
-      throw new Error("build123d provider discovery must return an array");
-    }
+    try {
+      worker.postMessage({
+        type: "initialize",
+        baseUrl: new URL("./", import.meta.url).href
+      });
+      await ready;
+      const definitions = await state.call("getProviderDefinitions");
+      if (!Array.isArray(definitions)) {
+        throw new Error("build123d provider discovery must return an array");
+      }
 
-    const grouped = new Map();
+      const grouped = new Map();
     for (const definition of definitions) {
       if (!definition || typeof definition.provider !== "string" || !definition.id) {
         state.terminate(new Error("Discovered build123d node definition is incomplete"));
@@ -98,14 +99,18 @@ export async function createRuntime({ createWorker } = {}) {
       if (!grouped.has(definition.provider)) grouped.set(definition.provider, []);
       grouped.get(definition.provider).push(definition);
     }
-    state.providers = [...grouped].map(([provider, providerDefinitions]) => ({
-      provider,
-      definitions: providerDefinitions,
-      ...(provider === "build123d"
-        ? { previewRenderers: { "cad-mesh": "build123d-cad-preview" } }
-        : {})
-    }));
-    return state;
+      state.providers = [...grouped].map(([provider, providerDefinitions]) => ({
+        provider,
+        definitions: providerDefinitions,
+        ...(provider === "build123d"
+          ? { previewRenderers: { "cad-mesh": "build123d-cad-preview" } }
+          : {})
+      }));
+      return state;
+    } catch (error) {
+      state.terminate(error);
+      throw error;
+    }
   }
 
   async function ensureWorker() {
@@ -113,6 +118,10 @@ export async function createRuntime({ createWorker } = {}) {
     if (activeState) return activeState;
     if (!statePromise) {
       statePromise = bootWorker().then(state => {
+        if (disposed) {
+          state.terminate(new Error("build123d runtime was disposed during worker startup"));
+          throw new Error("build123d runtime is disposed");
+        }
         activeState = state;
         return state;
       }).finally(() => {

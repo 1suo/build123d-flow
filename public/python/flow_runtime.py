@@ -101,24 +101,12 @@ def _type_name(annotation):
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
-            if b3d is not None:
-                shape_base = getattr(b3d, "Shape", None)
-                if inspect.isclass(shape_base) and issubclass(annotation, shape_base):
-                    for base in getattr(annotation, "__mro__", (annotation,)):
-                        if base is shape_base:
-                            return "Shape"
-                        if (
-                            getattr(base, "__module__", "").split(".")[0] == "build123d"
-                            and inspect.isclass(shape_base)
-                            and issubclass(base, shape_base)
-                        ):
-                            return base.__name__
         except TypeError:
             pass
         if getattr(annotation, "__module__", "").split(".")[0] == "build123d":
-            # Runtime class names must map to the catalog's semantic socket types.
-            # build123d exposes Vector as a class; the graph contract calls it Vector3.
-            return {"Vector": "Vector3"}.get(annotation.__name__, annotation.__name__)
+            # Preserve the exact discovered class identity. Geometry capability
+            # and collection shape are separate metadata, never aliases here.
+            return annotation.__name__
     if isinstance(annotation, str):
         name = annotation.strip().strip("'\\\"").split(".")[-1].lower()
     else:
@@ -641,13 +629,8 @@ def _register_kernel_discovery_overrides():
     """Register presentation overrides only when the real kernel is available."""
     if b3d is None:
         raise RuntimeError("build123d is required for API discovery")
-    for method, presentation in {
-        "__add__": {"name": "Shape + (Union)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-        "__sub__": {"name": "Shape − (Difference)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-        "__and__": {"name": "Shape & (Intersection)", "category": "Boolean", "palette_category": "Boolean", "palette_section": "Boolean operations"},
-    }.items():
-        node_id = b3d.Shape.__module__ + "." + b3d.Shape.__name__ + ".operator." + method
-        _NODE_METADATA_OVERRIDES[node_id] = presentation
+    # Native operators retain their discovered owner, signature, and provenance.
+    # Palette semantics are not rewritten by a Shape-specific hardcoded table.
 
 
 _FLOW_PALETTE = {
@@ -931,25 +914,7 @@ def _register_flow_nodes(found, callables):
     _add_node(found, callables, "core.convert.to_string", "To String", "Conversions", lambda value: str(value),
               [("value", "Any")], "String")
 
-    # Vector operations use build123d's native Vector type.
-    _add_node(found, callables, "core.vector.add", "Vector Add", "Spatial", lambda a, b: a + b,
-              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.subtract", "Vector Subtract", "Spatial", lambda a, b: a - b,
-              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.scale", "Vector Scale", "Spatial",
-              lambda vector_value, factor: vector_value * factor,
-              [("vector_value", "Vector3"), ("factor", "Number")], "Vector3")
-    _add_node(found, callables, "core.vector.dot", "Dot Product", "Spatial", lambda a, b: a.dot(b),
-              [("a", "Vector3"), ("b", "Vector3")], "Number")
-    _add_node(found, callables, "core.vector.cross", "Cross Product", "Spatial",
-              lambda a, b: a.cross(b),
-              [("a", "Vector3"), ("b", "Vector3")], "Vector3")
-    _add_node(found, callables, "core.vector.length", "Vector Length", "Spatial",
-              lambda value: value.length,
-              [("value", "Vector3")], "Number")
-    _add_node(found, callables, "core.vector.normalize", "Normalize", "Spatial",
-              lambda value: value.normalized(),
-              [("value", "Vector3")], "Vector3")
+    # Vector arithmetic and methods are discovered from the native type API.
 
     # First-class collection construction and transformation nodes.
     _add_node(found, callables, "core.list.length", "List Length", "Collections",
@@ -1747,6 +1712,7 @@ def discover(include_full=True):
         report["palette_category_counts"][source + "/" + category] = report["palette_category_counts"].get(source + "/" + category, 0) + 1
 
     type_registry = build_type_registry(api_classes, found, getattr(b3d, "Shape", None))
+    type_records_by_socket = {}
     for api_class in api_classes:
         type_id = api_class.__module__ + "." + api_class.__name__
         record = type_registry.get(type_id)
@@ -1757,6 +1723,29 @@ def discover(include_full=True):
             record["is_geometry"] = issubclass(api_class, b3d.Shape)
         except TypeError:
             record["is_geometry"] = False
+        type_records_by_socket[record["socket_type"]] = record
+
+    # Carry provider-discovered geometry capability onto sockets. Any remains
+    # open-ended and preview-eligible; runtime values decide whether it contains
+    # geometry. Collection item capability is independent of collection shape.
+    for definition in found.values():
+        for socket in definition.get("inputs", []) + definition.get("outputs", []):
+            socket_type = socket.get("type", "Any")
+            record = type_records_by_socket.get(socket_type)
+            if record and record.get("is_geometry"):
+                socket["is_geometry"] = True
+                socket["semantic_type_id"] = record["id"]
+            item_type = socket.get("item_type")
+            item_record = type_records_by_socket.get(item_type)
+            if item_record and item_record.get("is_geometry"):
+                socket["item_is_geometry"] = True
+                socket["item_semantic_type_id"] = item_record["id"]
+            for variant in socket.get("variants", []):
+                variant_record = type_records_by_socket.get(variant)
+                if variant_record and variant_record.get("is_geometry"):
+                    socket["variants_include_geometry"] = True
+            if socket_type == "Any" or item_type == "Any":
+                socket["runtime_inspectable"] = True
     report["type_count"] = len(type_registry)
     symbol_registry = build_symbol_registry(b3d, modules)
     report["symbol_count"] = len(symbol_registry)
@@ -1950,12 +1939,29 @@ def load_catalog_bundle(payload):
     }
 
 
-def _iter_shapes(value):
+def _iter_shapes(value, _seen=None):
+    """Yield geometry recursively without relying on a socket's static type.
+
+    Any, List[Any], nested trees, sets, tuples, and mapping values all use the
+    same runtime inspection path. Cycles are ignored defensively.
+    """
     if b3d is not None and isinstance(value, b3d.Shape):
         yield value
-    elif isinstance(value, (list, tuple)):
-        for item in value:
-            yield from _iter_shapes(item)
+        return
+    if value is None or isinstance(value, (str, bytes, bytearray)):
+        return
+    if _seen is None:
+        _seen = set()
+    identity = id(value)
+    if identity in _seen:
+        return
+    if isinstance(value, (collections.abc.Mapping, collections.abc.Sequence,
+                          collections.abc.Set)):
+        _seen.add(identity)
+        items = value.values() if isinstance(value, collections.abc.Mapping) else value
+        for item in items:
+            yield from _iter_shapes(item, _seen)
+        _seen.remove(identity)
 
 
 def _as_export_shape(value):

@@ -66,7 +66,7 @@ class KernelFreeCatalogLoadTests(unittest.TestCase):
     def test_constructor_overload_uses_discovered_variable_type(self):
         graph = runtime.import_python_code("""
 from build123d import Wire, Face
-wire = Wire()
+wire = Wire.make_polygon([(0, 0), (1, 0), (1, 1), (0, 1)], close=True)
 face = Face(wire)
 """)
         face_node = next(

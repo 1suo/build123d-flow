@@ -123,6 +123,71 @@ def _type_name(annotation):
     return raw_name if raw_name.isidentifier() else "Any"
 
 
+
+def _annotation_data_shape(annotation, depth=0):
+    """Describe recursive collection layout independently from value type."""
+    if depth >= 16:
+        return {"kind": "item", "type": "Any"}
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    collection_origins = {
+        list, set, frozenset, collections.abc.Sequence,
+        collections.abc.MutableSequence, collections.abc.Iterable,
+        collections.abc.Collection, collections.abc.Set,
+        collections.abc.MutableSet,
+    }
+    mapping_origins = {dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping}
+    if origin in collection_origins:
+        child = _annotation_data_shape(args[0] if args else typing.Any, depth + 1)
+        kind = "set" if origin in (set, frozenset, collections.abc.Set, collections.abc.MutableSet) else "list"
+        if child.get("kind") in {"list", "tree"}:
+            kind = "tree"
+        return {"kind": kind, "item": child}
+    if origin is tuple:
+        if len(args) == 2 and args[1] is Ellipsis:
+            return {"kind": "tuple", "items": [_annotation_data_shape(args[0], depth + 1)]}
+        return {"kind": "tuple", "items": [
+            _annotation_data_shape(item, depth + 1) for item in args
+        ]}
+    if origin in mapping_origins:
+        return {
+            "kind": "map",
+            "key": _annotation_data_shape(args[0] if args else str, depth + 1),
+            "value": _annotation_data_shape(args[1] if len(args) > 1 else typing.Any, depth + 1),
+        }
+    if origin in (typing.Union, types.UnionType):
+        options = [_annotation_data_shape(item, depth + 1) for item in args if item is not type(None)]
+        unique = []
+        for option in options:
+            if option not in unique:
+                unique.append(option)
+        if len(unique) == 1:
+            return unique[0]
+        return {"kind": "union", "options": unique}
+    return {"kind": "item", "type": _type_name(annotation)}
+
+
+def _socket_data_shape(socket):
+    """Normalize legacy socket metadata to the recursive data-shape contract."""
+    if isinstance(socket.get("data_shape"), dict):
+        return socket["data_shape"]
+    structure = socket.get("data_structure")
+    socket_type = socket.get("type", "Any")
+    if structure is None:
+        structure = {"List": "list", "Tuple": "tuple", "Set": "set", "Dict": "dict"}.get(socket_type, "item")
+    item = {"kind": "item", "type": socket.get("item_type", "Any")}
+    if structure in ("list", "tree", "set"):
+        return {"kind": structure, "item": item}
+    if structure == "tuple":
+        return {"kind": "tuple", "items": [item]}
+    if structure == "dict":
+        return {
+            "kind": "map",
+            "key": {"kind": "item", "type": socket.get("key_type", "Any")},
+            "value": {"kind": "item", "type": socket.get("value_type", "Any")},
+        }
+    return {"kind": "item", "type": socket_type}
+
 def _union_annotations(annotations):
     """Combine overload annotations without losing union or collection types."""
     flattened = []
@@ -412,6 +477,7 @@ def _annotation_metadata(annotation):
             }
             if len(item_types) == 1:
                 metadata["item_type"] = item_types.pop()
+    metadata["data_shape"] = _annotation_data_shape(annotation)
     return metadata
 
 

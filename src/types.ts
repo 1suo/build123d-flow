@@ -37,7 +37,6 @@ export interface SocketDefinition {
   item_semantic_type_id?: string;
   type_mro?: string[];
   item_type_mro?: string[];
-  runtime_inspectable?: boolean;
 }
 
 export interface NodeDefinition {

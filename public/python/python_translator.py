@@ -3733,9 +3733,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     scope_counter += 1
                     scope_id = "python_scope_{}".format(scope_counter)
                     manager_name = manager["name"]
-                    result_attribute = {
-                        "BuildPart": "part", "BuildSketch": "sketch", "BuildLine": "line",
-                    }.get(manager_name)
+                    result_attribute = manager.get("context_result_attribute")
                     optional = item.optional_vars
                     if optional is not None and not isinstance(optional, ast.Name):
                         raise ValueError("Only a simple name is supported after 'as' (line {})".format(statement.lineno))

@@ -3755,9 +3755,9 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     )
                     if optional is not None:
                         variables[optional.id] = ("ref", binding_node, "result")
-                    entered_contexts.append((scope_id, manager_name, optional))
+                    entered_contexts.append((scope_id, manager, manager_name, optional))
                 process_statements(statement.body)
-                for scope_id, manager_name, optional in reversed(entered_contexts):
+                for scope_id, manager, manager_name, optional in reversed(entered_contexts):
                     active_scope_ids.pop()
                     result_property_id = next((
                         member_id for member_id in manager.get("member_node_ids", [])

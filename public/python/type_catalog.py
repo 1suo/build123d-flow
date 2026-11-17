@@ -268,8 +268,17 @@ def build_type_registry(classes, nodes, geometry_base=None):
                 item_candidates = get_args(iterator_return)
                 if item_candidates:
                     candidate = item_candidates[0]
-                    if inspect.isclass(candidate) and getattr(candidate, "__module__", "").startswith("build123d"):
-                        iterable_item_type = candidate.__name__
+                    if inspect.isclass(candidate):
+                        if getattr(candidate, "__module__", "").split(".")[0] == "build123d":
+                            iterable_item_type = candidate.__name__
+                        elif candidate in (int, float):
+                            iterable_item_type = "Number"
+                        elif candidate is bool:
+                            iterable_item_type = "Boolean"
+                        elif candidate is str:
+                            iterable_item_type = "String"
+                        elif candidate not in (bytes, complex, object):
+                            iterable_item_type = candidate.__name__
             except (TypeError, ValueError, NameError):
                 pass
         if iterable_item_type is None:

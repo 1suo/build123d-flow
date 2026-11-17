@@ -32,6 +32,29 @@ class PerigramGraphAdapterTests(unittest.TestCase):
         self.assertEqual(definition["execution"]["targets"], ["browser"])
         self.assertEqual(definition["execution"]["runtime"], "build123d-pyodide")
 
+    def test_discovered_build123d_geometry_outputs_declare_mesh_preview(self):
+        definition = normalize_node_definition({
+            "id": "build123d.Box",
+            "name": "Box",
+            "inputs": [],
+            "outputs": [{
+                "name": "result",
+                "type": "Solid",
+                "type_id": "build123d.topology.three_d.Solid",
+                "type_provider": "build123d",
+            }],
+        })
+        self.assertEqual(definition["preview"], {"renderer": "cad-mesh"})
+
+        non_cad = normalize_node_definition({
+            "id": "core.python.make_value",
+            "source": "python",
+            "name": "Make Value",
+            "inputs": [],
+            "outputs": [{"name": "result", "type": "Any"}],
+        })
+        self.assertNotIn("preview", non_cad)
+
     def test_discovered_type_identity_overrides_legacy_display_label(self):
         definition = normalize_node_definition({
             "id": "build123d.Box",

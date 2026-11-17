@@ -480,7 +480,8 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         data = {"definition": node_definition, "params": params,
                 "execution_scope_path": list(active_scope_ids),
                 "visible": not active_conditions and not builder_scope_active and any(
-                    socket.get("type") in {"Shape", "Solid", "Compound", "Part", "Sketch"}
+                    socket.get("is_geometry") or socket.get("item_is_geometry")
+                    or socket.get("runtime_inspectable")
                     for socket in definition.get("outputs", [])
                 )}
         if active_loop_frames and map_over_active_loops:

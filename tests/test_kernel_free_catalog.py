@@ -601,6 +601,45 @@ wire = Wire.make_circle(5)
             {"list", "tuple"},
         )
 
+    def test_grasshopper_matching_policies_apply_to_generic_item_streams(self):
+        from flow_runtime import _map_item_inputs
+
+        invoke = lambda values: values["left"] + values["right"]
+        params = {"left": [1, 2, 3], "right": [10]}
+        streams = {"left": "list", "right": "list"}
+        self.assertEqual(
+            _map_item_inputs(params, streams, invoke, "longest"),
+            [11, 12, 13],
+        )
+        self.assertEqual(
+            _map_item_inputs(params, streams, invoke, "shortest"),
+            [11],
+        )
+        self.assertEqual(
+            _map_item_inputs(params, streams, invoke, "cross"),
+            [11, 12, 13],
+        )
+        self.assertEqual(
+            _map_item_inputs(
+                {"left": [1, 2], "right": [10, 20]},
+                streams,
+                invoke,
+                "cross",
+            ),
+            [11, 21, 12, 22],
+        )
+
+    def test_nested_tree_mapping_preserves_branch_structure(self):
+        from flow_runtime import _map_item_inputs
+
+        result = _map_item_inputs(
+            {"value": [[1, 2], [3]]},
+            {"value": "tree"},
+            lambda values: values["value"] * 2,
+            "longest",
+        )
+        self.assertEqual(result, [[2, 4], [6]])
+
     def test_any_preview_recursively_finds_geometry_in_nested_values(self):
         from unittest.mock import patch
 

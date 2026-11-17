@@ -83,7 +83,7 @@ box = Box(10, 10, 10)
 cylinder = Cylinder(2, 10)
 result = box + cylinder
 """
-        graph = import_python_code(source, runtime)
+        graph = import_python_code(source, runtime, runtime._type_catalog())
         self.assertTrue(graph.get("nodes"))
         self.assertIsNone(runtime.b3d)
         self.assertNotIn("build123d", sys.modules)

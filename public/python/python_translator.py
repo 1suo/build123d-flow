@@ -1084,6 +1084,11 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 return None
         return value
 
+    def is_discovered_literal(value):
+        if value is None or isinstance(value, (bool, int, float, str, enum.Enum)):
+            return True
+        return _serialize_discovered_value(value) is not None
+
     def literal_json_value(value):
         if isinstance(value, enum.Enum):
             return value.name
@@ -1870,8 +1875,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 if symbol.get("kind") == "callable":
                     return ("literal", {"__flow_callable__": symbol["id"]})
             build123d_value = getattr(b3d, imported.get(node.id, node.id), None)
-            if b3d is not None and isinstance(build123d_value, (int, float, str, bool, enum.Enum,
-                                             b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
+            if b3d is not None and is_discovered_literal(build123d_value):
                 return ("literal", build123d_value)
             raise ValueError("Unresolved name '{}' at line {}".format(node.id, node.lineno))
         if isinstance(node, ast.Attribute):
@@ -2063,13 +2067,13 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                         value = getattr(b3d, path[0], None)
                         for part in path[1:]:
                             value = getattr(value, part, None)
-                        if b3d is not None and isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
+                        if b3d is not None and is_discovered_literal(value):
                             return ("literal", value)
                 elif hasattr(b3d, root):
                     value = getattr(b3d, root, None)
                     for part in reversed(path):
                         value = getattr(value, part, None)
-                    if b3d is not None and isinstance(value, (enum.Enum, b3d.Axis, b3d.Plane, b3d.Location, b3d.Vector)): 
+                    if b3d is not None and is_discovered_literal(value):
                         return ("literal", value)
             raise ValueError("Unsupported attribute expression at line {}".format(node.lineno))
         if isinstance(node, ast.Call):
@@ -3403,19 +3407,6 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
         if isinstance(value, enum.Enum):
             return {"__flow_enum__": [value.__class__.__module__,
                                       value.__class__.__name__, value.name]}
-        if b3d is not None and isinstance(value, b3d.Plane):
-            return {
-                "__flow_object__": "Plane",
-                "origin": list(value.origin), "x_dir": list(value.x_dir),
-                "z_dir": list(value.z_dir),
-            }
-        if b3d is not None and isinstance(value, b3d.Location):
-            return {"__flow_object__": "Location", "value": list(value.to_tuple())}
-        if b3d is not None and isinstance(value, b3d.Vector):
-            return {"__flow_object__": "Vector", "value": list(value)}
-        if b3d is not None and isinstance(value, b3d.Axis):
-            return {"__flow_object__": "Axis",
-                    "args": [list(value.position), list(value.direction)], "kwargs": {}}
         if isinstance(value, tuple):
             return {"__flow_tuple__": [encode_scope_value(item) for item in value]}
         if isinstance(value, list):
@@ -3424,6 +3415,9 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
             return {key: encode_scope_value(item) for key, item in value.items()}
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
+        serialized = _serialize_discovered_value(value)
+        if serialized is not None:
+            return encode_scope_value(serialized)
         raise ValueError("Unsupported context-manager argument value: " + type(value).__name__)
 
     def scope_expression(node):

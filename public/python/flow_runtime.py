@@ -505,13 +505,14 @@ def _safe_default(value):
             return json.loads(json.dumps(value, allow_nan=False)), repr(value), False, True
         except (TypeError, ValueError, OverflowError):
             pass
-    if type(value).__name__.lower() == "vector" and all(hasattr(value, axis) for axis in ("X", "Y", "Z")):
-        try:
-            vector = [float(value.X), float(value.Y), float(value.Z)]
-            json.dumps(vector, allow_nan=False)
-            return vector, repr(value), False, True
-        except (TypeError, ValueError, OverflowError):
-            return None, repr(value), False, False
+    try:
+        from type_catalog import _serialize_discovered_value
+        serialized = _serialize_discovered_value(value)
+        if serialized is not None:
+            json.dumps(serialized, allow_nan=False)
+            return serialized, repr(value), False, True
+    except (ImportError, TypeError, ValueError, OverflowError):
+        pass
     return None, repr(value), False, False
 
 
@@ -545,8 +546,7 @@ def _populate_editor_default(socket):
         return
     defaults = {
         "Number": 1.0, "Boolean": False, "String": "",
-        "Code": "", "Vector2": [0.0, 0.0], "Vector3": [0.0, 0.0, 0.0],
-        "List": [], "Tuple": [], "Set": [], "Dict": {},
+        "Code": "",
     }
     if socket_type == "Enum" and socket.get("options"):
         socket["default"] = socket["options"][0]
@@ -2098,10 +2098,18 @@ def _inspect_value(value, depth=0):
                 item = getattr(value, name)
                 if callable(item):
                     continue
-                if (isinstance(item, (bool, int, float, str, list, tuple, set, frozenset,
+                item_type = type(item)
+                item_identity = (
+                    getattr(item_type, "__module__", "") + "."
+                    + getattr(item_type, "__name__", "")
+                )
+                if (
+                    isinstance(item, (bool, int, float, str, list, tuple, set, frozenset,
                                       collections.abc.Mapping, collections.abc.Sequence,
-                                      collections.abc.Set)) or item is None or
-                        type(item).__name__ in {"Vector", "Plane", "Location", "Rotation", "Axis", "Color"}):
+                                      collections.abc.Set))
+                    or item is None
+                    or item_identity in _TYPE_REGISTRY
+                ):
                     attributes[name] = _inspect_value(item, depth + 1)
             except Exception:
                 continue

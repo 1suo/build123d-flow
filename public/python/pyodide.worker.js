@@ -2,8 +2,8 @@
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
 
 const PYODIDE_VERSION = "314.0.7";
-const RUNTIME_REVISION = "2026-11-17-r17";
-const ENV_MARKER = ".build123d-flow-environment-v8";
+const RUNTIME_REVISION = "2026-11-17-r18";
+const ENV_MARKER = ".build123d-flow-environment-v9";
 
 let pyodide = null;
 let initialized = false;
@@ -207,9 +207,10 @@ async function initializePython(baseUrl) {
     "callable(getattr(m, 'evaluate_graph_json', None)), " +
     "callable(getattr(sys.modules['perigram_graph'], 'provider_definitions', None)), " +
     "callable(getattr(sys.modules['perigram_runtime'], 'execute_operation_json', None)), " +
-    "callable(getattr(sys.modules['perigram_runtime'], 'clear_runtime', None))))"
+    "callable(getattr(sys.modules['perigram_runtime'], 'clear_runtime', None)), " +
+    "callable(getattr(sys.modules['perigram_runtime'], 'clear_execution', None))))"
   ));
-  if (!validation[1] || !validation[2] || !validation[3] || !validation[4] || !validation[5] || !validation[6]) {
+  if (!validation[1] || !validation[2] || !validation[3] || !validation[4] || !validation[5] || !validation[6] || !validation[7]) {
     throw new Error("Loaded graph runtime failed API validation: " + JSON.stringify(validation));
   }
 

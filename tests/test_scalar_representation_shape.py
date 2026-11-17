@@ -34,6 +34,8 @@ class ScalarRepresentationShapeTests(unittest.TestCase):
         })
         self.assertNotIn("data_structure", metadata)
         self.assertEqual(metadata.get("data_access"), "structure")
+        self.assertEqual(metadata.get("data_representation"), "value")
+        self.assertEqual(flow_runtime._socket_data_structure(metadata), "item")
 
 
 if __name__ == "__main__":

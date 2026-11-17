@@ -16,7 +16,12 @@ REQUIRED_FILES = (
     "python/perigram_runtime.py",
     "python/flow_runtime.py",
     "python/wheels/manifest.json",
+    "python/wheels/pyodide-packages.json",
     "pyodide/v314.0.7/full/pyodide.mjs",
+    "pyodide/v314.0.7/full/pyodide.asm.mjs",
+    "pyodide/v314.0.7/full/pyodide.asm.wasm",
+    "pyodide/v314.0.7/full/python_stdlib.zip",
+    "pyodide/v314.0.7/full/pyodide-lock.json",
     "preview/build123d-preview.js",
 )
 

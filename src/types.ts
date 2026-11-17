@@ -1,7 +1,11 @@
-export type SocketType =
-  | "Number" | "Boolean" | "String" | "Vector3" | "Plane" | "Location"
-  | "Shape" | "Solid" | "Compound" | "Face" | "Edge" | "Wire" | "Shell" | "Part" | "Sketch"
-  | "Vector2" | "Rotation" | "Axis" | "Color" | "Matrix" | "List" | "Tuple" | "Set" | "Dict" | "Enum" | "Code" | "Any";
+/** Runtime-discovered semantic type identity. Never maintain a closed CAD type union here. */
+export type SocketType = string;
+
+/** Recursive value layout, orthogonal to semantic type identity. */
+export type DataShape =
+  | { kind: "item" }
+  | { kind: "list" | "tuple" | "set" | "tree"; item: DataShape }
+  | { kind: "map"; key: DataShape; value: DataShape };
 
 export interface SocketDefinition {
   name: string;
@@ -16,7 +20,9 @@ export interface SocketDefinition {
   item_type?: SocketType;
   key_type?: SocketType;
   value_type?: SocketType;
-  /** Shape of the data carried by this socket, not its semantic value type. */
+  /** Recursive data layout, independent of semantic type and evaluation policy. */
+  data_shape?: DataShape;
+  /** Legacy flat shape during migration; new contracts should use data_shape. */
   data_structure?: "item" | "list" | "tree" | "tuple" | "set" | "dict";
   /** How an input consumes incoming data: one item at a time or as a whole structure. */
   data_access?: "item" | "structure" | "tree";

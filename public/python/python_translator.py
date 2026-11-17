@@ -1053,25 +1053,91 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     return "scalar"
             return None
 
-        def overload_argument_score(argument, socket):
-            shape = literal_argument_shape(argument)
-            # Resolve already-bound variable/attribute references to their
-            # discovered semantic type. Literal-only scoring cannot distinguish
-            # overloads such as Face(TopoDS_Face | Plane) vs Face(Wire), or
-            # Vertex(TopoDS_Vertex) vs Vertex(VectorLike).
-            inferred_type = None
+        def inferred_argument_type(argument, depth=0):
+            """Infer a call argument's value type from discovered graph/API metadata."""
+            if depth > 8:
+                return None
+            reference = None
             if isinstance(argument, ast.Name):
                 reference = variables.get(argument.id)
             elif isinstance(argument, ast.Attribute):
                 reference = variables.get(ast.unparse(argument))
-            else:
-                reference = None
             if reference is not None:
                 try:
-                    inferred_type = reference_type(reference)
+                    result = reference_type(reference)
+                    if result and result != "Any":
+                        return result
                 except (CatalogError, TypeError, ValueError):
-                    inferred_type = None
+                    pass
+            if isinstance(argument, ast.Call):
+                function = argument.func
+                if isinstance(function, ast.Name):
+                    try:
+                        symbol = type_catalog.resolve_symbol(
+                            imported.get(function.id, function.id)
+                        )
+                    except CatalogError:
+                        symbol = None
+                    if symbol and symbol.get("kind") == "type":
+                        try:
+                            return type_catalog.resolve_type(symbol["type_id"])["name"]
+                        except CatalogError:
+                            return None
+                    if symbol and symbol.get("kind") == "callable":
+                        definition = definitions.get(symbol.get("id"), {})
+                        outputs = definition.get("outputs", [])
+                        return outputs[0].get("type") if outputs else None
+                elif isinstance(function, ast.Attribute):
+                    owner_type = inferred_argument_type(function.value, depth + 1)
+                    if owner_type is None and isinstance(function.value, ast.Name):
+                        try:
+                            symbol = type_catalog.resolve_symbol(
+                                imported.get(function.value.id, function.value.id)
+                            )
+                            if symbol.get("kind") == "type":
+                                owner_type = type_catalog.resolve_type(symbol["type_id"])["name"]
+                        except CatalogError:
+                            pass
+                    if owner_type:
+                        try:
+                            owner = type_catalog.resolve_type(owner_type)
+                        except CatalogError:
+                            owner = None
+                        owner_ids = owner.get("mro", []) if owner else []
+                        for owner_id in owner_ids:
+                            owner_record = type_catalog.types.get(owner_id, {})
+                            for member_id in owner_record.get("member_node_ids", []):
+                                base_id = member_id.split(".overload-", 1)[0]
+                                if base_id.rsplit(".", 1)[-1] != function.attr:
+                                    continue
+                                definition = definitions.get(member_id, {})
+                                outputs = definition.get("outputs", [])
+                                if outputs:
+                                    return outputs[0].get("type")
+            if isinstance(argument, ast.BinOp):
+                method = {
+                    ast.Add: "__add__", ast.Sub: "__sub__", ast.Mult: "__mul__",
+                    ast.Div: "__truediv__", ast.FloorDiv: "__floordiv__",
+                    ast.Mod: "__mod__", ast.Pow: "__pow__", ast.MatMult: "__matmul__",
+                    ast.BitAnd: "__and__", ast.BitOr: "__or__", ast.BitXor: "__xor__",
+                }.get(type(argument.op))
+                left_type = inferred_argument_type(argument.left, depth + 1)
+                if method and left_type:
+                    try:
+                        operator_id = type_catalog.resolve_operator(left_type, method)
+                        outputs = definitions.get(operator_id, {}).get("outputs", [])
+                        if outputs:
+                            output = outputs[0]
+                            return output.get("type") or next(iter(output.get("variants", [])), None)
+                    except CatalogError:
+                        pass
+            return None
 
+        def overload_argument_score(argument, socket):
+            shape = literal_argument_shape(argument)
+            # Prefer overloads whose discovered semantic type accepts the
+            # actual connected/literal call value, including inline nested calls.
+            inferred_type = inferred_argument_type(argument)
             access = socket.get("data_access")
             structure = socket.get("data_structure")
             target_types = set(socket.get("variants") or [socket.get("type", "Any")])

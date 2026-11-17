@@ -126,6 +126,41 @@ def _decode(value: Any, session_id: str) -> Any:
     return {key: _decode(item, session_id) for key, item in value.items()}
 
 
+def _attach_preview(value: Any, encoded: Any, flow_runtime: Any) -> None:
+    """Attach a JSON mesh beside an opaque native reference, never replacing it."""
+    if isinstance(encoded, dict) and encoded.get(_MARKER) == "value-ref":
+        previewer = getattr(flow_runtime, "_mesh_preview", None)
+        if not callable(previewer):
+            return
+        try:
+            preview = previewer(value)
+        except Exception:
+            return
+        if isinstance(preview, dict) and preview.get("vertices") and preview.get("triangles"):
+            # Refuse unbounded preview payloads; the native object remains
+            # executable even when its optional viewport mesh is too large.
+            if len(preview["vertices"]) <= 600_000 and len(preview["triangles"]) <= 600_000:
+                encoded["preview"] = {"renderer": "cad-mesh", "payload": preview}
+        return
+    if type(value) is list and isinstance(encoded, list):
+        for original, transported in zip(value, encoded):
+            _attach_preview(original, transported, flow_runtime)
+        return
+    if type(value) is tuple and isinstance(encoded, dict) and encoded.get(_MARKER) == "tuple":
+        for original, transported in zip(value, encoded.get("items", [])):
+            _attach_preview(original, transported, flow_runtime)
+        return
+    if type(value) is dict and isinstance(encoded, dict):
+        if encoded.get(_MARKER) == "map":
+            for (key, item), pair in zip(value.items(), encoded.get("entries", [])):
+                _attach_preview(key, pair[0], flow_runtime)
+                _attach_preview(item, pair[1], flow_runtime)
+        elif not encoded.get(_MARKER):
+            for key, item in value.items():
+                if key in encoded:
+                    _attach_preview(item, encoded[key], flow_runtime)
+
+
 def _collect_refs(value: Any, found: set[str] | None = None) -> set[str]:
     found = found if found is not None else set()
     if isinstance(value, list):
@@ -441,6 +476,12 @@ def execute_operation(
     result = session.execute(operation_id, decoded_inputs, decoded_config)
     try:
         encoded = _encode(result, session_id)
+        try:
+            _attach_preview(result, encoded, importlib.import_module("flow_runtime"))
+        except Exception:
+            # Preview is an optional presentation artifact. Execution and
+            # opaque CAD references remain valid if tessellation is unavailable.
+            pass
     except Exception:
         _discard_pending(session_id)
         raise

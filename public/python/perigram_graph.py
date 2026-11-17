@@ -464,13 +464,17 @@ def provider_definitions(catalog: Mapping[str, Mapping[str, Any]]) -> list[dict[
                 "required": True,
             }],
             "execution": {
-                "kind": "stateful",
+                # These are internal graph-lifecycle operations: they only
+                # establish/read a runtime-local builder scope. They perform
+                # no external effect and must remain eligible for procedural
+                # preview evaluation alongside ordinary CAD operations.
+                "kind": "read",
                 "runtime": RUNTIME_ID,
                 "targets": ["browser"],
                 "capabilities": [],
                 "deterministic": False,
                 "idempotent": False,
             },
-            "configuration": {"internal": True},
+            "configuration": {"internal": True, "scopeLifecycle": True},
         })
     return definitions

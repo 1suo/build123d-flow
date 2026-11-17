@@ -308,6 +308,8 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
     if not isinstance(edges, list):
         raise PerigramGraphError("Translator output must contain an edge array")
 
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
+    graph_id = f"build123d-import-{digest}"
     source_nodes_by_id = {
         str(node.get("id")): node
         for node in nodes if isinstance(node, Mapping) and node.get("id")
@@ -363,12 +365,17 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
             },
             "pythonPortNames": {"inputs": input_aliases},
             "executionScopePath": data.get("execution_scope_path") or [],
-            # Perigram invokes operations individually. Carry the source
-            # context-manager descriptors with each node so a stateful
-            # runtime can preserve lexical builder scopes across invocations.
             "executionScopes": translated.get("execution_scopes") or [],
             "inputSources": incoming_sources.get(node_id, {}),
+            "nodeId": node_id,
+            "graphId": graph_id,
         }
+        if data.get("scope_binding"):
+            config["scopeBinding"] = data["scope_binding"]
+        if data.get("scope_result"):
+            config["scopeResult"] = data["scope_result"]
+        if data.get("scope_dependencies"):
+            config["scopeDependencies"] = list(data["scope_dependencies"])
         if data.get("data_matching"):
             config["dataMatching"] = data["data_matching"]
         if data.get("python_loop_sources"):
@@ -407,7 +414,6 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
             "target": {"node": target_node, "port": target_port},
         })
 
-    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
     result = {
         "format": GRAPH_FORMAT,
         "version": GRAPH_VERSION,
@@ -429,8 +435,41 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
 
 
 def provider_definitions(catalog: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Convert the discovered API catalog to provider-neutral node definitions."""
-    return [
+    """Convert discovered API definitions and internal scope operations."""
+    definitions = [
         normalize_node_definition(definition)
         for _, definition in sorted(catalog.items())
     ]
+    for operation_id, label in (
+        ("core.python.scope.binding", "Python Scope Binding"),
+        ("core.python.scope.result", "Python Scope Result"),
+    ):
+        definitions.append({
+            "provider": "perigram.python",
+            "id": operation_id,
+            "version": OPERATION_VERSION,
+            "label": label,
+            "palette": {
+                "group": "internal",
+                "label": "Internal",
+                "keywords": ["python", "scope", "builder"],
+            },
+            "inputs": [],
+            "outputs": [{
+                "id": "result",
+                "label": "Result",
+                "shape": "item",
+                "semantic": {"kind": "any"},
+                "required": True,
+            }],
+            "execution": {
+                "kind": "stateful",
+                "runtime": RUNTIME_ID,
+                "targets": ["browser"],
+                "capabilities": [],
+                "deterministic": False,
+                "idempotent": False,
+            },
+            "configuration": {"internal": True},
+        })
+    return definitions

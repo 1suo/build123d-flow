@@ -103,14 +103,14 @@ async function loadSources(baseUrl) {
     fetchText(translatorUrl, "kernel-free Python translator")
   ]);
   validateRuntimeSource(runtime, runtimeUrl.href);
-  if (!/^class\\s+TypeCatalog\\b/m.test(catalog)) {
+  if (!/^class\s+TypeCatalog\b/m.test(catalog)) {
     throw new Error("Refusing incomplete type catalog from " + catalogUrl.href);
   }
-  if (!/^class\\s+TranslatorServices\\b/m.test(translator) ||
-      !/^def\\s+import_python_code\\s*\\(/m.test(translator)) {
+  if (!/^class\s+TranslatorServices\b/m.test(translator) ||
+      !/^def\s+import_python_code\s*\(/m.test(translator)) {
     throw new Error("Refusing incomplete Python translator from " + translatorUrl.href);
   }
-  const sourceRevision = await fingerprint(setup + "\\0" + runtime + "\\0" + catalog + "\\0" + translator);
+  const sourceRevision = await fingerprint(setup + "\0" + runtime + "\\0" + catalog + "\\0" + translator);
   return { setup, runtime, catalog, translator, sourceRevision };
 }
 

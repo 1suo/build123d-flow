@@ -33,7 +33,9 @@ function shapeLabel(shape: SocketDataShape): string {
 
 export function socketTypeLabel(socket: SocketDefinition): string {
   if (socket.data_representation === "value" && socket.type_id) {
-    return socket.type ?? socket.type_id.split(".").at(-1) ?? "Any";
+    return socket.type && socket.type !== "Any"
+      ? socket.type
+      : socket.type_id.split(".").pop() ?? "Any";
   }
   if (socket.data_shape) return shapeLabel(socket.data_shape);
   const structure = socket.data_structure;

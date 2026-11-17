@@ -63,6 +63,28 @@ class RecursiveDataContractTests(unittest.TestCase):
         with patch.object(runtime, "b3d", SimpleNamespace(Shape=FakeShape)):
             self.assertEqual(list(runtime._iter_shapes(cyclic)), [shape])
 
+    def test_iterable_domain_object_is_not_misclassified_as_collection_socket(self):
+        class IterableDomain:
+            def __iter__(self):
+                return iter((1, 2, 3))
+            def __len__(self):
+                return 3
+            def __getitem__(self, index):
+                return (1, 2, 3)[index]
+
+        socket = runtime._receiver_socket(IterableDomain)
+        self.assertEqual(socket["type"], "Any")
+        self.assertEqual(socket["data_access"], "item")
+        self.assertNotIn("data_structure", socket)
+
+    def test_declared_collection_subclass_receives_structure_access(self):
+        class ExplicitCollection(list):
+            pass
+
+        socket = runtime._receiver_socket(ExplicitCollection)
+        self.assertEqual(socket["data_structure"], "list")
+        self.assertEqual(socket["data_access"], "structure")
+
     def test_discovered_class_identity_is_not_reduced_to_vector3(self):
         class Vector:
             pass

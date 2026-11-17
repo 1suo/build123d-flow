@@ -49,6 +49,10 @@ required test in the preceding gate passes.
   `build123d==0.13.0` / `cadquery-ocp-novtk==8.0.1.1.0` environment. The artifact records
   the build123d, OCP, Python, and catalog-schema versions.
 - `tests/upstream-examples.json` is the single pinned 67-example corpus manifest.
+- `public/python/python_translator.py` contains the production syntax-to-graph
+  translator. It imports without `flow_runtime`, build123d, or OCP and receives the
+  versioned `TypeCatalog` explicitly; the runtime supplies only the current graph
+  lowering services and discovered node definitions.
 - `scripts/test_upstream_translator.py` loads that catalog in a `python -S` process,
   verifies that neither build123d nor OCP is imported, translates every example, and
   validates node definitions, handles, graph connectivity, and topological ordering.

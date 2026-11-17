@@ -346,6 +346,17 @@ def _annotation_metadata(annotation):
                 if module_name.split(".")[0] == "build123d"
                 else "perigram.python"
             )
+            metadata["type_mro"] = [
+                owner.__module__ + "." + owner.__name__
+                for owner in getattr(semantic_type, "__mro__", ())
+                if owner is not object
+            ]
+            shape_base = getattr(b3d, "Shape", None) if b3d is not None else None
+            if inspect.isclass(shape_base):
+                try:
+                    metadata["is_geometry"] = issubclass(semantic_type, shape_base)
+                except TypeError:
+                    metadata["is_geometry"] = False
     collection_origins = {
         list, set, frozenset,
         collections.abc.Sequence, collections.abc.MutableSequence,

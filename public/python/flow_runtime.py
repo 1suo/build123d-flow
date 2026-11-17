@@ -108,19 +108,19 @@ def _type_name(annotation):
             # and collection shape are separate metadata, never aliases here.
             return annotation.__name__
     if isinstance(annotation, str):
-        name = annotation.strip().strip("'\\\"").split(".")[-1].lower()
+        raw_name = annotation.strip().strip("'\\\"").split(".")[-1]
     else:
-        name = getattr(annotation, "__name__", str(annotation)).lower()
+        raw_name = getattr(annotation, "__name__", str(annotation)).split(".")[-1]
+    name = raw_name.lower()
     mapping = {
         "int": "Number", "float": "Number", "bool": "Boolean", "str": "String",
-        "vector": "Vector3", "vector2": "Vector2", "vector3": "Vector3",
-        "rotation": "Rotation", "plane": "Plane", "location": "Location", "axis": "Axis", "color": "Color",
-        "matrix": "Matrix",
-        "shape": "Shape", "solid": "Solid", "compound": "Compound", "face": "Face",
-        "edge": "Edge", "wire": "Wire", "shell": "Shell", "part": "Part",
-        "sketch": "Sketch", "code": "Code", "callable": "Code",
+        "code": "Code", "callable": "Code",
     }
-    return mapping.get(name, "Any")
+    # Keep unknown class names open for runtime discovery. Unknown annotations
+    # with compound/generic syntax remain Any rather than becoming fake types.
+    if name in mapping:
+        return mapping[name]
+    return raw_name if raw_name.isidentifier() else "Any"
 
 
 def _union_annotations(annotations):

@@ -197,7 +197,10 @@ def main() -> int:
             results.append({"filename": filename, "passed": False, **failures[filename]})
             continue
         try:
-            graph = runtime.import_python_code(fetched[filename])
+            from python_translator import import_python_code as translate
+            graph = translate(
+                fetched[filename], runtime._translator_services(), runtime._type_catalog()
+            )
             metrics = validate_graph(graph, filename)
             results.append({
                 "filename": filename,

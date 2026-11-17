@@ -100,7 +100,10 @@ export async function createRuntime({ createWorker } = {}) {
     }
     state.providers = [...grouped].map(([provider, providerDefinitions]) => ({
       provider,
-      definitions: providerDefinitions
+      definitions: providerDefinitions,
+      ...(provider === "build123d"
+        ? { previewRenderers: { "cad-mesh": "build123d-cad-preview" } }
+        : {})
     }));
     return state;
   }

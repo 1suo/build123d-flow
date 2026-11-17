@@ -26,13 +26,16 @@ export function createGraphNode(
   };
 }
 
-const GEOMETRY_TYPES = new Set([
-  "geometry", "solid", "shell", "face", "wire", "edge", "vertex", "curve", "surface", "mesh",
-]);
-
-function compatibleTypes(source: string, target: string): boolean {
-  if (target === "any" || source === "any" || source === target) return true;
-  return target === "geometry" && GEOMETRY_TYPES.has(source);
+function compatibleTypes(
+  sourceType: string,
+  targetType: string,
+  source: CadPortDefinition,
+  target: CadPortDefinition,
+): boolean {
+  if (targetType === "any" || sourceType === "any" || sourceType === targetType) return true;
+  const targetIdentity = target.typeId ?? targetType;
+  // Python's discovered MRO is the authority for nominal subtype compatibility.
+  return Boolean(targetIdentity && source.typeMro?.includes(targetIdentity));
 }
 
 function portTypesCompatible(
@@ -48,7 +51,7 @@ function portTypesCompatible(
     ? [itemType(target), ...(target.variants ?? [])]
     : [target.valueType, ...(target.variants ?? [])];
   return sourceTypes.some((sourceType) =>
-    targetTypes.some((targetType) => compatibleTypes(sourceType, targetType))
+    targetTypes.some((targetType) => compatibleTypes(sourceType, targetType, source, target))
   );
 }
 
@@ -84,7 +87,13 @@ function effectiveOutput(
     if (structure === "tree") inferred = "tree";
     else if (["list", "tuple"].includes(structure) && inferred !== "tree") inferred = "list";
   }
-  return inferred ? { ...output, collection: inferred, itemType: output.valueType } : output;
+  return inferred ? {
+    ...output,
+    collection: inferred,
+    itemType: output.valueType,
+    itemTypeLabel: output.typeLabel,
+    itemGeometry: output.isGeometry,
+  } : output;
 }
 
 function compatible(source: CadPortDefinition, target: CadPortDefinition): boolean {

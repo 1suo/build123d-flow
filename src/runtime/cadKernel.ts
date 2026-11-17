@@ -298,13 +298,27 @@ export class Build123dKernelProvider implements CadKernelProvider {
   readonly id = "build123d";
   readonly label = "build123d";
   readonly version = "runtime-discovered";
-  readonly capabilities: CadKernelCapabilities = {
-    geometryKinds: ["geometry", "solid", "shell", "face", "wire", "edge", "vertex", "curve", "surface", "mesh"],
-    importFormats: ["python"],
-    exportFormats: ["python", "step"],
-    supportsExactBrep: true,
-  };
   private definitions = new Map<string, NodeDefinition>();
+
+  get capabilities(): CadKernelCapabilities {
+    const geometryKinds = new Set<string>();
+    for (const definition of this.definitions.values()) {
+      for (const socket of [...definition.inputs, ...definition.outputs]) {
+        if (socket.is_geometry && socket.semantic_type_id) {
+          geometryKinds.add(socket.semantic_type_id);
+        }
+        if (socket.item_is_geometry && socket.item_semantic_type_id) {
+          geometryKinds.add(socket.item_semantic_type_id);
+        }
+      }
+    }
+    return {
+      geometryKinds: [...geometryKinds],
+      importFormats: ["python"],
+      exportFormats: ["python", "step"],
+      supportsExactBrep: true,
+    };
+  }
 
   constructor(private readonly runtime: PythonRuntime) {}
 

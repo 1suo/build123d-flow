@@ -1,0 +1,90 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createRuntime } from "../public/perigram-runtime.js";
+
+class FakeWorker {
+  constructor() {
+    this.messages = [];
+    this.terminated = false;
+    this.onmessage = null;
+    this.onerror = null;
+    this.definitions = [
+      {
+        provider: "build123d",
+        id: "build123d.Box",
+        execution: { runtime: "build123d-pyodide", targets: ["browser"] }
+      },
+      {
+        provider: "perigram.python",
+        id: "core.python.scope.binding",
+        execution: { runtime: "build123d-pyodide", targets: ["browser"] }
+      }
+    ];
+  }
+
+  postMessage(message) {
+    this.messages.push(message);
+    if (message.type === "initialize") {
+      queueMicrotask(() => this.onmessage?.({ data: { type: "ready" } }));
+      return;
+    }
+    if (message.type !== "call") return;
+    let value;
+    if (message.method === "getProviderDefinitions") value = this.definitions;
+    else if (message.method === "executeDiscoveredOperation") {
+      value = { result: message.payload.inputs?.width ?? 1 };
+      this.lastExecution = message.payload;
+    } else value = true;
+    queueMicrotask(() => this.onmessage?.({
+      data: { type: "result", id: message.id, value }
+    }));
+  }
+
+  terminate() {
+    this.terminated = true;
+  }
+}
+
+test("Perigram runtime publishes discovered provider contributions", async () => {
+  const worker = new FakeWorker();
+  const runtime = await createRuntime({ createWorker: () => worker });
+  assert.deepEqual(
+    runtime.providers.map(item => item.provider).sort(),
+    ["build123d", "perigram.python"]
+  );
+  assert.equal(runtime.providers[0].definitions.length, 1);
+  runtime.dispose();
+  assert.equal(worker.terminated, true);
+});
+
+test("Perigram runtime dispatches invocation inputs and graph execution identity", async () => {
+  const worker = new FakeWorker();
+  const runtime = await createRuntime({ createWorker: () => worker });
+  const result = await runtime.execute("build123d.Box", {
+    node: { id: "box-node" },
+    config: { graphId: "graph-1", executionScopePath: [] },
+    inputs: { width: 12 }
+  }, {});
+
+  assert.deepEqual(result, { result: 12 });
+  assert.equal(worker.lastExecution.operationId, "build123d.Box");
+  assert.deepEqual(worker.lastExecution.inputs, { width: 12 });
+  assert.equal(worker.lastExecution.config.nodeId, "box-node");
+  assert.equal(worker.lastExecution.config.graphId, "graph-1");
+  assert.equal(worker.lastExecution.config.executionId, "graph-1");
+  runtime.dispose();
+});
+
+test("builder scopes require a per-evaluation execution id", async () => {
+  const worker = new FakeWorker();
+  const runtime = await createRuntime({ createWorker: () => worker });
+  await assert.rejects(
+    runtime.execute("core.python.scope.binding", {
+      node: { id: "scope-node" },
+      config: { graphId: "graph-1", executionScopePath: ["scope-1"] },
+      inputs: {}
+    }, {}),
+    /requires a host executionId/
+  );
+  runtime.dispose();
+});

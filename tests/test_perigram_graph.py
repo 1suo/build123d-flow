@@ -36,7 +36,7 @@ class PerigramGraphAdapterTests(unittest.TestCase):
         descriptor = semantic_descriptor("my_package.CustomValue")
         self.assertEqual(descriptor, {
             "kind": "nominal",
-            "provider": "python",
+            "provider": "perigram.python",
             "typeId": "my_package.CustomValue",
         })
 

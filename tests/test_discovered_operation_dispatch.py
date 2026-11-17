@@ -116,21 +116,24 @@ class DiscoveredOperationDispatchTests(unittest.TestCase):
             {"result": [[11, 21, 31], [12, 22, 32]]},
         )
 
-    def test_node_parameters_are_merged_with_wired_inputs(self):
-        def add(a, b):
-            return a + b
+    def test_node_parameters_are_merged_and_safe_port_ids_restore_python_names(self):
+        def add(_a, b):
+            return _a + b
         definition = {
             "id": "vendor.math.add",
             "inputs": [
-                {"name": "a", "type": "Number"},
+                {"name": "_a", "type": "Number"},
                 {"name": "b", "type": "Number"},
             ],
             "outputs": [{"name": "result", "type": "Number"}],
         }
         self.assertEqual(
             self._run(
-                definition, add, {"a": 10},
-                {"parameters": {"a": 1, "b": 2}},
+                definition, add, {"p__a": 10},
+                {
+                    "parameters": {"p__a": 1, "b": 2},
+                    "pythonPortNames": {"inputs": {"p__a": "_a"}},
+                },
             ),
             {"result": 12},
         )

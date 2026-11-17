@@ -32,6 +32,24 @@ class PerigramGraphAdapterTests(unittest.TestCase):
         self.assertEqual(definition["execution"]["targets"], ["browser"])
         self.assertEqual(definition["execution"]["runtime"], "build123d-pyodide")
 
+    def test_discovered_type_identity_overrides_legacy_display_label(self):
+        definition = normalize_node_definition({
+            "id": "build123d.Box",
+            "name": "Box",
+            "inputs": [{
+                "name": "profile",
+                "type": "Solid",
+                "type_id": "build123d.topology.three_d.Solid",
+                "type_provider": "build123d",
+            }],
+            "outputs": [],
+        })
+        self.assertEqual(definition["inputs"][0]["semantic"], {
+            "kind": "nominal",
+            "provider": "build123d",
+            "typeId": "build123d.topology.three_d.Solid",
+        })
+
     def test_non_cad_nominal_types_do_not_default_to_build123d(self):
         descriptor = semantic_descriptor("my_package.CustomValue")
         self.assertEqual(descriptor, {

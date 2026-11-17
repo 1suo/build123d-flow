@@ -9,11 +9,7 @@ import type { PythonRuntime } from "./pythonRuntime";
  * API. No OpenCascade/build123d class or method belongs in this module.
  */
 
-export type CadValueType =
-  | "number" | "integer" | "boolean" | "string"
-  | "vector2" | "vector3" | "transform" | "plane" | "axis"
-  | "geometry" | "solid" | "shell" | "face" | "wire" | "edge" | "vertex"
-  | "curve" | "surface" | "mesh" | "material" | "enum" | "any";
+export type CadValueType = string;
 
 export type CadCollectionShape = "item" | "list" | "tree" | "tuple" | "set" | "map";
 export type CadInputAccess = "item" | "collection" | "tree";
@@ -29,9 +25,17 @@ export interface CadGeometryHandle {
 export interface CadPortDefinition {
   readonly id: string;
   readonly label: string;
+  /** Canonical discovered semantic type identity, or a primitive token. */
   readonly valueType: CadValueType;
+  readonly typeLabel?: string;
+  readonly typeId?: string;
+  readonly typeProvider?: string;
+  readonly typeMro?: readonly string[];
+  readonly isGeometry?: boolean;
   readonly collection: CadCollectionShape;
   readonly itemType?: CadValueType;
+  readonly itemTypeLabel?: string;
+  readonly itemGeometry?: boolean;
   readonly access?: CadInputAccess;
   readonly required?: boolean;
   readonly defaultValue?: unknown;
@@ -142,35 +146,46 @@ export function validateCadOperation(operation: CadOperationDefinition): string[
 }
 
 
-const RUNTIME_TYPE_MAP: Readonly<Record<string, CadValueType>> = {
-  Number: "number", Boolean: "boolean", String: "string", Vector2: "vector2",
-  Vector3: "vector3", Rotation: "transform", Location: "transform", Plane: "plane",
-  Axis: "axis", Shape: "geometry", Solid: "solid", Compound: "geometry",
-  Face: "face", Edge: "edge", Wire: "wire", Shell: "shell", Part: "solid",
-  Sketch: "geometry", Curve: "curve", Surface: "surface", Mesh: "mesh",
-  Color: "material", Enum: "enum", Any: "any", Code: "string",
+const PRIMITIVE_TYPE_MAP: Readonly<Record<string, CadValueType>> = {
+  Number: "number",
+  Integer: "integer",
+  Float: "number",
+  Boolean: "boolean",
+  String: "string",
+  Code: "string",
+  Enum: "enum",
+  Any: "any",
 };
 
+function semanticValueType(type: string, typeId?: string): CadValueType {
+  return PRIMITIVE_TYPE_MAP[type] ?? typeId ?? type;
+}
+
 function portCollection(socket: SocketDefinition): CadCollectionShape {
-  if (socket.data_structure) return socket.data_structure === "dict" ? "map" : socket.data_structure;
-  switch (socket.type) {
-    case "List": return "list";
-    case "Tuple": return "tuple";
-    case "Set": return "set";
-    case "Dict": return "map";
-    default: return "item";
-  }
+  // Shape is declared by discovery metadata, never inferred from a type label.
+  const shape = socket.data_structure ?? "item";
+  return shape === "dict" ? "map" : shape;
 }
 
 function cadPort(socket: SocketDefinition): CadPortDefinition {
   const collection = portCollection(socket);
   const sourceType = socket.item_type ?? socket.value_type ?? socket.type;
+  const valueType = semanticValueType(sourceType, socket.type_id);
   return {
     id: socket.name,
     label: socket.label ?? socket.name,
-    valueType: RUNTIME_TYPE_MAP[sourceType] ?? "any",
+    valueType,
+    typeLabel: sourceType,
+    ...(socket.type_id ? { typeId: socket.type_id } : {}),
+    ...(socket.type_provider ? { typeProvider: socket.type_provider } : {}),
+    ...(socket.type_mro?.length ? { typeMro: socket.type_mro } : {}),
+    ...(socket.is_geometry ? { isGeometry: true } : {}),
     collection,
-    ...(collection !== "item" ? { itemType: RUNTIME_TYPE_MAP[sourceType] ?? "any" } : {}),
+    ...(collection !== "item" ? {
+      itemType: valueType,
+      itemTypeLabel: sourceType,
+      ...(socket.is_geometry ? { itemGeometry: true } : {}),
+    } : {}),
     access: socket.data_access === "structure"
       ? "collection"
       : socket.data_access ?? (collection === "item" ? "item" : "collection"),
@@ -178,7 +193,9 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
     ...(socket.default !== undefined ? { defaultValue: socket.default } : {}),
     ...(socket.annotation ? { description: socket.annotation } : {}),
     ...(socket.options ? { enumValues: socket.options } : {}),
-    ...(socket.variants?.length ? { variants: socket.variants.map((type) => RUNTIME_TYPE_MAP[type] ?? "any") } : {}),
+    ...(socket.variants?.length ? {
+      variants: socket.variants.map((type) => semanticValueType(type)),
+    } : {}),
   };
 }
 
@@ -217,27 +234,22 @@ export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationD
   };
 }
 
-const CAD_GEOMETRY_TYPES = new Set<CadValueType>([
-  "geometry", "solid", "shell", "face", "wire", "edge", "vertex", "curve", "surface", "mesh",
-]);
-
 export function isCadGeometryPort(port: CadPortDefinition): boolean {
-  return CAD_GEOMETRY_TYPES.has(port.valueType) ||
-    (port.itemType !== undefined && CAD_GEOMETRY_TYPES.has(port.itemType));
+  return port.isGeometry === true || port.itemGeometry === true;
 }
 
 export function cadPortTypeLabel(port: CadPortDefinition): string {
-  const value = port.itemType ?? port.valueType;
+  const value = port.itemTypeLabel ?? port.typeLabel ?? port.itemType ?? port.valueType;
   if (port.collection === "item") return value;
   const label = port.collection === "map" ? "Map" : port.collection[0].toUpperCase() + port.collection.slice(1);
   return `${label}[${value}]`;
 }
 
 export function cadPortColor(port: CadPortDefinition): string {
+  if (isCadGeometryPort(port)) return "var(--socket-geometry)";
   const type = port.itemType ?? port.valueType;
-  if (CAD_GEOMETRY_TYPES.has(type)) return "var(--socket-geometry)";
-  if (["number", "integer", "vector2", "vector3", "transform", "plane", "axis"].includes(type)) return "var(--socket-numeric)";
-  if (["string", "enum"].includes(type)) return "var(--socket-text)";
+  if (["number", "integer"].includes(type)) return "var(--socket-numeric)";
+  if (["string", "enum", "boolean"].includes(type)) return "var(--socket-text)";
   return "var(--socket-generic)";
 }
 
@@ -283,7 +295,7 @@ export class Build123dKernelProvider implements CadKernelProvider {
   readonly label = "build123d";
   readonly version = "runtime-discovered";
   readonly capabilities: CadKernelCapabilities = {
-    geometryKinds: ["geometry", "solid", "shell", "face", "wire", "edge", "vertex", "curve", "surface", "mesh"],
+    geometryKinds: ["geometry"],
     importFormats: ["python"],
     exportFormats: ["python", "step"],
     supportsExactBrep: true,

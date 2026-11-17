@@ -94,7 +94,7 @@ def normalize_port(socket: Mapping[str, Any]) -> dict[str, Any]:
         "label": str(socket.get("label") or name),
         "shape": transport_shape(socket),
         "semantic": semantic_descriptor(
-            socket.get("type"),
+            socket.get("type_id") or socket.get("type"),
             socket.get("type_provider") or socket.get("provider"),
         ),
         "required": socket.get("required") is not False,

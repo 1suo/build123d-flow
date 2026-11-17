@@ -245,9 +245,8 @@ function shapeContainsGeometry(shape: SocketDataShape | undefined): boolean {
     return shapeContainsGeometry(shape.item);
   }
   if (shape.kind === "map") return shapeContainsGeometry(shape.value);
-  if (shape.kind === "tuple" || shape.kind === "union") {
-    return shape.items.some(shapeContainsGeometry) || shape.options.some(shapeContainsGeometry);
-  }
+  if (shape.kind === "tuple") return shape.items.some(shapeContainsGeometry);
+  if (shape.kind === "union") return shape.options.some(shapeContainsGeometry);
   return false;
 }
 

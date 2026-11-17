@@ -2,7 +2,7 @@
 import { loadPyodide } from "../pyodide/v314.0.7/full/pyodide.mjs";
 
 const PYODIDE_VERSION = "314.0.7";
-const RUNTIME_REVISION = "2026-11-13-r14";
+const RUNTIME_REVISION = "2026-11-17-r15";
 const ENV_MARKER = ".build123d-flow-environment-v7";
 
 let pyodide = null;
@@ -94,20 +94,31 @@ async function loadSources(baseUrl) {
   const base = new URL(baseUrl, self.location.href);
   const runtimeUrl = new URL("python/flow_runtime.py?v=" + RUNTIME_REVISION, base);
   const setupUrl = new URL("python/setup.py?v=" + RUNTIME_REVISION, base);
-  const [setup, runtime] = await Promise.all([
+  const catalogUrl = new URL("python/type_catalog.py?v=" + RUNTIME_REVISION, base);
+  const translatorUrl = new URL("python/python_translator.py?v=" + RUNTIME_REVISION, base);
+  const [setup, runtime, catalog, translator] = await Promise.all([
     fetchText(setupUrl, "Python dependency setup"),
-    fetchText(runtimeUrl, "graph runtime")
+    fetchText(runtimeUrl, "graph runtime"),
+    fetchText(catalogUrl, "kernel-free type catalog"),
+    fetchText(translatorUrl, "kernel-free Python translator")
   ]);
   validateRuntimeSource(runtime, runtimeUrl.href);
-  const sourceRevision = await fingerprint(setup + "\\0" + runtime);
-  return { setup, runtime, sourceRevision };
+  if (!/^class\\s+TypeCatalog\\b/m.test(catalog)) {
+    throw new Error("Refusing incomplete type catalog from " + catalogUrl.href);
+  }
+  if (!/^class\\s+TranslatorServices\\b/m.test(translator) ||
+      !/^def\\s+import_python_code\\s*\\(/m.test(translator)) {
+    throw new Error("Refusing incomplete Python translator from " + translatorUrl.href);
+  }
+  const sourceRevision = await fingerprint(setup + "\\0" + runtime + "\\0" + catalog + "\\0" + translator);
+  return { setup, runtime, catalog, translator, sourceRevision };
 }
 
 async function initializePython(baseUrl) {
   status("Fetching versioned Python runtime…");
   // Validate the actual downloaded source before spending time loading Pyodide
   // or installing build123d. This catches stale CDN/service-worker responses.
-  const { setup, runtime, sourceRevision } = await loadSources(baseUrl);
+  const { setup, runtime, catalog, translator, sourceRevision } = await loadSources(baseUrl);
   const environmentRevision = RUNTIME_REVISION + ":" + PYODIDE_VERSION + ":" + sourceRevision;
   const indexURL = new URL(
     "pyodide/v" + PYODIDE_VERSION + "/full/",
@@ -158,6 +169,8 @@ async function initializePython(baseUrl) {
   await pyodide.runPythonAsync(setup);
 
   status("Importing graph runtime…");
+  pyodide.FS.writeFile("/type_catalog.py", catalog);
+  pyodide.FS.writeFile("/python_translator.py", translator);
   pyodide.FS.writeFile("/flow_runtime.py", runtime);
   await pyodide.runPythonAsync(
     "import sys, importlib.util; " +

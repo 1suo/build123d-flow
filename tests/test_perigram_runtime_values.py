@@ -42,6 +42,26 @@ class PerigramRuntimeValueTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "different graph session"):
             perigram_runtime._decode(encoded, "graph-b")
 
+    def test_native_geometry_reference_carries_optional_mesh_preview(self):
+        native = NativeValue()
+        module = types.ModuleType("flow_runtime")
+        module.execute_discovered_operation = lambda operation_id, inputs, config: {"result": native}
+        module._mesh_preview = lambda value: {
+            "vertices": [0, 0, 0, 1, 0, 0, 0, 1, 0],
+            "triangles": [0, 1, 2],
+        }
+        with patch.dict(sys.modules, {"flow_runtime": module}):
+            result = json.loads(perigram_runtime.execute_operation(
+                "build123d.Box",
+                {},
+                {"graphId": "preview-graph", "nodeId": "box"},
+            ))
+        reference = result["result"]
+        self.assertEqual(reference["__perigram_runtime__"], "value-ref")
+        self.assertEqual(reference["preview"]["renderer"], "cad-mesh")
+        self.assertEqual(reference["preview"]["payload"]["triangles"], [0, 1, 2])
+        self.assertIs(perigram_runtime._decode(reference, "preview-graph"), native)
+
     def test_runtime_dispatch_decodes_inputs_and_retains_native_outputs(self):
         native = NativeValue()
         input_ref = perigram_runtime._encode(native, "graph-dispatch")

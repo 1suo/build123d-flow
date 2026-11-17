@@ -50,13 +50,6 @@ def _type_name(annotation):
     args = typing.get_args(annotation)
     if origin in (typing.Union, types.UnionType):
         union_args = [arg for arg in args if arg is not type(None)]
-        shape_base = getattr(b3d, "Shape", None) if b3d is not None else None
-        if union_args and inspect.isclass(shape_base):
-            try:
-                if all(inspect.isclass(arg) and issubclass(arg, shape_base) for arg in union_args):
-                    return "Shape"
-            except TypeError:
-                pass
         names = {_type_name(arg) for arg in union_args}
         tuple_alternatives = [arg for arg in union_args if typing.get_origin(arg) is tuple]
         object_alternatives = [

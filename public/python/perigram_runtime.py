@@ -454,6 +454,13 @@ def execute_operation(
     return json.dumps(encoded, allow_nan=False, separators=(",", ":"))
 
 
+def execute_operation_json(operation_id: str, inputs_json: str, config_json: str) -> str:
+    """JSON-only Pyodide bridge; avoids leaking Python proxies into JavaScript."""
+    inputs = json.loads(inputs_json) if inputs_json else {}
+    config = json.loads(config_json) if config_json else {}
+    return execute_operation(operation_id, inputs, config)
+
+
 def clear_runtime() -> None:
     """Release all Python values and unwind any still-open builder scopes."""
     for session in list(_SESSIONS.values()):

@@ -284,6 +284,15 @@ async function invoke(method, payload) {
       fn.destroy();
     }
   }
+  if (method === "clearExecution") {
+    const clearExecution = pyodide.runPython("perigram_runtime.clear_execution");
+    try {
+      const result = clearExecution(String(payload.executionId || ""));
+      return typeof result === "boolean" ? result : toJs(result);
+    } finally {
+      clearExecution.destroy();
+    }
+  }
   if (method === "clearRuntime") {
     pyodide.runPython("perigram_runtime.clear_runtime()");
     return true;

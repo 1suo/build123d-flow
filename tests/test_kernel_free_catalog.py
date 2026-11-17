@@ -25,6 +25,22 @@ class KernelFreeCatalogLoadTests(unittest.TestCase):
         self.assertNotIn("build123d", sys.modules)
         self.assertNotIn("OCP", sys.modules)
 
+    def test_discovered_type_identity_and_palette_are_not_hardcoded(self):
+        vector = self.catalog.resolve_type("Vector")
+        self.assertEqual(vector["socket_type"], "Vector")
+        self.assertNotIn("Vector3", {record.get("socket_type") for record in self.catalog.types.values()})
+        self.assertNotIn("core.vector.add", runtime._CATALOG)
+        self.assertFalse(any(
+            definition.get("palette_category") == "Boolean"
+            for definition in runtime._CATALOG.values()
+        ))
+
+    def test_any_outputs_are_runtime_inspectable_and_have_data_shape(self):
+        output = runtime._CATALOG["core.list.get"]["outputs"][0]
+        self.assertEqual(output["type"], "Any")
+        self.assertTrue(output.get("runtime_inspectable"))
+        self.assertEqual(output["data_shape"], {"kind": "item", "type": "Any"})
+
     def test_production_runtime_loads_catalog_without_kernel(self):
         self.assertIsNone(runtime.b3d)
         self.assertEqual(self.load_result["type_count"], len(self.catalog.types))

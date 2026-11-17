@@ -1,49 +1,59 @@
 # Perigram plugin integration
 
 This repository is the build123d provider implementation for Perigram. The
-standalone Vue Flow editor is retained only as a development harness while
-the provider is moved onto Perigram's canonical graph and plugin contracts.
+standalone Vue Flow editor is retained only as a development harness; it is
+not a second production graph editor or execution coordinator.
 
 ## Integration boundary
 
 - Python AST translation remains a kernel-free frontend.
 - Discovered build123d constructors, methods, operators, and values are
   published as provider-qualified node definitions.
-- Semantic identity is independent of transport shape. A discovered type
-  name is an open-world nominal identity; `Any` is a valid semantic
-  descriptor, not a geometry exclusion.
-- Canonical graph documents use Perigram's graph format, pinned operation
-  identities, JSON configuration, and source/target node-port edges.
+- Semantic identity is independent of transport shape. Discovered types use
+  open-world nominal identities; `Any` is a valid semantic descriptor and
+  is not a geometry exclusion.
+- Canonical documents use Perigram's exact `perigram.graph` format,
+  versioned operations, JSON configuration, and node-port edges.
 - Native Python/build123d objects remain runtime-owned. Graph JSON contains
   neither Python objects nor serialized B-Rep values.
-- Runtime outputs cross the host boundary as scoped references plus declared
-  preview representations; CAD preview is a provider-contributed renderer.
+- The target execution model is local-first browser execution: a declared
+  JavaScript plugin runtime hosts Pyodide and OCP.wasm. The JavaScript worker
+  boundary carries JSON metadata and opaque/serialized output references,
+  never live Python or kernel objects.
+- Perigram owns graph persistence, graph evaluation coordination, data-tree
+  matching, plugin lifecycle, and preview workspace. The provider owns AST
+  translation, type/API discovery, and CAD runtime implementation.
 
-## Current adapter
+## Current adapter and contract tests
 
-`public/python/perigram_graph.py` is the first kernel-free boundary adapter.
-It maps discovered operation metadata to the provider-neutral node contract
-and translates the current frontend graph into Perigram graph JSON. It fails
-closed when operation identity or edge endpoints are missing.
+`public/python/perigram_graph.py` is a kernel-free adapter. It maps
+discovered operations to the provider-neutral node contract and translates
+the current frontend graph to Perigram's canonical graph document. It fails
+closed on missing operation identity, duplicate node/edge ids, missing edge
+endpoints, and non-JSON values.
 
-This is intentionally not yet an execution adapter. The Perigram managed
-runtime currently documents a Python runtime descriptor, but the actual
-Python worker lifecycle, native dependency installation, opaque handle
-ownership, and preview artifact transport must be integrated before claiming
-native execution support.
+The adapter tests run without importing build123d or OCP. CI additionally
+checks generated node definitions with the actual
+`@perigram/plugin-sdk/nodes` validator and graph documents with the actual
+`packages/core` graph validator from Perigram's `staging` branch. This is
+stronger than a local copy of those schemas, but it does not yet prove
+provider dispatch or runtime execution.
 
-## Acceptance sequence
+## Remaining production gates
 
-1. Pure Python tests for semantic descriptors, shape independence, and graph
-   document conversion.
-2. Validate generated definitions with `@perigram/plugin-sdk/nodes`.
-3. Validate converted documents with `packages/core` graph validation.
-4. Run translated graphs through the Perigram procedural evaluator using a
-   provider dispatch adapter.
-5. Integrate isolated Python execution with pinned build123d/OCP dependencies.
-6. Add scoped geometry outputs and preview renderer.
-7. Exercise install, upgrade, uninstall, and browser authoring end to end.
+1. Ship a plugin package with a declared JavaScript runtime entry and the
+   pinned Pyodide/OCP.wasm assets/dependencies required by that runtime.
+2. Register discovered provider definitions through the SDK's node-provider
+   contract and prove exact-version dispatch in the Perigram host.
+3. Run translated graphs through Perigram's procedural evaluator, preserving
+   its list/tree matching and execution-scope semantics.
+4. Keep native geometry inside the browser runtime; expose scoped outputs and
+   supported preview representations through a declared renderer.
+5. Exercise browser authoring plus install, upgrade, uninstall, cancellation,
+   memory limits, diagnostics, and deterministic cache invalidation.
 
-The host owns graph persistence, canvas, matching/evaluation coordination,
-and preview workspace. This provider must not ship a competing graph model,
-data-tree implementation, editor, or scheduler.
+The old endpoint-mode Python executor under Perigram's
+`workers/build123d` is explicitly transitional and is not the target
+architecture. Do not add a parallel endpoint service, Python task worker,
+graph model, data-tree implementation, editor, or scheduler to work around
+the local-first plugin runtime.

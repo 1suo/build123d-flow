@@ -63,6 +63,25 @@ class KernelFreeCatalogLoadTests(unittest.TestCase):
         operator_id = self.catalog.resolve_operator(box["id"], "__add__")
         self.assertIn(operator_id, self.catalog.nodes)
 
+    def test_constructor_overload_uses_discovered_variable_type(self):
+        graph = runtime.import_python_code("""
+from build123d import Wire, Face
+wire = Wire()
+face = Face(wire)
+""")
+        face_node = next(
+            node for node in graph["nodes"]
+            if node.get("data", {}).get("definition", {}).get("id", "")
+            .rsplit(".overload-", 1)[0].endswith(".Face")
+        )
+        input_names = [
+            socket["name"]
+            for socket in face_node["data"]["definition"]["inputs"]
+        ]
+        self.assertIn("outer_wire", input_names, input_names)
+        self.assertNotIn("obj", input_names, input_names)
+        self.assertIsNone(runtime.b3d)
+
     def test_production_interpreter_translates_box_plus_cylinder_without_kernel(self):
         source = """
 from build123d import Box, Cylinder

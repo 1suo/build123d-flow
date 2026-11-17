@@ -116,6 +116,25 @@ class DiscoveredOperationDispatchTests(unittest.TestCase):
             {"result": [11, 21, 31, 12, 22, 32]},
         )
 
+    def test_node_parameters_are_merged_with_wired_inputs(self):
+        def add(a, b):
+            return a + b
+        definition = {
+            "id": "vendor.math.add",
+            "inputs": [
+                {"name": "a", "type": "Number"},
+                {"name": "b", "type": "Number"},
+            ],
+            "outputs": [{"name": "result", "type": "Number"}],
+        }
+        self.assertEqual(
+            self._run(
+                definition, add, {"a": 10},
+                {"parameters": {"a": 1, "b": 2}},
+            ),
+            {"result": 12},
+        )
+
     def test_structure_access_preserves_collection_as_one_value(self):
         def count(items):
             return len(items)

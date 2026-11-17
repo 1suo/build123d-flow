@@ -155,6 +155,14 @@ const RUNTIME_TYPE_MAP: Readonly<Record<string, CadValueType>> = {
 };
 
 function portCollection(socket: SocketDefinition): CadCollectionShape {
+  const shape = socket.data_shape;
+  if (shape) {
+    if (shape.kind === "map") return "map";
+    if (shape.kind === "list" || shape.kind === "tree" ||
+        shape.kind === "tuple" || shape.kind === "set" || shape.kind === "item") {
+      return shape.kind;
+    }
+  }
   if (socket.data_structure) return socket.data_structure === "dict" ? "map" : socket.data_structure;
   switch (socket.type) {
     case "List": return "list";

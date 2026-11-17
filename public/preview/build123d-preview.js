@@ -4,7 +4,7 @@
 
 export default function createBuild123dPreview({ vue, locale }) {
   const { h, computed, defineComponent } = vue;
-  const t = locale?.t || (key => key);
+  const emptyLabel = "No CAD geometry in this preview";
 
   return defineComponent({
     name: "Build123dCadPreview",
@@ -22,7 +22,7 @@ export default function createBuild123dPreview({ vue, locale }) {
           return h("div", {
             class: "flex min-h-48 items-center justify-center rounded-lg border border-dashed p-6 text-sm opacity-70",
             role: "status"
-          }, t("build123d.preview.empty") || "No CAD geometry in this preview");
+          }, emptyLabel);
         }
         return h("div", {
           class: "w-full overflow-hidden rounded-lg border",
@@ -132,8 +132,10 @@ function projectMeshes(meshes) {
   if (!vertices.length) return { polygons: [], edges: [] };
   const xs = vertices.map(point => point[0]);
   const ys = vertices.map(point => point[1]);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const minX = xs.reduce((value, item) => Math.min(value, item), Infinity);
+  const maxX = xs.reduce((value, item) => Math.max(value, item), -Infinity);
+  const minY = ys.reduce((value, item) => Math.min(value, item), Infinity);
+  const maxY = ys.reduce((value, item) => Math.max(value, item), -Infinity);
   const rangeX = Math.max(1e-6, maxX - minX);
   const rangeY = Math.max(1e-6, maxY - minY);
   const scale = Math.min(640 / rangeX, 400 / rangeY);

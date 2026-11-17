@@ -11,7 +11,13 @@ not a second production graph editor or execution coordinator.
   published as provider-qualified node definitions.
 - Semantic identity is independent of transport shape. Discovered types use
   open-world nominal identities; `Any` is a valid semantic descriptor and
-  is not a geometry exclusion.
+  is not a geometry exclusion. The adapter consumes discovered `type_id`
+  and `type_provider` metadata rather than inferring CAD types from a
+  hardcoded name family.
+- Runtime value reconstruction resolves discovered classes and exported
+  aliases through the type/symbol registries. Vector/rotation-specific
+  coercion tables, vector helper-node families, and implicit collection-shape
+  inference have been removed; collection shape must be explicit metadata.
 - Canonical documents use Perigram's exact `perigram.graph` format,
   versioned operations, JSON configuration, and node-port edges.
 - Native Python/build123d objects remain runtime-owned. Graph JSON contains

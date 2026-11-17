@@ -3248,12 +3248,33 @@ def _python_import_reference(obj, imports, alias):
 
 
 
+def _translator_services():
+    """Expose only the graph-lowering services required by the kernel-free translator."""
+    from python_translator import TranslatorServices
+    return TranslatorServices(
+        b3d=b3d,
+        catalog_nodes=_CATALOG,
+        internal_node_ids=_INTERNAL_NODE_IDS,
+        catalog_callables=_CATALOG_CALLABLES,
+        python_getitem=_python_getitem,
+        catalog_signatures=_CATALOG_SIGNATURES,
+        catalog_hint_targets=_CATALOG_HINT_TARGETS,
+        python_getattr=_python_getattr,
+        socket_data_structure=_socket_data_structure,
+        type_name=_type_name,
+        discovered_input_type_sets=_discovered_input_type_sets,
+        api_signature=_api_signature,
+        call_with_coercion=_call_with_coercion,
+        python_loop_last=_python_loop_last,
+    )
+
+
 def import_python_code(source):
     """Translate Python through the kernel-free translator and active data catalog."""
     if not _DISCOVERY_REPORT.get("include_full"):
         discover(include_full=True)
     from python_translator import import_python_code as translate
-    return translate(source, sys.modules[__name__], _type_catalog())
+    return translate(source, _translator_services(), _type_catalog())
 
 def export_python_code(payload):
     """Compile a graph to standalone build123d Python using native API calls."""

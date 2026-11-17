@@ -137,12 +137,20 @@ class PersistentScopeFrameTests(unittest.TestCase):
         outer = json.loads(perigram_runtime.execute_operation(
             "core.python.scope.binding", {}, self._config("scope-outer", ["outer"], binding="outer")
         ))
-        self.assertEqual(outer["__perigram_runtime__"], "value-ref")
+        self.assertEqual(outer["result"]["__perigram_runtime__"], "value-ref")
+        self.assertEqual(
+            perigram_runtime._decode(outer["result"], "scope-graph").result,
+            "outer-result",
+        )
 
         inner = json.loads(perigram_runtime.execute_operation(
             "core.python.scope.binding", {}, self._config("scope-inner", ["outer", "inner"], binding="inner")
         ))
-        self.assertEqual(inner["__perigram_runtime__"], "value-ref")
+        self.assertEqual(inner["result"]["__perigram_runtime__"], "value-ref")
+        self.assertEqual(
+            perigram_runtime._decode(inner["result"], "scope-graph").result,
+            "inner-result",
+        )
 
         with patch("flow_runtime.execute_discovered_operation", return_value={"result": "body"}):
             body = json.loads(perigram_runtime.execute_operation(

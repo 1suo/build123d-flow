@@ -99,6 +99,16 @@ class LiveDiscoveryCatalogTests(unittest.TestCase):
             )
             self.assertNotIn("data_structure", socket)
 
+    def test_collection_shape_comes_from_declared_native_inheritance(self):
+        shape_list = getattr(runtime.b3d, "ShapeList", None)
+        if shape_list is not None:
+            identity = shape_list.__module__ + "." + shape_list.__name__
+            self.assertEqual(runtime._TYPE_REGISTRY[identity]["collection_kind"], "list")
+        curve = getattr(runtime.b3d, "Curve", None)
+        if curve is not None:
+            identity = curve.__module__ + "." + curve.__name__
+            self.assertIsNone(runtime._TYPE_REGISTRY[identity]["collection_kind"])
+
     def test_declared_shapelist_receiver_is_structure_access(self):
         shape_list = getattr(runtime.b3d, "ShapeList", None)
         if shape_list is None:

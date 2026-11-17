@@ -3750,7 +3750,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     active_scope_ids.append(scope_id)
                     binding_node = add_scope_node(
                         scope_id, "binding", statement.lineno,
-                        output_type=manager_name,
+                        output_type=manager.get("socket_type", manager["name"]),
                         dependencies=dependencies,
                     )
                     if optional is not None:

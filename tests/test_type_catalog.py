@@ -1,4 +1,5 @@
 import enum
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -13,6 +14,18 @@ def _fake_type(name, bases=(object,)):
 
 
 class GeneratedTypeRegistryTests(unittest.TestCase):
+    def test_translator_module_imports_without_runtime_or_kernel(self):
+        python_path = str(Path(__file__).resolve().parents[1] / "public" / "python")
+        code = (
+            "import sys; "
+            "sys.path.insert(0, " + repr(python_path) + "); "
+            "import python_translator; "
+            "assert 'flow_runtime' not in sys.modules; "
+            "assert 'build123d' not in sys.modules; "
+            "assert 'OCP' not in sys.modules"
+        )
+        subprocess.run([sys.executable, "-S", "-c", code], check=True)
+
     def test_registry_keeps_discovered_types_without_node_candidates(self):
         base = _fake_type("CatalogBase")
         child = _fake_type("CatalogChild", (base,))

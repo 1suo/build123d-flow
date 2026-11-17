@@ -38,12 +38,71 @@ function compatibleTypes(
   return Boolean(targetIdentity && source.typeMro?.includes(targetIdentity));
 }
 
+function shapeElement(shape: import("../types").SocketDataShape | undefined): import("../types").SocketDataShape | undefined {
+  if (!shape) return undefined;
+  if (shape.kind === "list" || shape.kind === "tree" || shape.kind === "set") return shape.item;
+  if (shape.kind === "map") return shape.value;
+  if (shape.kind === "tuple") return { kind: "union", options: shape.items };
+  if (shape.kind === "union") {
+    return {
+      kind: "union",
+      options: shape.options.map((option) => shapeElement(option) ?? option),
+    };
+  }
+  return shape;
+}
+
+function semanticShapeCompatible(
+  source: import("../types").SocketDataShape,
+  target: import("../types").SocketDataShape,
+  sourcePort: CadPortDefinition,
+): boolean {
+  if (target.kind === "item" && target.type === "Any") return true;
+  if (source.kind === "item" && source.type === "Any") return true;
+  if (source.kind === "union") {
+    return source.options.every((option) =>
+      target.kind === "union"
+        ? target.options.some((candidate) => semanticShapeCompatible(option, candidate, sourcePort))
+        : semanticShapeCompatible(option, target, sourcePort)
+    );
+  }
+  if (target.kind === "union") {
+    return target.options.some((option) => semanticShapeCompatible(source, option, sourcePort));
+  }
+  if (source.kind === "item" && target.kind === "item") {
+    const sourceIdentity = source.type_id ?? source.type ?? sourcePort.valueType;
+    const targetIdentity = target.type_id ?? target.type ?? "Any";
+    if (sourceIdentity === targetIdentity || targetIdentity === "Any") return true;
+    return (source.type_mro ?? sourcePort.typeMro ?? []).includes(targetIdentity);
+  }
+  if (source.kind === "list" || source.kind === "tree" || source.kind === "set") {
+    if (target.kind !== source.kind && !(source.kind === "list" && target.kind === "tree")) return false;
+    return semanticShapeCompatible(source.item, target.item, sourcePort);
+  }
+  if (source.kind === "tuple" && target.kind === "tuple") {
+    if (source.items.length !== target.items.length) return false;
+    return source.items.every((item, index) =>
+      semanticShapeCompatible(item, target.items[index], sourcePort)
+    );
+  }
+  if (source.kind === "map" && target.kind === "map") {
+    return semanticShapeCompatible(source.key, target.key, sourcePort)
+      && semanticShapeCompatible(source.value, target.value, sourcePort);
+  }
+  return false;
+}
+
 function portTypesCompatible(
   source: CadPortDefinition,
   target: CadPortDefinition,
   sourceItems = false,
   targetItems = false,
 ): boolean {
+  const sourceShape = sourceItems ? shapeElement(source.dataShape) : source.dataShape;
+  const targetShape = targetItems ? shapeElement(target.dataShape) : target.dataShape;
+  if (sourceShape && targetShape) {
+    return semanticShapeCompatible(sourceShape, targetShape, source);
+  }
   const sourceTypes = sourceItems
     ? [itemType(source), ...(source.variants ?? [])]
     : [source.valueType, ...(source.variants ?? [])];
@@ -107,7 +166,7 @@ function compatible(source: CadPortDefinition, target: CadPortDefinition): boole
     const targetStructure = structureOf(target);
     if (targetStructure !== "item" && targetStructure !== sourceStructure &&
         !(targetStructure === "tree" && sourceStructure === "list")) return false;
-    return portTypesCompatible(source, target, true, true);
+    return portTypesCompatible(source, target, false, false);
   }
   if (sourceStructure === "item" && targetAccess !== "item") return false;
   return portTypesCompatible(source, target);

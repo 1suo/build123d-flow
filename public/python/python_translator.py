@@ -26,7 +26,7 @@ import collections
 import collections.abc
 from type_catalog import CatalogError, TypeCatalog
 
-def import_python_code(source, runtime):
+def import_python_code(source, runtime, catalog):
     """Parse a conservative, non-executing Python subset into the native graph format.
 
     Imports are inspected, never executed. Unsupported statements fail with a source
@@ -37,7 +37,6 @@ def import_python_code(source, runtime):
     discover = runtime.discover
     _DISCOVERY_REPORT = runtime._DISCOVERY_REPORT
     _CATALOG = runtime._CATALOG
-    _type_catalog = runtime._type_catalog
     _INTERNAL_NODE_IDS = runtime._INTERNAL_NODE_IDS
     _CATALOG_CALLABLES = runtime._CATALOG_CALLABLES
     _python_getitem = runtime._python_getitem
@@ -134,7 +133,6 @@ def import_python_code(source, runtime):
         discover(include_full=True)
         _DISCOVERY_REPORT = runtime._DISCOVERY_REPORT
         _CATALOG = runtime._CATALOG
-        _type_catalog = runtime._type_catalog
         _INTERNAL_NODE_IDS = runtime._INTERNAL_NODE_IDS
         _CATALOG_CALLABLES = runtime._CATALOG_CALLABLES
         _python_getitem = runtime._python_getitem
@@ -148,7 +146,7 @@ def import_python_code(source, runtime):
         _call_with_coercion = runtime._call_with_coercion
         _python_loop_last = runtime._python_loop_last
     definitions = _CATALOG
-    type_catalog = _type_catalog()
+    type_catalog = catalog
 
     def discovered_subtype(actual_type, expected_type):
         try:

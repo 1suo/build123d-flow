@@ -58,6 +58,17 @@ class PerigramGraphAdapterTests(unittest.TestCase):
             "typeId": "my_package.CustomValue",
         })
 
+    def test_python_collection_structures_map_to_perigram_shapes(self):
+        self.assertEqual(transport_shape({
+            "name": "values", "type": "Any", "data_structure": "set"
+        }), "list")
+        self.assertEqual(transport_shape({
+            "name": "values", "type": "Any", "data_structure": "dict"
+        }), "map")
+        self.assertEqual(transport_shape({
+            "name": "values", "type": "Any", "data_access": "map"
+        }), "map")
+
     def test_graph_conversion_uses_canonical_document_and_provider_qualified_operations(self):
         result = translate_graph("Box(1, 2, 3)", {
             "nodes": [{

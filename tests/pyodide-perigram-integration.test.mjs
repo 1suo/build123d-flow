@@ -104,6 +104,10 @@ outer_result = invoke(
 part = _decode(outer_result["result"], "pyodide-integration-run")
 assert abs(part.volume - 24.0) < 1e-6, part.volume
 assert len(part.solids()) == 1, len(part.solids())
+from perigram_runtime import clear_execution, _SESSIONS, _VALUE_STORE
+assert clear_execution("pyodide-integration-run") is True
+assert "pyodide-integration-run" not in _SESSIONS
+assert not _VALUE_STORE
 json.dumps({
     "volume": part.volume,
     "solids": len(part.solids()),

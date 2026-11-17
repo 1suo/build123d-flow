@@ -196,6 +196,11 @@ def _annotation_data_shape(annotation, depth=0):
                 "build123d" if module_name.split(".")[0] == "build123d"
                 else "perigram.python"
             )
+            leaf["type_mro"] = [
+                owner.__module__ + "." + owner.__name__
+                for owner in getattr(semantic_type, "__mro__", ())
+                if owner is not object
+            ]
             shape_base = getattr(b3d, "Shape", None) if b3d is not None else None
             if inspect.isclass(shape_base):
                 try:

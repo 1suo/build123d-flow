@@ -21,6 +21,7 @@ _MAX_SESSIONS = 16
 _VALUE_STORE: dict[str, Any] = {}
 _OBJECT_REFS: dict[tuple[int, str], str] = {}
 _REF_COUNTS: dict[str, int] = {}
+_TOKEN_SESSIONS: dict[str, str] = {}
 _SESSIONS: "OrderedDict[str, _Session]" = OrderedDict()
 
 
@@ -38,16 +39,17 @@ def _store_value(value: Any, session_id: str) -> dict[str, Any]:
     object_key = (id(value), session_id)
     token = _OBJECT_REFS.get(object_key)
     if token is None or _VALUE_STORE.get(token) is not value:
+        if len(_VALUE_STORE) >= _MAX_HANDLES:
+            _evict_unreferenced()
+        if len(_VALUE_STORE) >= _MAX_HANDLES:
+            raise RuntimeError(
+            "Perigram Python value store is full; release or restart the plugin runtime"
+            )
         token = uuid.uuid4().hex
         _OBJECT_REFS[object_key] = token
         _VALUE_STORE[token] = value
         _REF_COUNTS[token] = 0
-    if len(_VALUE_STORE) > _MAX_HANDLES:
-        _evict_unreferenced()
-    if len(_VALUE_STORE) > _MAX_HANDLES:
-        raise RuntimeError(
-            "Perigram Python value store is full; release or restart the plugin runtime"
-        )
+        _TOKEN_SESSIONS[token] = session_id
     descriptor = _type_descriptor(value)
     return {
         _MARKER: "value-ref",
@@ -142,15 +144,9 @@ def _evict_unreferenced() -> None:
             continue
         value = _VALUE_STORE.pop(token, None)
         _REF_COUNTS.pop(token, None)
+        session_id = _TOKEN_SESSIONS.pop(token, "")
         if value is not None:
-            _OBJECT_REFS.pop((id(value), _session_for_token(token)), None)
-
-
-def _session_for_token(token: str) -> str:
-    for session_id, session in _SESSIONS.items():
-        if token in session.value_refs:
-            return session_id
-    return ""
+            _OBJECT_REFS.pop((id(value), session_id), None)
 
 
 def _set_node_output(session: "_Session", node_id: str, encoded: Any) -> None:
@@ -161,7 +157,6 @@ def _set_node_output(session: "_Session", node_id: str, encoded: Any) -> None:
     session.node_outputs[node_id] = encoded
     for token in _collect_refs(encoded):
         _REF_COUNTS[token] = _REF_COUNTS.get(token, 0) + 1
-        session.value_refs.add(token)
     _evict_unreferenced()
 
 
@@ -365,7 +360,6 @@ class _Session:
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.node_outputs: dict[str, Any] = {}
-        self.value_refs: set[str] = set()
         self.runner = _scope_runner(self)
         next(self.runner)
 
@@ -393,7 +387,6 @@ def _release_session(session: _Session) -> None:
         for token in _collect_refs(encoded):
             _REF_COUNTS[token] = max(0, _REF_COUNTS.get(token, 0) - 1)
     session.node_outputs.clear()
-    session.value_refs.clear()
     _evict_unreferenced()
 
 
@@ -442,3 +435,4 @@ def clear_runtime() -> None:
     _VALUE_STORE.clear()
     _OBJECT_REFS.clear()
     _REF_COUNTS.clear()
+    _TOKEN_SESSIONS.clear()

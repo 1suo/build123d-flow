@@ -63,6 +63,59 @@ class DiscoveredOperationDispatchTests(unittest.TestCase):
             {"result": [11, 21, 31, 12, 22, 32]},
         )
 
+    def test_shared_python_loop_source_keeps_inputs_aligned_even_under_cross_mode(self):
+        def add(a, b):
+            return a + b
+        definition = {
+            "id": "vendor.math.add",
+            "inputs": [
+                {"name": "a", "type": "Number", "data_access": "item"},
+                {"name": "b", "type": "Number", "data_access": "item"},
+            ],
+            "outputs": [{"name": "result", "type": "Number"}],
+        }
+        config = {
+            "dataMatching": "cross",
+            "pythonLoopSources": [{
+                "node_id": "loop-source", "output_name": "result", "matching": "shortest"
+            }],
+            "inputSources": {
+                "a": [{"nodeId": "loop-source", "outputId": "result"}],
+                "b": [{"nodeId": "loop-source", "outputId": "result"}],
+            },
+        }
+        self.assertEqual(
+            self._run(definition, add, {"a": [1, 2, 3], "b": [10, 20]}, config),
+            {"result": [11, 22]},
+        )
+
+    def test_independent_python_loop_sources_can_cross(self):
+        def add(a, b):
+            return a + b
+        definition = {
+            "id": "vendor.math.add",
+            "inputs": [
+                {"name": "a", "type": "Number", "data_access": "item"},
+                {"name": "b", "type": "Number", "data_access": "item"},
+            ],
+            "outputs": [{"name": "result", "type": "Number"}],
+        }
+        config = {
+            "dataMatching": "cross",
+            "pythonLoopSources": [
+                {"node_id": "loop-a", "output_name": "result", "matching": "longest"},
+                {"node_id": "loop-b", "output_name": "result", "matching": "longest"},
+            ],
+            "inputSources": {
+                "a": [{"nodeId": "loop-a", "outputId": "result"}],
+                "b": [{"nodeId": "loop-b", "outputId": "result"}],
+            },
+        }
+        self.assertEqual(
+            self._run(definition, add, {"a": [1, 2], "b": [10, 20, 30]}, config),
+            {"result": [11, 21, 31, 12, 22, 32]},
+        )
+
     def test_structure_access_preserves_collection_as_one_value(self):
         def count(items):
             return len(items)

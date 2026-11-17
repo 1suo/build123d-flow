@@ -34,7 +34,6 @@ def import_python_code(source, runtime, catalog):
     """
     # Bind the current production catalog/evaluator contract explicitly for this translation.
     b3d = runtime.b3d
-    _DISCOVERY_REPORT = runtime._DISCOVERY_REPORT
     _CATALOG = runtime._CATALOG
     _INTERNAL_NODE_IDS = runtime._INTERNAL_NODE_IDS
     _CATALOG_CALLABLES = runtime._CATALOG_CALLABLES

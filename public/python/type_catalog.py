@@ -13,7 +13,7 @@ import typing
 from typing import Any, Mapping, get_args
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class CatalogError(ValueError):

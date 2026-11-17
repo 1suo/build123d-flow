@@ -29,11 +29,11 @@ jobs:
         with:
           repository: Perigram/perigram
           ref: staging
-          path: ${{ runner.temp }}/perigram
+          path: perigram
       - name: Validate against actual Perigram SDK and core contracts
         run: node tests/test_perigram_sdk_contract.mjs
         env:
-          PERIGRAM_REPO: ${{ runner.temp }}/perigram
+          PERIGRAM_REPO: perigram
           PYTHONPATH: public/python
       - uses: actions/setup-node@v4
         with:

@@ -229,12 +229,17 @@ def _resolve_hints(target):
 def _receiver_socket(owner):
     """Describe whether a discovered method receives one object or a collection."""
     receiver_type = _type_name(owner)
-    try:
-        collection_receiver = issubclass(
-            owner, (list, tuple, set, frozenset, collections.abc.Collection)
-        )
-    except TypeError:
-        collection_receiver = False
+    # Only declared collection inheritance makes a receiver structural.
+    # CAD values may implement iteration/length for traversal while remaining
+    # one semantic value; ABC structural subclass hooks must not turn them into
+    # list sockets.
+    declared_bases = set(getattr(owner, "__mro__", ()))
+    collection_receiver = bool(declared_bases & {
+        list, tuple, set, frozenset,
+        collections.abc.Sequence, collections.abc.MutableSequence,
+        collections.abc.Collection, collections.abc.Iterable,
+        collections.abc.Set, collections.abc.MutableSet,
+    })
     if collection_receiver:
         return {
             "name": "self", "label": "collection", "type": "List",

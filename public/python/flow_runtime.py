@@ -591,6 +591,7 @@ def _annotation_metadata(annotation):
             # of one nominal value (for example Vector or Rotation), not a
             # stream of independent values.
             metadata["data_shape"] = _annotation_data_shape(semantic_type)
+            metadata["data_access"] = "structure"
         elif collection_args:
             metadata["data_access"] = "structure"
             # A union return such as Shape | list[Shape] has a genuine

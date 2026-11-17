@@ -46,12 +46,16 @@ class TranslatorServices(typing.NamedTuple):
     python_loop_last: object
 
 
-def import_python_code(source, services, catalog):
+def import_python_code(source: str, services: TranslatorServices, catalog: TypeCatalog):
     """Parse a conservative, non-executing Python subset into the native graph format.
 
     Imports are inspected, never executed. Unsupported statements fail with a source
     location instead of being silently dropped or evaluated.
     """
+    if not isinstance(services, TranslatorServices):
+        raise TypeError("Translator services must use the TranslatorServices contract")
+    if not isinstance(catalog, TypeCatalog):
+        raise TypeError("Translator requires an explicit versioned TypeCatalog")
     # Bind the current production catalog/evaluator contract explicitly for this translation.
     b3d = services.b3d
     _CATALOG = services.catalog_nodes

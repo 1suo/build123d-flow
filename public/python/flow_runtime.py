@@ -1743,6 +1743,8 @@ def discover(include_full=True):
     _register_flow_nodes(found, callables)
     _register_python_nodes(found, callables)
     for definition in found.values():
+        for socket in definition.get("inputs", []) + definition.get("outputs", []):
+            socket.setdefault("data_shape", _socket_data_shape(socket))
         definition.setdefault("data_matching", "longest")
         definition.setdefault("execution", {"purity": "unknown", "cacheable": False})
 
@@ -1916,6 +1918,9 @@ def load_catalog_bundle(payload):
     catalog = TypeCatalog(bundle)
     _INTERNAL_NODE_IDS.clear()
     definitions = {item["id"]: dict(item) for item in bundle["nodes"]}
+    for definition in definitions.values():
+        for socket in definition.get("inputs", []) + definition.get("outputs", []):
+            socket.setdefault("data_shape", _socket_data_shape(socket))
     callables = {}
     signatures = {}
     hint_targets = {}

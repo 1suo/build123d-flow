@@ -90,7 +90,11 @@ print(json.dumps({"definitions": definitions, "document": document}, allow_nan=F
 });
 assert.equal(python.status, 0, python.stderr || python.stdout);
 const payload = JSON.parse(python.stdout);
-assert.equal(payload.definitions.length, 5);
+assert.equal(payload.definitions.length, 7);
+const scopeOperations = payload.definitions.filter(item =>
+  item.id === 'core.python.scope.binding' || item.id === 'core.python.scope.result'
+);
+assert.equal(scopeOperations.length, 2);
 for (const definition of payload.definitions) {
   assert.deepEqual(sdk.validateNodeDefinition(definition), []);
 }

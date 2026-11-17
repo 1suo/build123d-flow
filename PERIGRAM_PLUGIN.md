@@ -68,10 +68,11 @@ operations.
    deployment, including plugin install, provider registration, graph preview,
    and cancellation. The CI runtime tests currently use the real Pyodide/OCP
    engine but a worker-contract harness for the Perigram host.
-2. Add graph-run/session cleanup hooks so completed or superseded previews
-   release all opaque handles immediately rather than relying on the bounded
-   runtime-session LRU. The current runtime bounds sessions and native handles,
-   and worker cancellation terminates the isolated Python process.
+2. Wire the exposed `clearExecution(executionId)` API into the host's
+   graph-completion/stale-preview lifecycle so completed runs release native
+   handles immediately. Until that host hook is connected, the runtime bounds
+   retained sessions (16) and opaque handles (8192); cancellation terminates
+   the isolated Python worker and releases all of its memory.
 3. Exercise the packaged plugin in the deployed Perigram staging browser:
    install the listing/assets, register providers, run a translated CAD graph,
    render its preview channel, cancel and rerun, then uninstall/reinstall.

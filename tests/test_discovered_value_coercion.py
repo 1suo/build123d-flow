@@ -82,6 +82,11 @@ class DiscoveredValueCoercionTests(unittest.TestCase):
             )
         self.assertEqual(result.angles, (0, 90, 0))
 
+    def test_any_does_not_become_a_nominal_typing_type(self):
+        metadata = flow_runtime._annotation_metadata(__import__("typing").Any)
+        self.assertNotIn("type_id", metadata)
+        self.assertNotIn("type_provider", metadata)
+
     def test_collection_shape_and_semantic_type_are_emitted_separately(self):
         self.Translation.__module__ = "build123d.geometry"
         metadata = flow_runtime._annotation_metadata(list[self.Translation])

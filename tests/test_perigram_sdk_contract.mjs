@@ -15,6 +15,9 @@ const parsedListing = listingSdk.parseListing(listing);
 assert.equal(parsedListing.pluginId, 'build123d-flow');
 assert.equal(parsedListing.runtimes[0].id, 'build123d-pyodide');
 assert.equal(parsedListing.runtimes[0].entry, '/perigram-runtime.js');
+assert.equal(parsedListing.surfaces[0].id, 'build123d-cad-preview');
+assert.equal(parsedListing.surfaces[0].module, '/preview/build123d-preview.js');
+assert.equal(parsedListing.previewChannels[0].surface, 'build123d-cad-preview');
 
 
 const python = spawnSync('python', ['-c', `
@@ -107,6 +110,8 @@ for (const definition of payload.definitions) {
   assert.deepEqual(sdk.validateNodeDefinition(definition), []);
 }
 assert.deepEqual(graph.validateGraphDocument(payload.document), []);
+const boxDefinition = payload.definitions.find(item => item.id === 'build123d.Box');
+assert.equal(boxDefinition.preview.renderer, 'cad-mesh');
 const varargs = payload.definitions.find(item => item.id === 'build123d.VarArgs');
 assert.deepEqual(varargs.configuration.pythonPortNames.inputs, {
   varargs_args: '*args',

@@ -78,6 +78,36 @@ test("Perigram runtime dispatches invocation inputs and graph execution identity
   runtime.dispose();
 });
 
+test("cancellation terminates and the next invocation boots a clean Python worker", async () => {
+  const workers = [];
+  const runtime = await createRuntime({
+    createWorker: () => {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker;
+    }
+  });
+  const controller = new AbortController();
+  const cancelled = runtime.execute("build123d.Box", {
+    node: { id: "box-cancelled" },
+    config: { graphId: "graph-1" },
+    inputs: {}
+  }, { signal: controller.signal });
+  controller.abort();
+  await assert.rejects(cancelled, /cancelled/);
+  assert.equal(workers[0].terminated, true);
+
+  const result = await runtime.execute("build123d.Box", {
+    node: { id: "box-retried" },
+    config: { graphId: "graph-1" },
+    inputs: {}
+  }, {});
+  assert.deepEqual(result, { result: 1 });
+  assert.equal(workers.length, 2);
+  assert.equal(workers[1].terminated, false);
+  runtime.dispose();
+});
+
 test("builder scope operations share the graph session when the host omits a run id", async () => {
   const worker = new FakeWorker();
   const runtime = await createRuntime({ createWorker: () => worker });

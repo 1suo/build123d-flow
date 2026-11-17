@@ -584,12 +584,16 @@ def _annotation_metadata(annotation):
                 for collection in collection_args
             )
         )
-        if collection_args and not value_representation_only:
+        if value_representation_only and inspect.isclass(semantic_type):
+            # A list/tuple of primitive components is an alternate encoding
+            # of one nominal value (for example Vector or Rotation), not a
+            # stream of independent values.
+            metadata["data_shape"] = _annotation_data_shape(semantic_type)
+        elif collection_args:
             metadata["data_access"] = "structure"
-            # A union return such as Location | Plane | list[Location] has a
-            # genuine collection branch. Preserve that structural contract in
-            # the graph instead of collapsing it to type Any; the evaluator
-            # still returns the concrete runtime value for each call.
+            # A union return such as Shape | list[Shape] has a genuine
+            # collection branch. Preserve its dynamic structure instead of
+            # collapsing it to Any; the evaluator resolves the concrete value.
             collection_kinds = {
                 "set" if typing.get_origin(collection) in (
                     set, frozenset, collections.abc.Set, collections.abc.MutableSet

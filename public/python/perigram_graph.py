@@ -22,6 +22,14 @@ class PerigramGraphError(ValueError):
     """Raised when translator output cannot be represented without data loss."""
 
 
+def _require_json(value: Any, context: str) -> None:
+    """Reject values that Perigram's persisted JSON contracts cannot carry."""
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise PerigramGraphError(f"{context} is not JSON-compatible: {exc}") from exc
+
+
 def semantic_descriptor(type_name: str | None) -> dict[str, Any]:
     """Map a discovered Python type identity to an open-world semantic descriptor."""
     name = str(type_name or "Any")
@@ -81,7 +89,7 @@ def normalize_node_definition(definition: Mapping[str, Any]) -> dict[str, Any]:
         raise PerigramGraphError(f"Invalid provider id: {provider}")
     inputs = [normalize_port(port) for port in definition.get("inputs", [])]
     outputs = [normalize_port(port) for port in definition.get("outputs", [])]
-    return {
+    result = {
         "provider": provider,
         "id": operation_id,
         "version": OPERATION_VERSION,
@@ -103,6 +111,8 @@ def normalize_node_definition(definition: Mapping[str, Any]) -> dict[str, Any]:
             "idempotent": True,
         },
     }
+    _require_json(result, f"Node definition {provider}.{operation_id}")
+    return result
 
 
 def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any]:
@@ -157,7 +167,7 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
         })
 
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
-    return {
+    result = {
         "format": GRAPH_FORMAT,
         "version": GRAPH_VERSION,
         "id": f"build123d-import-{digest}",
@@ -173,6 +183,8 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
             "executionScopes": translated.get("execution_scopes") or [],
         },
     }
+    _require_json(result, "Perigram graph document")
+    return result
 
 
 def provider_definitions(catalog: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:

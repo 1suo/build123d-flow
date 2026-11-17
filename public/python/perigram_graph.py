@@ -111,14 +111,20 @@ def normalize_port(socket: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _operation_provider(definition: Mapping[str, Any]) -> str:
+    explicit = definition.get("provider")
+    if explicit:
+        return str(explicit).lower()
+    source = definition.get("source")
+    return PYTHON_PROVIDER if source in {"python", "flow"} else BUILD123D_PROVIDER
+
+
 def normalize_node_definition(definition: Mapping[str, Any]) -> dict[str, Any]:
     """Publish one discovered operation as a Perigram node definition."""
     operation_id = str(definition.get("id") or "")
     if not operation_id:
         raise PerigramGraphError("Discovered operation has no stable id")
-    provider = str(definition.get("provider") or (
-        PYTHON_PROVIDER if definition.get("source") == "python" else BUILD123D_PROVIDER
-    )).lower()
+    provider = _operation_provider(definition)
     if not PROVIDER_PATTERN.fullmatch(provider):
         raise PerigramGraphError(f"Invalid provider id: {provider}")
     inputs = [normalize_port(port) for port in definition.get("inputs", [])]
@@ -201,9 +207,7 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
         operation_id = str(definition.get("id") or "")
         if not operation_id:
             raise PerigramGraphError(f"Node {node_id} has no discovered operation identity")
-        provider = str(definition.get("provider") or (
-            PYTHON_PROVIDER if definition.get("source") == "python" else BUILD123D_PROVIDER
-        )).lower()
+        provider = _operation_provider(definition)
         config = {
             "parameters": data.get("params") or {},
             "executionScopePath": data.get("execution_scope_path") or [],

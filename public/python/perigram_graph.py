@@ -166,6 +166,27 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
     if not isinstance(edges, list):
         raise PerigramGraphError("Translator output must contain an edge array")
 
+    source_nodes_by_id = {
+        str(node.get("id")): node
+        for node in nodes if isinstance(node, Mapping) and node.get("id")
+    }
+    incoming_sources: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for edge in edges:
+        if not isinstance(edge, Mapping):
+            continue
+        target_node = str(edge.get("target") or "")
+        target_port = str(edge.get("targetHandle") or "")
+        source_node = str(edge.get("source") or "")
+        source_port = str(edge.get("sourceHandle") or "result")
+        if not all((target_node, target_port, source_node)):
+            continue
+        source_data = source_nodes_by_id.get(source_node, {}).get("data") or {}
+        incoming_sources.setdefault(target_node, {}).setdefault(target_port, []).append({
+            "nodeId": source_node,
+            "outputId": source_port,
+            "pythonLoopSources": source_data.get("python_loop_sources") or [],
+        })
+
     normalized_nodes = []
     seen_node_ids = set()
     for node in nodes:
@@ -190,6 +211,7 @@ def translate_graph(source: str, translated: Mapping[str, Any]) -> dict[str, Any
             # context-manager descriptors with each node so a stateful
             # runtime can preserve lexical builder scopes across invocations.
             "executionScopes": translated.get("execution_scopes") or [],
+            "inputSources": incoming_sources.get(node_id, {}),
         }
         if data.get("data_matching"):
             config["dataMatching"] = data["data_matching"]

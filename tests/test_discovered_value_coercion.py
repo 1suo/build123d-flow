@@ -82,6 +82,12 @@ class DiscoveredValueCoercionTests(unittest.TestCase):
             )
         self.assertEqual(result.angles, (0, 90, 0))
 
+    def test_display_type_name_is_discovered_not_rewritten_to_vector3(self):
+        class Vector:
+            pass
+        Vector.__module__ = "build123d.geometry"
+        self.assertEqual(flow_runtime._type_name(Vector), "Vector")
+
     def test_collection_shape_is_never_inferred_from_a_type_label(self):
         self.assertEqual(
             flow_runtime._socket_data_structure({"type": "List"}),

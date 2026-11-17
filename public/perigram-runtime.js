@@ -9,23 +9,14 @@ export async function createRuntime({ createWorker } = {}) {
   let activeState = null;
   let statePromise = null;
   let disposed = false;
-  let runSequence = 0;
-  const contextRunIds = new WeakMap();
-
-  function createRunId() {
-    return globalThis.crypto?.randomUUID?.() ||
-      "build123d-run-" + (++runSequence);
-  }
-
   function executionIdFor(context, config) {
-    const supplied = context?.executionId || context?.runId ||
-      config.executionId || config.runId;
-    if (supplied) return String(supplied);
-    if (context && typeof context === "object") {
-      if (!contextRunIds.has(context)) contextRunIds.set(context, createRunId());
-      return contextRunIds.get(context);
-    }
-    return createRunId();
+    // Perigram's preview evaluator may not yet provide a run id. The imported
+    // graph id is stable across all node invocations and isolates graph sessions;
+    // hosts that expose an execution id get per-run isolation automatically.
+    return String(
+      context?.executionId || context?.runId ||
+      config.executionId || config.runId || config.graphId || "build123d-default"
+    );
   }
 
   async function bootWorker() {

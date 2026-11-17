@@ -44,95 +44,80 @@ _NODE_METADATA_OVERRIDES = {}
 
 
 def _type_name(annotation):
+    """Return a display label; semantic identity is carried by discovered type_id."""
     if annotation is inspect.Signature.empty or annotation is typing.Any:
         return "Any"
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
+    if origin is typing.Annotated:
+        return _type_name(args[0]) if args else "Any"
+    if origin in (
+        list, set, frozenset, collections.abc.Sequence,
+        collections.abc.MutableSequence, collections.abc.Iterable,
+        collections.abc.Collection, collections.abc.Set,
+        collections.abc.MutableSet,
+    ):
+        return _type_name(args[0]) if args else "Any"
+    if origin in (dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping):
+        return _type_name(args[1]) if len(args) > 1 else "Any"
+    if origin is tuple:
+        element_args = [item for item in args if item is not Ellipsis]
+        names = {_type_name(item) for item in element_args}
+        return names.pop() if len(names) == 1 else "Any"
     if origin in (typing.Union, types.UnionType):
-        union_args = [arg for arg in args if arg is not type(None)]
-        shape_base = getattr(b3d, "Shape", None) if b3d is not None else None
-        if union_args and inspect.isclass(shape_base):
-            try:
-                if all(inspect.isclass(arg) and issubclass(arg, shape_base) for arg in union_args):
-                    return "Shape"
-            except TypeError:
-                pass
-        names = {_type_name(arg) for arg in union_args}
-        tuple_alternatives = [arg for arg in union_args if typing.get_origin(arg) is tuple]
+        union_args = [item for item in args if item is not type(None)]
+        tuple_alternatives = [item for item in union_args if typing.get_origin(item) is tuple]
         object_alternatives = [
-            arg for arg in union_args
-            if inspect.isclass(arg) and not issubclass(arg, (str, bytes, bool, int, float, complex))
+            item for item in union_args
+            if inspect.isclass(item)
+            and not issubclass(item, (str, bytes, bool, int, float, complex))
         ]
         if len(object_alternatives) == 1 and tuple_alternatives:
             return _type_name(object_alternatives[0])
-        collection_origins = {
-            list, set, frozenset, collections.abc.Sequence, collections.abc.MutableSequence,
-            collections.abc.Iterable, collections.abc.Collection, collections.abc.Set,
-            collections.abc.MutableSet,
-        }
-        scalar_names = {
-            _type_name(arg) for arg in args
-            if arg is not type(None) and typing.get_origin(arg) not in collection_origins
-        }
-        collection_item_names = {
-            _type_name(typing.get_args(arg)[0])
-            for arg in args
-            if typing.get_origin(arg) in collection_origins and typing.get_args(arg)
-        }
-        if len(scalar_names) == 1 and collection_item_names == scalar_names:
-            return scalar_names.pop()
+        semantic = _semantic_annotation(annotation)
+        if inspect.isclass(semantic):
+            return _type_name(semantic)
+        names = {_type_name(item) for item in union_args}
         return names.pop() if len(names) == 1 else "Any"
-    # Preserve concrete build123d collection/value classes used as generic
-    # origins (for example ShapeList[Edge]); the receiver resolver needs the
-    # runtime class name to discover the next chained member.
-    if inspect.isclass(origin) and getattr(origin, "__module__", "").split(".")[0] == "build123d":
-        return _type_name(origin)
-    if origin in (tuple, set, frozenset, list, dict, typing.Dict,
-                  collections.abc.Set, collections.abc.MutableSet,
-                  collections.abc.Sequence, collections.abc.MutableSequence,
-                  collections.abc.Iterable, collections.abc.Collection,
-                  collections.abc.Mapping, collections.abc.MutableMapping):
-        return "Any"
     if origin is typing.Literal:
-        return "Enum"
-    if origin is typing.Annotated:
-        return _type_name(args[0]) if args else "Any"
+        literal_values = args
+        if literal_values and all(isinstance(item, str) for item in literal_values):
+            return "String"
+        if literal_values and all(isinstance(item, (int, float)) for item in literal_values):
+            return "Number"
+        return "Any"
+    if inspect.isclass(origin) and getattr(origin, "__module__", "").split(".")[0] == "build123d":
+        return origin.__name__
     if inspect.isclass(annotation):
         try:
             if issubclass(annotation, enum.Enum):
                 return "Enum"
-            if b3d is not None:
-                shape_base = getattr(b3d, "Shape", None)
-                if inspect.isclass(shape_base) and issubclass(annotation, shape_base):
-                    for base in getattr(annotation, "__mro__", (annotation,)):
-                        if base is shape_base:
-                            return "Shape"
-                        if (
-                            getattr(base, "__module__", "").split(".")[0] == "build123d"
-                            and inspect.isclass(shape_base)
-                            and issubclass(base, shape_base)
-                        ):
-                            return base.__name__
         except TypeError:
             pass
-        if getattr(annotation, "__module__", "").split(".")[0] == "build123d":
-            # Runtime class names must map to the catalog's semantic socket types.
-            # build123d exposes Vector as a class; the graph contract calls it Vector3.
-            return {"Vector": "Vector3"}.get(annotation.__name__, annotation.__name__)
+        if annotation in (int, float):
+            return "Number"
+        if annotation is bool:
+            return "Boolean"
+        if annotation is str:
+            return "String"
+        if annotation is bytes:
+            return "Bytes"
+        if annotation is type(None):
+            return "None"
+        return getattr(annotation, "__name__", "Any")
     if isinstance(annotation, str):
+        resolved = _resolve_discovered_type(annotation)
+        if inspect.isclass(resolved):
+            return _type_name(resolved)
         name = annotation.strip().strip("'\\\"").split(".")[-1].lower()
-    else:
-        name = getattr(annotation, "__name__", str(annotation)).lower()
-    mapping = {
-        "int": "Number", "float": "Number", "bool": "Boolean", "str": "String",
-        "vector": "Vector3", "vector2": "Vector2", "vector3": "Vector3",
-        "rotation": "Rotation", "plane": "Plane", "location": "Location", "axis": "Axis", "color": "Color",
-        "matrix": "Matrix",
-        "shape": "Shape", "solid": "Solid", "compound": "Compound", "face": "Face",
-        "edge": "Edge", "wire": "Wire", "shell": "Shell", "part": "Part",
-        "sketch": "Sketch", "code": "Code", "callable": "Code",
-    }
-    return mapping.get(name, "Any")
+        primitives = {
+            "int": "Number", "float": "Number",
+            "bool": "Boolean", "str": "String", "bytes": "Bytes",
+            "none": "None", "nonetype": "None",
+            "code": "Code", "callable": "Code",
+        }
+        return primitives.get(name, "Any")
+    return "Any"
 
 
 def _union_annotations(annotations):
@@ -2119,13 +2104,8 @@ def _inspect_value(value, depth=0):
 
 
 def _socket_data_structure(socket):
-    """Return the declared collection shape of a socket, never its runtime value shape."""
-    structure = socket.get("data_structure", "item")
-    if structure != "item":
-        return structure
-    return {
-        "List": "list", "Tuple": "tuple", "Set": "set", "Dict": "dict",
-    }.get(socket.get("type"), "item")
+    """Return only the explicitly declared transport shape."""
+    return socket.get("data_structure", "item")
 
 
 def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None, visiting=None):

@@ -252,7 +252,7 @@ export function cadPortTypeLabel(port: CadPortDefinition): string {
 export function cadPortColor(port: CadPortDefinition): string {
   const type = port.itemType ?? port.valueType;
   if (port.geometry || port.itemGeometry || port.runtimeInspectable || type === "geometry") return "var(--socket-geometry)";
-  if (["number", "integer", "vector2", "vector3", "transform", "plane", "axis"].includes(type)) return "var(--socket-numeric)";
+  if (["number", "integer", "boolean"].includes(type)) return "var(--socket-numeric)";
   if (["string", "enum"].includes(type)) return "var(--socket-text)";
   return "var(--socket-generic)";
 }

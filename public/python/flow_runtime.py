@@ -3252,7 +3252,6 @@ def _translator_services():
     """Expose only the graph-lowering services required by the kernel-free translator."""
     from python_translator import TranslatorServices
     return TranslatorServices(
-        b3d=b3d,
         catalog_nodes=_CATALOG,
         internal_node_ids=_INTERNAL_NODE_IDS,
         catalog_callables=_CATALOG_CALLABLES,

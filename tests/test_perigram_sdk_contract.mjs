@@ -10,6 +10,9 @@ if (!root) throw new Error('PERIGRAM_REPO must point to a Perigram checkout');
 const sdk = await import(pathToFileURL(path.join(root, 'packages/plugin-sdk/src/node-contract.js')));
 const listingSdk = await import(pathToFileURL(path.join(root, 'packages/plugin-sdk/src/listing.js')));
 const graph = await import(pathToFileURL(path.join(root, 'packages/core/src/graph.js')));
+const proceduralEvaluator = await import(pathToFileURL(path.join(root, 'packages/core/src/procedural-evaluator.js')));
+const graphContracts = await import(pathToFileURL(path.join(root, 'packages/core/src/graph.js')));
+const { usePluginRuntime } = await import(pathToFileURL(path.join(root, 'composables/usePluginRuntime.js')));
 const listing = JSON.parse(await readFile('perigram-listing.json', 'utf8'));
 const parsedListing = listingSdk.parseListing(listing);
 assert.equal(parsedListing.pluginId, 'build123d-flow');
@@ -120,3 +123,105 @@ assert.deepEqual(varargs.configuration.pythonPortNames.inputs, {
 assert.equal(payload.document.edges[0].source.port, 'result');
 assert.equal(payload.document.edges[0].target.port, 'shapes');
 console.log('All sample provider definitions and canonical graph document pass actual Perigram validators');
+
+const inputOperation = graphContracts.GRAPH_INPUT_OPERATION;
+const outputOperation = graphContracts.GRAPH_OUTPUT_OPERATION;
+const executionGraph = {
+  format: 'perigram.graph',
+  version: 1,
+  id: 'graph.execution-context',
+  revision: 'rev-1',
+  interface: {
+    inputs: [{ id: 'number', contract: { shape: 'item', semantic: { base: 'number' } } }],
+    outputs: [{ id: 'result', contract: { shape: 'item', semantic: { base: 'number' } } }]
+  },
+  nodes: [
+    { id: 'in', operation: { provider: 'perigram.core', id: inputOperation, version: '1' }, config: { interfaceId: 'number' } },
+    { id: 'first', operation: { provider: 'test.provider', id: 'double', version: '1' }, config: {} },
+    { id: 'second', operation: { provider: 'test.provider', id: 'double', version: '1' }, config: {} },
+    { id: 'out', operation: { provider: 'perigram.core', id: outputOperation, version: '1' }, config: { interfaceId: 'result' } }
+  ],
+  edges: [
+    { id: 'e1', source: { node: 'in', port: 'value' }, target: { node: 'first', port: 'value' } },
+    { id: 'e2', source: { node: 'first', port: 'result' }, target: { node: 'second', port: 'value' } },
+    { id: 'e3', source: { node: 'second', port: 'result' }, target: { node: 'out', port: 'value' } }
+  ]
+};
+const executionContexts = [];
+const executionResult = await proceduralEvaluator.evaluateProceduralGraph({
+  graph: executionGraph,
+  inputBindings: { number: 3 },
+  resolveNodeDefinition: () => ({
+    provider: 'test.provider',
+    id: 'double',
+    version: '1',
+    inputs: [{ id: 'value', required: true }],
+    outputs: [{ id: 'result', required: true }],
+    execution: { kind: 'pure' }
+  }),
+  executeNode: (_definition, { inputs, context }) => {
+    executionContexts.push(context);
+    return { result: inputs.value * 2 };
+  }
+});
+assert.deepEqual(executionResult.outputs, { result: 12 });
+assert.equal(executionContexts.length, 2);
+assert.match(executionContexts[0].executionId, /^graph-preview-/);
+assert.equal(executionContexts[1].executionId, executionContexts[0].executionId);
+
+class ContractWorker {
+  constructor() {
+    this.messages = [];
+    this.onmessage = null;
+    this.onerror = null;
+    this.terminated = false;
+  }
+  postMessage(message) {
+    this.messages.push(message);
+    if (message.type === 'initialize') {
+      queueMicrotask(() => this.onmessage?.({ data: { type: 'ready', providers: [] } }));
+    }
+    if (message.type === 'invoke') {
+      const input = structuredClone(message.input);
+      this.invocation = input;
+      queueMicrotask(() => this.onmessage?.({
+        data: { type: 'result', invocationId: message.invocationId, value: input }
+      }));
+    }
+  }
+  terminate() { this.terminated = true; }
+}
+const contractWorker = new ContractWorker();
+const pluginRuntime = usePluginRuntime({ createWorker: () => contractWorker });
+const hostInvocation = {
+  node: { id: 'node-1' },
+  config: { graphId: 'graph.execution-context' },
+  inputs: { width: 4 },
+  context: {
+    graphId: 'graph.execution-context',
+    executionId: executionContexts[0].executionId,
+    readSet: {
+      recordInstance() {},
+      recordRelation() {},
+      recordQuery() {},
+      toJSON() { return {}; }
+    }
+  },
+  mode: 'preview'
+};
+await pluginRuntime.execute(
+  { organizationId: 'org-1', pluginId: 'build123d-flow', version: '0.1.0' },
+  { id: 'build123d-pyodide', version: '314.0.7-r17', entryUrl: '/perigram-runtime.js', targets: ['browser'] },
+  'build123d.Box',
+  hostInvocation,
+  { execution: { kind: 'pure', runtime: 'build123d-pyodide', targets: ['browser'], capabilities: [] } }
+);
+assert.deepEqual(contractWorker.invocation.context, {
+  graphId: 'graph.execution-context',
+  executionId: executionContexts[0].executionId
+});
+assert.equal(contractWorker.invocation.inputs.width, 4);
+pluginRuntime.dispose();
+assert.equal(contractWorker.terminated, true);
+
+console.log('Perigram procedural preview and plugin worker context contracts passed');

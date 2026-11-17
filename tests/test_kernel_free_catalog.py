@@ -701,6 +701,7 @@ vertex = Vertex(Vector(1, 2, 3))
 
     def test_non_string_class_mapping_keys_survive_literal_serialization(self):
         graph = runtime.import_python_code("""
+from build123d import BasePartObject, Box
 class Lookup(BasePartObject):
     values = {4: "tetrahedron", 6: "cube"}
     def __init__(self, face_count):

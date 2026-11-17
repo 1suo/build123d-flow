@@ -11,7 +11,7 @@ import type { PythonRuntime } from "./pythonRuntime";
 
 export type CadValueType = string;
 
-export type CadCollectionShape = "item" | "list" | "tree" | "tuple" | "set" | "map";
+export type CadCollectionShape = "item" | "list" | "tree" | "tuple" | "set" | "map" | "stream";
 export type CadInputAccess = "item" | "collection" | "tree";
 export type CadExecutionMode = "pure" | "stateful" | "effect" | "unspecified";
 
@@ -262,7 +262,8 @@ function shapeTypeLabel(shape: SocketDataShape): string {
   }
   if (shape.kind === "map") return `Map[${shapeTypeLabel(shape.key)}, ${shapeTypeLabel(shape.value)}]`;
   if (shape.kind === "tuple") return `Tuple[${shape.items.map(shapeTypeLabel).join(", ")}]`;
-  return `OneOf[${shape.options.map(shapeTypeLabel).join(" | ")}]`;
+  if (shape.kind === "union") return `OneOf[${shape.options.map(shapeTypeLabel).join(" | ")}]`;
+  return "Any";
 }
 
 export function isCadGeometryPort(port: CadPortDefinition): boolean {

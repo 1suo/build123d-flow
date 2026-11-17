@@ -215,13 +215,33 @@ def build_type_registry(classes, nodes, geometry_base=None):
         if callable(iterator):
             try:
                 iterator_signature = inspect.signature(iterator)
-                item_candidates = get_args(iterator_signature.return_annotation)
+                iterator_hints = typing.get_type_hints(iterator)
+                iterator_return = iterator_hints.get(
+                    "return", iterator_signature.return_annotation
+                )
+                item_candidates = get_args(iterator_return)
                 if item_candidates:
                     candidate = item_candidates[0]
                     if inspect.isclass(candidate) and getattr(candidate, "__module__", "").startswith("build123d"):
                         iterable_item_type = candidate.__name__
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, NameError):
                 pass
+        if iterable_item_type is None:
+            # Generic collection bases often declare their item class in
+            # __orig_bases__ even when __iter__ only exposes an unresolved T.
+            for owner in getattr(cls, "__mro__", (cls,)):
+                for declared_base in vars(owner).get("__orig_bases__", ()):
+                    candidates = get_args(declared_base)
+                    candidate = next((
+                        item for item in candidates
+                        if inspect.isclass(item)
+                        and getattr(item, "__module__", "").split(".")[0] == "build123d"
+                    ), None)
+                    if candidate is not None:
+                        iterable_item_type = candidate.__name__
+                        break
+                if iterable_item_type is not None:
+                    break
         registry[identity] = {
             "id": identity,
             "name": name,

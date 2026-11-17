@@ -22,6 +22,20 @@ class RecursiveDataContractTests(unittest.TestCase):
             },
         })
 
+    def test_recursive_data_shape_is_authoritative_for_execution_structure(self):
+        socket = {
+            "type": "Any",
+            "data_structure": "item",
+            "data_shape": {
+                "kind": "tree",
+                "item": {
+                    "kind": "list",
+                    "item": {"kind": "item", "type": "Box"},
+                },
+            },
+        }
+        self.assertEqual(runtime._socket_data_structure(socket), "tree")
+
     def test_tuple_and_mapping_shapes_are_recursive(self):
         import typing
 

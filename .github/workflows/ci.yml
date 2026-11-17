@@ -75,7 +75,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Perigram/perigram
-          ref: d7836c42f0f46b18b26731966f084ccfbf1aea4a
+          ref: a6d0769e912163f58ec97977c8d9f6365f5e41ea
           path: perigram
       - name: Validate against actual Perigram SDK and core contracts
         run: node tests/test_perigram_sdk_contract.mjs

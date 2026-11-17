@@ -2303,6 +2303,15 @@ def _map_item_inputs(params, stream_shapes, invoke, matching="longest", path=(),
             group_index, group_matching = group
             grouped_names.setdefault(group_index, []).append(name)
             grouped_matching[group_index] = group_matching
+    if len(grouped_names) == 1:
+        group_inputs, group_index = next(iter(grouped_names.items()))
+        group_mode = grouped_matching[group_index]
+        if group_mode != matching:
+            return _map_item_inputs(
+                params, stream_shapes, invoke,
+                matching=group_mode, path=path, depth=depth,
+                _validate=None, stream_groups=None,
+            )
     if matching == "cross" and len(grouped_names) > 1:
         groups = [
             (grouped_names[index], grouped_matching[index])
@@ -2586,6 +2595,32 @@ def execute_discovered_operation(operation_id, inputs, config=None):
                 if any(isinstance(item, (list, tuple)) for item in value)
                 else "list"
             )
+    loop_source_groups = {
+        (str(source.get("node_id")), str(source.get("output_name", "result"))):
+            (index, source.get("matching", "longest"))
+        for index, source in enumerate(config.get("pythonLoopSources") or [])
+    }
+    stream_groups = {}
+    for input_name, sources in (config.get("inputSources") or {}).items():
+        if not isinstance(sources, list) or len(sources) != 1:
+            continue
+        source = sources[0]
+        source_key = (
+            str(source.get("nodeId")),
+            str(source.get("outputId", "result")),
+        )
+        group = loop_source_groups.get(source_key)
+        if group is None:
+            source_loop_keys = {
+                (str(item.get("node_id")), str(item.get("output_name", "result")))
+                for item in source.get("pythonLoopSources", [])
+            }
+            shared = [key for key in loop_source_groups if key in source_loop_keys]
+            if shared:
+                group = loop_source_groups[shared[0]]
+        if group is not None:
+            stream_groups[input_name] = group
+
     result = _map_item_inputs(
         params,
         stream_shapes,
@@ -2595,6 +2630,7 @@ def execute_discovered_operation(operation_id, inputs, config=None):
             definition.get("data_matching", "longest"),
         ),
         _validate=lambda: _validate_stream_items(definition, params, stream_shapes),
+        stream_groups=stream_groups,
     )
     return {"result": result}
 

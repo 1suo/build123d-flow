@@ -2497,10 +2497,21 @@ def execute_discovered_operation(operation_id, inputs, config=None):
         )
     if not isinstance(inputs, collections.abc.Mapping):
         raise TypeError("Operation inputs must be a port-id mapping")
+    parameters = config.get("parameters") or {}
+    if not isinstance(parameters, collections.abc.Mapping):
+        raise TypeError("Node parameters must be a port-id mapping")
+    params = dict(parameters)
+    params.update(inputs)
     definition = _CATALOG.get(operation_id)
     if definition is None:
         raise KeyError("Unknown discovered operation: " + str(operation_id))
-    params = dict(inputs)
+    output_ports = [port.get("name") for port in definition.get("outputs", [])]
+    if output_ports != ["result"]:
+        raise RuntimeError(
+            "Operation {} has unsupported output ports: {}".format(
+                operation_id, output_ports
+            )
+        )
     callable_obj = _resolve_callable(operation_id)
     signature = _CATALOG_SIGNATURES.get(operation_id)
     hint_target = _CATALOG_HINT_TARGETS.get(operation_id)

@@ -82,6 +82,13 @@ class DiscoveredValueCoercionTests(unittest.TestCase):
             )
         self.assertEqual(result.angles, (0, 90, 0))
 
+    def test_collection_shape_and_semantic_type_are_emitted_separately(self):
+        self.Translation.__module__ = "build123d.geometry"
+        metadata = flow_runtime._annotation_metadata(list[self.Translation])
+        self.assertEqual(metadata["data_structure"], "list")
+        self.assertEqual(metadata["type_id"], "build123d.geometry.Translation")
+        self.assertEqual(metadata["type_provider"], "build123d")
+
     def test_unknown_discovered_object_fails_closed(self):
         with patch.object(
             flow_runtime, "_resolve_discovered_type",

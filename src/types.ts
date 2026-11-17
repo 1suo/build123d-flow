@@ -7,7 +7,9 @@ export type SocketType = BuiltinSocketType | (string & {});
 /** Recursive Python data layout, independent from the semantic value type. */
 export type SocketDataShape =
   | { kind: "item"; type?: SocketType; type_id?: string; type_provider?: string; type_mro?: string[]; is_geometry?: boolean }
-  | { kind: "list" | "tree" | "set"; item: SocketDataShape }
+  | { kind: "list"; item: SocketDataShape }
+  | { kind: "tree"; item: SocketDataShape }
+  | { kind: "set"; item: SocketDataShape }
   | { kind: "tuple"; items: SocketDataShape[] }
   | { kind: "map"; key: SocketDataShape; value: SocketDataShape }
   | { kind: "union"; options: SocketDataShape[] };

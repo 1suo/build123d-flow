@@ -32,6 +32,7 @@ export interface CadPortDefinition {
   /** Geometry capability discovered from the provider's type registry. */
   readonly geometry?: boolean;
   readonly itemGeometry?: boolean;
+  readonly runtimeInspectable?: boolean;
   readonly access?: CadInputAccess;
   readonly required?: boolean;
   readonly defaultValue?: unknown;
@@ -169,6 +170,7 @@ function cadPort(socket: SocketDefinition): CadPortDefinition {
     ...(collection !== "item" ? { itemType: RUNTIME_TYPE_MAP[sourceType] ?? sourceType } : {}),
     ...(socket.is_geometry ? { geometry: true } : {}),
     ...(socket.item_is_geometry ? { itemGeometry: true } : {}),
+    ...(socket.runtime_inspectable || sourceType === "Any" ? { runtimeInspectable: true } : {}),
     access: socket.data_access === "structure"
       ? "collection"
       : socket.data_access ?? (collection === "item" ? "item" : "collection"),
@@ -217,7 +219,8 @@ export function adaptRuntimeOperation(definition: NodeDefinition): CadOperationD
 
 /** Geometry is a provider capability, not a hardcoded list of CAD type names. */
 export function isCadGeometryPort(port: CadPortDefinition): boolean {
-  return port.geometry === true || port.itemGeometry === true || port.valueType === "geometry";
+  return port.geometry === true || port.itemGeometry === true ||
+    port.runtimeInspectable === true || port.valueType === "geometry";
 }
 
 export function cadPortTypeLabel(port: CadPortDefinition): string {
@@ -229,7 +232,7 @@ export function cadPortTypeLabel(port: CadPortDefinition): string {
 
 export function cadPortColor(port: CadPortDefinition): string {
   const type = port.itemType ?? port.valueType;
-  if (port.geometry || port.itemGeometry || type === "geometry") return "var(--socket-geometry)";
+  if (port.geometry || port.itemGeometry || port.runtimeInspectable || type === "geometry") return "var(--socket-geometry)";
   if (["number", "integer", "vector2", "vector3", "transform", "plane", "axis"].includes(type)) return "var(--socket-numeric)";
   if (["string", "enum"].includes(type)) return "var(--socket-text)";
   return "var(--socket-generic)";

@@ -132,6 +132,26 @@ def _annotation_data_shape(annotation, depth=0):
         collections.abc.MutableSet,
     }
     mapping_origins = {dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping}
+    # Concrete collection subclasses are structural only through declared
+    # inheritance, never through duck-typed iteration. This keeps ShapeList
+    # and user-defined list/map classes discoverable without mistaking
+    # iterable CAD domain objects for collections.
+    candidate = origin if origin is not None else annotation
+    if inspect.isclass(candidate):
+        declared_bases = set(getattr(candidate, "__mro__", ()))
+        if declared_bases & {dict, collections.abc.Mapping, collections.abc.MutableMapping}:
+            origin = dict
+            args = args or (typing.Any, typing.Any)
+        elif declared_bases & collection_origins or tuple in declared_bases:
+            if declared_bases & {
+                set, frozenset, collections.abc.Set, collections.abc.MutableSet,
+            }:
+                origin = set
+            elif tuple in declared_bases:
+                origin = tuple
+            else:
+                origin = list
+            args = args or (typing.Any,)
     if origin in collection_origins:
         child = _annotation_data_shape(args[0] if args else typing.Any, depth + 1)
         kind = "set" if origin in (set, frozenset, collections.abc.Set, collections.abc.MutableSet) else "list"

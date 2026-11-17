@@ -21,6 +21,21 @@
           "browser"
         ]
       }
+    ],
+    "surfaces": [
+      {
+        "id": "build123d-cad-preview",
+        "module": "/preview/build123d-preview.js",
+        "surfaceContract": 1,
+        "kind": "preview"
+      }
+    ],
+    "previewChannels": [
+      {
+        "id": "cad",
+        "surface": "build123d-cad-preview",
+        "label": "CAD"
+      }
     ]
   }
 }

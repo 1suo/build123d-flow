@@ -120,6 +120,104 @@ def _type_name(annotation):
     return "Any"
 
 
+def _annotation_data_shape(annotation, depth=0):
+    """Describe recursive collection layout independently from semantic type."""
+    if depth >= 16:
+        return {"kind": "item", "type": "Any"}
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is typing.Annotated:
+        return _annotation_data_shape(args[0] if args else typing.Any, depth + 1)
+    collection_origins = {
+        list, set, frozenset, collections.abc.Sequence,
+        collections.abc.MutableSequence, collections.abc.Iterable,
+        collections.abc.Collection, collections.abc.Set,
+        collections.abc.MutableSet,
+    }
+    mapping_origins = {
+        dict, typing.Dict, collections.abc.Mapping, collections.abc.MutableMapping,
+    }
+    candidate = origin if origin is not None else annotation
+    if inspect.isclass(candidate):
+        declared_bases = set(getattr(candidate, "__mro__", ()))
+        if declared_bases & {dict, collections.abc.Mapping, collections.abc.MutableMapping}:
+            origin = dict
+            args = args or (typing.Any, typing.Any)
+        elif declared_bases & collection_origins or tuple in declared_bases:
+            if declared_bases & {
+                set, frozenset, collections.abc.Set, collections.abc.MutableSet,
+            }:
+                origin = set
+            elif tuple in declared_bases:
+                origin = tuple
+            else:
+                origin = list
+            args = args or (typing.Any,)
+    if origin in collection_origins:
+        child = _annotation_data_shape(args[0] if args else typing.Any, depth + 1)
+        kind = (
+            "set"
+            if origin in (set, frozenset, collections.abc.Set, collections.abc.MutableSet)
+            else "tree" if child.get("kind") in {"list", "tree"} else "list"
+        )
+        return {"kind": kind, "item": child}
+    if origin is tuple:
+        if len(args) == 2 and args[1] is Ellipsis:
+            items = [_annotation_data_shape(args[0], depth + 1)]
+        else:
+            items = [_annotation_data_shape(item, depth + 1) for item in args]
+        return {"kind": "tuple", "items": items}
+    if origin in mapping_origins:
+        return {
+            "kind": "map",
+            "key": _annotation_data_shape(args[0] if args else str, depth + 1),
+            "value": _annotation_data_shape(args[1] if len(args) > 1 else typing.Any, depth + 1),
+        }
+    if origin in (typing.Union, types.UnionType):
+        options = [
+            _annotation_data_shape(item, depth + 1)
+            for item in args if item is not type(None)
+        ]
+        unique = []
+        for option in options:
+            if option not in unique:
+                unique.append(option)
+        if len(unique) == 1:
+            return unique[0]
+        return {"kind": "union", "options": unique}
+    return {"kind": "item", "type": _type_name(annotation)}
+
+
+def _socket_data_shape(socket):
+    """Return explicit recursive data shape, with a legacy flat-shape fallback."""
+    shape = socket.get("data_shape")
+    if isinstance(shape, dict):
+        return shape
+    structure = socket.get("data_structure", "item")
+    item = {"kind": "item", "type": socket.get("item_type", "Any")}
+    if structure in ("list", "tree", "set"):
+        return {"kind": structure, "item": item}
+    if structure == "tuple":
+        return {"kind": "tuple", "items": [item]}
+    if structure in ("dict", "map"):
+        return {
+            "kind": "map",
+            "key": {"kind": "item", "type": socket.get("key_type", "Any")},
+            "value": {"kind": "item", "type": socket.get("value_type", "Any")},
+        }
+    return {"kind": "item", "type": socket.get("type", "Any")}
+
+
+def _socket_data_structure(socket):
+    """Return the outer execution shape without inferring from semantic labels."""
+    kind = _socket_data_shape(socket).get("kind", "item")
+    if kind == "map":
+        return "dict"
+    if kind == "union":
+        return "dynamic"
+    return kind
+
+
 def _union_annotations(annotations):
     """Combine overload annotations without losing union or collection types."""
     flattened = []
@@ -335,6 +433,7 @@ def _annotation_metadata(annotation):
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
     metadata = {}
+    metadata["data_shape"] = _annotation_data_shape(annotation)
     semantic_type = _semantic_annotation(annotation)
     if inspect.isclass(semantic_type):
         module_name = getattr(semantic_type, "__module__", "")
@@ -2100,9 +2199,7 @@ def _inspect_value(value, depth=0):
     return {"type": value_type, "repr": repr(value)[:2000], "attributes": attributes}
 
 
-def _socket_data_structure(socket):
-    """Return only the explicitly declared transport shape."""
-    return socket.get("data_structure", "item")
+
 
 
 def _effective_output_structure(node_id, output_name, nodes, incoming, memo=None, visiting=None):

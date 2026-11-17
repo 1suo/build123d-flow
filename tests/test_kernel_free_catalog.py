@@ -624,6 +624,20 @@ wire = Wire.make_circle(5)
         )
         self.assertEqual(result, [[[2, 4], [6]], [[8]]])
 
+    def test_collection_subclasses_remain_semantic_leaves_during_tree_mapping(self):
+        from flow_runtime import _map_item_inputs
+
+        class ShapeList(list):
+            pass
+
+        result = _map_item_inputs(
+            {"value": [ShapeList([1, 2]), ShapeList([3])]},
+            {"value": "list"},
+            lambda values: len(values["value"]),
+            "longest",
+        )
+        self.assertEqual(result, [2, 1])
+
     def test_vector_iterability_is_discovered_for_iterable_overloads(self):
         vector = self.catalog.resolve_type("Vector")
         self.assertEqual(vector.get("iterable_item_type"), "Number")

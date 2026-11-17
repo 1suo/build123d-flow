@@ -1252,7 +1252,7 @@ def _python_function(code, a=None, b=None, c=None):
         "zip": zip, "sorted": sorted,
     }
     scope = {"__builtins__": safe_builtins, "math": math, "operator": operator,
-             "a": a, "b": b, "c": c, "b3d": b3d, "Vector": b3d.Vector}
+             "a": a, "b": b, "c": c, "b3d": b3d}
     exec(compile(code, "<node>", "exec"), scope, scope)
     if "result" not in scope:
         raise ValueError("Python Function must assign its output to 'result'")

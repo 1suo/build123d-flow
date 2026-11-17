@@ -75,8 +75,9 @@ result = box + cylinder
         self.assertNotIn("build123d", sys.modules)
 
     def test_extracted_translator_module_is_kernel_free(self):
-        from python_translator import import_python_code
+        from python_translator import TranslatorServices, import_python_code
 
+        self.assertNotIn("b3d", TranslatorServices._fields)
         source = """
 from build123d import Box, Cylinder
 box = Box(10, 10, 10)

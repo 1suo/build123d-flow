@@ -2877,6 +2877,9 @@ def _resolve_discovered_type(identity):
     """Resolve a type from the runtime-discovered registry, never a family allowlist."""
     if not isinstance(identity, str) or not identity:
         return None
+    symbol = _SYMBOL_REGISTRY.get(identity, {})
+    if symbol.get("kind") == "type":
+        identity = symbol.get("type_id") or identity
     record = _TYPE_REGISTRY.get(identity)
     if record is None:
         matches = [

@@ -2221,7 +2221,17 @@ def _validate_stream_items(definition, params, stream_shapes):
         object_target = any(target in object_types for target in target_types)
         if not (geometry_target or scalar_target or object_target):
             continue
-        kinds = {_stream_item_kind(item) for item in value}
+        if stream_shapes.get(name) == "tree":
+            def leaf_items(items):
+                for item in items:
+                    if isinstance(item, (list, tuple)):
+                        yield from leaf_items(item)
+                    else:
+                        yield item
+            classified_items = list(leaf_items(value))
+        else:
+            classified_items = value
+        kinds = {_stream_item_kind(item) for item in classified_items}
         accepts_scalar = scalar_target
         accepts_geometry = geometry_target
         accepts_object = object_target or geometry_target

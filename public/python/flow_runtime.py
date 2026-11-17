@@ -2119,7 +2119,16 @@ def _inspect_value(value, depth=0):
 
 
 def _socket_data_structure(socket):
-    """Return the declared collection shape of a socket, never its runtime value shape."""
+    """Return the declared recursive data shape's outer execution structure."""
+    shape = socket.get("data_shape")
+    if isinstance(shape, dict):
+        kind = shape.get("kind")
+        if kind == "map":
+            return "dict"
+        if kind in {"item", "list", "tree", "tuple", "set"}:
+            return kind
+        # Union shapes retain the legacy structural contract because one
+        # branch may be an item representation and another a collection.
     structure = socket.get("data_structure", "item")
     if structure != "item":
         return structure

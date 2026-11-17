@@ -660,13 +660,15 @@ def _invoke_discovered_operator(method, left, right):
 
 
 def _invoke_discovered_operator_callable(native_invoke, method, mapped, signature):
-    """Invoke a discovered dunder with its real signature; honor reflected fallback."""
-    result = native_invoke(mapped)
-    if result is not NotImplemented:
-        return result
+    """Dispatch through Python's runtime operator protocol.
+
+    The catalog owner is useful for graph identity and signature metadata, but
+    it must not freeze method resolution to a base class. Runtime dispatch is
+    required for subclasses that override a dunder (for example Curve.__xor__).
+    """
     operation = _PYTHON_BINARY_OPERATORS.get(method)
     if operation is None:
-        return result
+        return native_invoke(mapped)
     parameters = [
         parameter for parameter in signature.parameters.values()
         if parameter.name not in ("self", "cls")
@@ -676,17 +678,17 @@ def _invoke_discovered_operator_callable(native_invoke, method, mapped, signatur
         )
     ]
     if not parameters:
-        return result
+        return native_invoke(mapped)
     receiver_name = next(
         (parameter.name for parameter in signature.parameters.values()
          if parameter.name in ("self", "cls")),
         "self",
     )
-    receiver, operand = mapped.get(receiver_name), mapped.get(parameters[0].name)
+    receiver = mapped.get(receiver_name)
+    operand = mapped.get(parameters[0].name)
     if method.startswith("__r"):
         return operation(operand, receiver)
     return operation(receiver, operand)
-
 
 _FLOW_PALETTE = {
     "Math": ("Math", "Arithmetic & trigonometry"),

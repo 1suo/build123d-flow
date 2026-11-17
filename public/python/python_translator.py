@@ -367,6 +367,7 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                     None,
                 )
         linked_item_types = []
+        linked_item_sockets = []
         for input_name, source_id, source_output_name in links:
             source_node = next((item for item in graph_nodes if item["id"] == source_id), None)
             if source_node:
@@ -375,8 +376,10 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                      if socket.get("name") == source_output_name),
                     None,
                 )
-                if source_output and source_output.get("item_type") not in (None, "", "Any"):
-                    linked_item_types.append(source_output.get("item_type"))
+                if source_output:
+                    linked_item_sockets.append(source_output)
+                    if source_output.get("item_type") not in (None, "", "Any"):
+                        linked_item_types.append(source_output.get("item_type"))
         for output_socket in node_definition["outputs"]:
             # Resolve collection element identity from the discovered runtime
             # type catalog, never from a GroupBy/ShapeList special case.
@@ -396,6 +399,9 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 variants = output_socket["variants"]
                 if receiver_type in variants:
                     output_socket["type"] = receiver_type
+                    for key in ("is_geometry", "semantic_type_id", "type_mro", "runtime_inspectable"):
+                        if key in receiver_output:
+                            output_socket[key] = receiver_output[key]
                 else:
                     try:
                         receiver_record = type_catalog.resolve_type(receiver_type)
@@ -404,16 +410,25 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                             if variant != "Any" and discovered_subtype(receiver_type, variant)
                         ]
                         if compatible:
-                            output_socket["type"] = min(
+                            selected_variant = min(
                                 compatible,
                                 key=lambda variant: len(type_catalog.resolve_type(variant)["mro"]),
                             )
+                            output_socket["type"] = selected_variant
+                            selected_record = type_catalog.resolve_type(selected_variant)
+                            output_socket["semantic_type_id"] = selected_record["id"]
+                            output_socket["type_mro"] = selected_record.get("mro", [])
+                            if selected_record.get("is_geometry"):
+                                output_socket["is_geometry"] = True
                     except CatalogError:
                         pass
             if output_socket.get("item_type") in (None, "", "Any") and receiver_output:
                 inherited_item_type = receiver_output.get("item_type")
                 if inherited_item_type and inherited_item_type != "Any":
                     output_socket["item_type"] = inherited_item_type
+                    for key in ("item_is_geometry", "item_semantic_type_id", "item_type_mro"):
+                        if key in receiver_output:
+                            output_socket[key] = receiver_output[key]
                     if receiver_output.get("item_types"):
                         output_socket["item_types"] = receiver_output["item_types"]
             if (
@@ -425,6 +440,15 @@ def import_python_code(source: str, services: TranslatorServices, catalog: TypeC
                 and linked_item_types
             ):
                 output_socket["item_type"] = linked_item_types[0]
+                source_item = next(
+                    (item for item in linked_item_sockets
+                     if item.get("item_type") == linked_item_types[0]),
+                    None,
+                )
+                if source_item:
+                    for key in ("item_is_geometry", "item_semantic_type_id", "item_type_mro"):
+                        if key in source_item:
+                            output_socket[key] = source_item[key]
         iteration_links = []
         for index, frame in enumerate(active_loop_frames if map_over_active_loops else []):
             # Only an item-access input triggers this loop's mapping. A

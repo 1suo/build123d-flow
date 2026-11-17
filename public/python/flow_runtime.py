@@ -93,6 +93,8 @@ def _type_name(annotation):
     if inspect.isclass(annotation):
         try:
             if issubclass(annotation, enum.Enum):
+                if getattr(annotation, "__module__", "").split(".")[0] == "build123d":
+                    return annotation.__name__
                 return "Enum"
         except TypeError:
             pass

@@ -35,6 +35,13 @@ catalog = {
         "inputs": [{"name": "shapes", "type": "Shape", "type_id": "build123d.topology.shape_core.Shape", "type_provider": "build123d", "data_structure": "list"}],
         "outputs": [{"name": "result", "type": "Any"}],
     },
+    "core.list.length": {
+        "id": "core.list.length",
+        "source": "flow",
+        "name": "List Length",
+        "inputs": [{"name": "items", "type": "Any", "data_structure": "list"}],
+        "outputs": [{"name": "result", "type": "Number"}],
+    },
 }
 definitions = provider_definitions(catalog)
 document = translate_graph("Box(1, 2, 3)", {
@@ -74,7 +81,7 @@ print(json.dumps({"definitions": definitions, "document": document}, allow_nan=F
 });
 assert.equal(python.status, 0, python.stderr || python.stdout);
 const payload = JSON.parse(python.stdout);
-assert.equal(payload.definitions.length, 3);
+assert.equal(payload.definitions.length, 4);
 for (const definition of payload.definitions) {
   assert.deepEqual(sdk.validateNodeDefinition(definition), []);
 }

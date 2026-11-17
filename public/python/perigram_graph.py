@@ -47,7 +47,7 @@ def _provider_for_type(type_name: str, explicit_provider: str | None = None) -> 
     return provider
 
 
-PORT_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\Z")
+PORT_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
 
 def _port_identifier(name: str) -> str:
